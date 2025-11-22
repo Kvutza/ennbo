@@ -7,7 +7,7 @@ cd "$REPO_ROOT"
 
 echo "Scanning for untracked or modified Python files (git status)..."
 
-status_output="$(git status --porcelain)"
+status_output="$(git status --porcelain --untracked-files=all)"
 
 if [[ -z "$status_output" ]]; then
   echo "Working tree clean. No forgotten .py files."
