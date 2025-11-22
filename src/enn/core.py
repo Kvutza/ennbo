@@ -31,6 +31,12 @@ class EpistemicNearestNeighbors:
         self._eps_var = 1e-9
         self._x_scale = np.std(self._train_x, axis=0).astype(float)
         self._x_scale = np.maximum(self._x_scale, 1e-6)
+        if len(self._train_y) < 2:
+            self._y_scale = np.ones(shape=(1, self._num_metrics), dtype=float)
+        else:
+            self._y_scale = np.std(self._train_y, axis=0, keepdims=True).astype(float)
+        print("YYYY:", self._y_scale)
+
         self._index = None
         self._hnsw_threshold = hnsw_threshold
         self._hnsw_M = int(hnsw_M)
@@ -69,73 +75,6 @@ class EpistemicNearestNeighbors:
             index = faiss.IndexFlatL2(self._num_dim)
         index.add(x_scaled)
         self._index = index
-
-    def _search(self, x, k: int, exclude_nearest: bool) -> tuple:
-        import numpy as np
-
-        if self._index is None or len(self) == 0:
-            raise RuntimeError("index is not initialized")
-        if x.ndim != 2 or x.shape[1] != self._num_dim:
-            raise ValueError(x.shape)
-        if exclude_nearest:
-            if len(self) <= 1:
-                raise ValueError(len(self))
-            k = min(k + 1, len(self))
-        else:
-            k = min(k, len(self))
-        x_scaled = x / self._x_scale
-        x_scaled = x_scaled.astype(np.float32, copy=False)
-        dist2s, idx = self._index.search(x_scaled, k)
-        if exclude_nearest:
-            dist2s = dist2s[:, 1:]
-            idx = idx[:, 1:]
-        return dist2s.astype(float), idx.astype(int)
-
-    def _calc_enn_normal(
-        self,
-        dist2s,
-        y,
-        yvar,
-        var_scale: float,
-    ):
-        import numpy as np
-
-        from .enn_normal import ENNNormal
-
-        if dist2s.ndim != 2:
-            raise ValueError(dist2s.shape)
-        if y.shape != yvar.shape:
-            raise ValueError((y.shape, yvar.shape))
-        if var_scale <= 0.0:
-            raise ValueError(var_scale)
-        batch_size, num_neighbors = dist2s.shape
-        if y.shape[0] != batch_size or y.shape[1] != num_neighbors:
-            raise ValueError((dist2s.shape, y.shape))
-        num_metrics = y.shape[2]
-        if num_neighbors == 0:
-            mu = np.zeros((batch_size, num_metrics), dtype=float)
-            se = np.ones((batch_size, num_metrics), dtype=float)
-            return ENNNormal(mu, se)
-        if num_neighbors == 1:
-            mu = y[:, 0, :]
-            epistemic_var = np.ones((batch_size, num_metrics), dtype=float)
-            noise_var = yvar[:, 0, :]
-            vvar = epistemic_var + noise_var
-            vvar = np.maximum(vvar, self._eps_var)
-            se = np.sqrt(vvar)
-            return ENNNormal(mu.astype(float, copy=False), se.astype(float, copy=False))
-        dist2s_expanded = dist2s[..., np.newaxis]
-        var_component = var_scale * dist2s_expanded + yvar
-        w = 1.0 / (self._eps_var + var_component)
-        norm = np.sum(w, axis=1)
-        mu = np.sum(w * y, axis=1) / norm
-        epistemic_var = 1.0 / norm
-        noise_var = np.sum(w * yvar, axis=1) / norm
-        vvar = epistemic_var + noise_var
-        vvar = np.maximum(vvar, self._eps_var)
-        mu = mu.astype(float, copy=False)
-        se = np.sqrt(vvar).astype(float, copy=False)
-        return ENNNormal(mu, se)
 
     def posterior(
         self,
@@ -205,14 +144,20 @@ class EpistemicNearestNeighbors:
             yvar_neighbors = self._train_yvar[idx]
             if k == 1:
                 mu_all[i] = y_neighbors[:, 0, :]
-                epistemic_var = np.ones((batch_size, self._num_metrics), dtype=float)
+                epistemic_var = (
+                    params.var_scale
+                    * self._y_scale
+                    * np.ones((batch_size, self._num_metrics), dtype=float)
+                )
                 noise_var = yvar_neighbors[:, 0, :]
                 vvar = epistemic_var + noise_var
                 vvar = np.maximum(vvar, self._eps_var)
                 se_all[i] = np.sqrt(vvar)
             else:
                 dist2s_expanded = dist2s[..., np.newaxis]
-                var_component = params.var_scale * dist2s_expanded + yvar_neighbors
+                var_component = (
+                    params.var_scale * self._y_scale * dist2s_expanded + yvar_neighbors
+                )
                 w = 1.0 / (self._eps_var + var_component)
                 norm = np.sum(w, axis=1)
                 mu_all[i] = np.sum(w * y_neighbors, axis=1) / norm
