@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .enn_params import ENNParams
+
 
 class EpistemicNearestNeighbors:
     def __init__(
@@ -136,22 +141,84 @@ class EpistemicNearestNeighbors:
         self,
         x,
         *,
-        k: int,
-        var_scale: float,
+        params: ENNParams,
+        exclude_nearest: bool = False,
+    ):
+        from .enn_normal import ENNNormal
+
+        post_batch = self.batch_posterior(x, [params], exclude_nearest=exclude_nearest)
+        mu = post_batch.mu[0]
+        se = post_batch.se[0]
+        return ENNNormal(mu, se)
+
+    def batch_posterior(
+        self,
+        x,
+        paramss: list[ENNParams],
+        *,
         exclude_nearest: bool = False,
     ):
         import numpy as np
 
         from .enn_normal import ENNNormal
 
+        if x.ndim != 2:
+            raise ValueError(x.shape)
+        if x.shape[1] != self._num_dim:
+            raise ValueError(x.shape)
+        if len(paramss) == 0:
+            raise ValueError("paramss must be non-empty")
+        batch_size = x.shape[0]
+        num_params = len(paramss)
         if len(self) == 0:
-            if x.ndim != 2:
-                raise ValueError(x.shape)
-            batch_size = x.shape[0]
-            mu = np.zeros((batch_size, self._num_metrics), dtype=float)
-            se = np.ones((batch_size, self._num_metrics), dtype=float)
+            mu = np.zeros((num_params, batch_size, self._num_metrics), dtype=float)
+            se = np.ones((num_params, batch_size, self._num_metrics), dtype=float)
             return ENNNormal(mu, se)
-        dist2s, idx = self._search(x, k=k, exclude_nearest=exclude_nearest)
-        y_neighbors = self._train_y[idx]
-        yvar_neighbors = self._train_yvar[idx]
-        return self._calc_enn_normal(dist2s, y_neighbors, yvar_neighbors, var_scale)
+        max_k = max(params.k for params in paramss)
+        if exclude_nearest:
+            if len(self) <= 1:
+                raise ValueError(len(self))
+            search_k = min(max_k + 1, len(self))
+        else:
+            search_k = min(max_k, len(self))
+        x_scaled = x / self._x_scale
+        x_scaled = x_scaled.astype(np.float32, copy=False)
+        if self._index is None:
+            raise RuntimeError("index is not initialized")
+        dist2s_full, idx_full = self._index.search(x_scaled, search_k)
+        dist2s_full = dist2s_full.astype(float)
+        idx_full = idx_full.astype(int)
+        if exclude_nearest:
+            dist2s_full = dist2s_full[:, 1:]
+            idx_full = idx_full[:, 1:]
+        mu_all = np.zeros((num_params, batch_size, self._num_metrics), dtype=float)
+        se_all = np.zeros((num_params, batch_size, self._num_metrics), dtype=float)
+        for i, params in enumerate(paramss):
+            k = min(params.k, search_k)
+            if k == 0:
+                mu_all[i] = np.zeros((batch_size, self._num_metrics), dtype=float)
+                se_all[i] = np.ones((batch_size, self._num_metrics), dtype=float)
+                continue
+            dist2s = dist2s_full[:, :k]
+            idx = idx_full[:, :k]
+            y_neighbors = self._train_y[idx]
+            yvar_neighbors = self._train_yvar[idx]
+            if k == 1:
+                mu_all[i] = y_neighbors[:, 0, :]
+                epistemic_var = np.ones((batch_size, self._num_metrics), dtype=float)
+                noise_var = yvar_neighbors[:, 0, :]
+                vvar = epistemic_var + noise_var
+                vvar = np.maximum(vvar, self._eps_var)
+                se_all[i] = np.sqrt(vvar)
+            else:
+                dist2s_expanded = dist2s[..., np.newaxis]
+                var_component = params.var_scale * dist2s_expanded + yvar_neighbors
+                w = 1.0 / (self._eps_var + var_component)
+                norm = np.sum(w, axis=1)
+                mu_all[i] = np.sum(w * y_neighbors, axis=1) / norm
+                epistemic_var = 1.0 / norm
+                noise_var = np.sum(w * yvar_neighbors, axis=1) / norm
+                vvar = epistemic_var + noise_var
+                vvar = np.maximum(vvar, self._eps_var)
+                se_all[i] = np.sqrt(vvar)
+        return ENNNormal(mu_all, se_all)

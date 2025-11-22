@@ -265,22 +265,17 @@ class TurboOptimizer:
         if model is None:
             return self._select_sobol(x_cand, num_arms)
         x_torch = torch.as_tensor(x_cand, dtype=torch.float32)
-        gen = torch.Generator(device=x_torch.device)
         seed = int(self._rng.integers(2**31 - 1))
-        gen.manual_seed(seed)
         with torch.no_grad(), gpytorch.settings.fast_pred_var():
+            gen = torch.Generator(device=x_torch.device)
+            gen.manual_seed(seed)
+            old_state = torch.get_rng_state()
+            torch.set_rng_state(gen.get_state())
             posterior = model.posterior(x_torch)
-            numel = int(posterior.event_shape.numel())
-            base = torch.randn(
-                (1, numel),
-                generator=gen,
-                dtype=x_torch.dtype,
-                device=x_torch.device,
-            )
-            samples = posterior.rsample(
+            samples = posterior.sample(
                 sample_shape=torch.Size([1]),
-                base_samples=base,
             )
+            torch.set_rng_state(old_state)
         ts = samples[0].reshape(-1)
         scores = ts.detach().cpu().numpy().reshape(-1)
         scores = self._gp_y_mean + self._gp_y_std * scores
@@ -311,12 +306,15 @@ class TurboOptimizer:
     def _select_enn_pareto(self, x_cand, num_arms: int) -> object:
         import numpy as np
 
+        from .enn_params import ENNParams
+
         if self._enn_model is None or len(self._enn_model) == 0:
             return self._select_sobol(x_cand, num_arms)
+        k = min(10, max(1, len(self._enn_model)))
+        params = ENNParams(k=k, var_scale=1.0)
         posterior = self._enn_model.posterior(
             x_cand,
-            k=min(10, max(1, len(self._enn_model))),
-            var_scale=1.0,
+            params=params,
             exclude_nearest=False,
         )
         mu = posterior.mu[:, 0]
