@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ennbo"
+version = "0.0.1"
+description = "Epistemic Nearest Neighbors"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+  { name = "YUBO Lab", email = "david.sweet@yu.edu" },
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/yubo-research/enn"
+Source = "https://github.com/yubo-research/enn"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/enn"]
