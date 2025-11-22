@@ -35,7 +35,6 @@ class EpistemicNearestNeighbors:
             self._y_scale = np.ones(shape=(1, self._num_metrics), dtype=float)
         else:
             self._y_scale = np.std(self._train_y, axis=0, keepdims=True).astype(float)
-        print("YYYY:", self._y_scale)
 
         self._index = None
         self._hnsw_threshold = hnsw_threshold
