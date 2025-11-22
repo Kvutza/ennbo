@@ -1,25 +1,22 @@
-from dataclasses import dataclass
+from __future__ import annotations
 
-import numpy as np
+from dataclasses import dataclass
 
 
 @dataclass
 class ENNNormal:
-    mu: np.ndarray
-    se: np.ndarray
+    mu: object
+    se: object
 
     def sample(
         self,
-        num_samples,
-        rng: np.random.Generator,
+        num_samples: int,
+        rng,
         clip=None,
-    ) -> np.ndarray:
-        if isinstance(num_samples, tuple):
-            if len(num_samples) != 1:
-                raise ValueError(num_samples)
-            num_samples = num_samples[0]
-        size = list(self.se.shape)
-        size.append(int(num_samples))
+    ) -> object:
+        import numpy as np
+
+        size = (*self.se.shape, num_samples)
         eps = rng.normal(size=size)
         if clip is not None:
             eps = np.clip(eps, a_min=-clip, a_max=clip)

@@ -1,22 +1,21 @@
-import numpy as np
+from __future__ import annotations
+
 import pytest
 
-from enn.turbo import (
-    TurboMode,
-    TurboOptimizer,
-    _argmax_random_tie,
-    _latin_hypercube,
-    _pareto_front,
-    _sobol_like,
-    _TrustRegionState,
-)
+from enn.turbo_mode import TurboMode
 
 
-def _sphere(x: np.ndarray) -> np.ndarray:
+def _sphere(x) -> object:
+    import numpy as np
+
     return -np.sum(x**2, axis=1)
 
 
 def _run_bo(mode: TurboMode, num_steps: int = 15) -> float:
+    import numpy as np
+
+    from enn.turbo_optimizer import TurboOptimizer
+
     bounds = np.array([[-1.0, 1.0], [-1.0, 1.0]], dtype=float)
     rng = np.random.default_rng(0)
     opt = TurboOptimizer(bounds=bounds, mode=mode, num_arms=4, rng=rng)
@@ -30,6 +29,10 @@ def _run_bo(mode: TurboMode, num_steps: int = 15) -> float:
 
 
 def test_turbo_zero_ask_tell_and_shape():
+    import numpy as np
+
+    from enn.turbo_optimizer import TurboOptimizer
+
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(0)
     opt = TurboOptimizer(
@@ -63,6 +66,10 @@ def test_turbo_enn_uses_enn_and_is_reasonable():
 
 
 def test_latin_hypercube_stratification_and_bounds():
+    import numpy as np
+
+    from enn.turbo_optimizer import _latin_hypercube
+
     rng = np.random.default_rng(0)
     n = 8
     d = 3
@@ -79,6 +86,10 @@ def test_latin_hypercube_stratification_and_bounds():
 
 
 def test_sobol_like_unit_cube_and_reproducible():
+    import numpy as np
+
+    from enn.turbo_optimizer import _sobol_like
+
     rng1 = np.random.default_rng(0)
     rng2 = np.random.default_rng(0)
     x1 = _sobol_like(16, 2, rng=rng1)
@@ -89,6 +100,10 @@ def test_sobol_like_unit_cube_and_reproducible():
 
 
 def test_argmax_random_tie_uses_rng_and_is_deterministic():
+    import numpy as np
+
+    from enn.turbo_optimizer import _argmax_random_tie
+
     values = np.array([1.0, 2.0, 2.0, 0.0], dtype=float)
     rng = np.random.default_rng(0)
     idx1 = _argmax_random_tie(values, rng=rng)
@@ -99,6 +114,10 @@ def test_argmax_random_tie_uses_rng_and_is_deterministic():
 
 
 def test_pareto_front_simple_case():
+    import numpy as np
+
+    from enn.turbo_optimizer import _pareto_front
+
     mu = np.array([1.0, 0.9, 0.8], dtype=float)
     se = np.array([1.0, 0.5, 0.7], dtype=float)
     mask = _pareto_front(mu, se)
@@ -110,6 +129,10 @@ def test_pareto_front_simple_case():
 
 
 def test_trust_region_state_update_and_restart_and_bounds():
+    import numpy as np
+
+    from enn.trust_region_state import _TrustRegionState
+
     state = _TrustRegionState(num_dim=2, num_arms=2)
     values = []
     for v in [0.0, 1.0, 2.0]:
@@ -129,6 +152,10 @@ def test_trust_region_state_update_and_restart_and_bounds():
     "mode", [TurboMode.TURBO_ZERO, TurboMode.TURBO_ONE, TurboMode.TURBO_ENN]
 )
 def test_turbo_behavior_independent_of_affine_x(mode: TurboMode) -> None:
+    import numpy as np
+
+    from enn.turbo_optimizer import TurboOptimizer
+
     bounds1 = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     bounds2 = np.array([[2.0, 4.0], [-3.0, 1.0]], dtype=float)
     num_arms = 3
@@ -174,6 +201,10 @@ def test_turbo_behavior_independent_of_affine_x(mode: TurboMode) -> None:
     "mode", [TurboMode.TURBO_ZERO, TurboMode.TURBO_ONE, TurboMode.TURBO_ENN]
 )
 def test_turbo_behavior_independent_of_affine_y(mode: TurboMode) -> None:
+    import numpy as np
+
+    from enn.turbo_optimizer import TurboOptimizer
+
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     num_arms = 3
     num_steps = 8

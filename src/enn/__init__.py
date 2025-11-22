@@ -1,10 +1,10 @@
 from .core import EpistemicNearestNeighbors
-from .enn_normal import ENNNormal
-from .fit import enn_fit, subsample_loglik
+from .fit import enn_fit
+from .turbo import TurboMode, TurboOptimizer
 
 __all__: list[str] = [
     "EpistemicNearestNeighbors",
-    "ENNNormal",
+    "TurboMode",
+    "TurboOptimizer",
     "enn_fit",
-    "subsample_loglik",
 ]

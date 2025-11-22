@@ -1,18 +1,17 @@
-import faiss
-import numpy as np
-
-from .enn_normal import ENNNormal
+from __future__ import annotations
 
 
 class EpistemicNearestNeighbors:
     def __init__(
         self,
-        train_x: np.ndarray,
-        train_y: np.ndarray,
-        train_yvar: np.ndarray,
+        train_x,
+        train_y,
+        train_yvar,
         hnsw_threshold: int | None = None,
         hnsw_M: int = 32,
     ) -> None:
+        import numpy as np
+
         if train_x.ndim != 2:
             raise ValueError(train_x.shape)
         if train_y.ndim != 2 or train_yvar.ndim != 2:
@@ -33,15 +32,15 @@ class EpistemicNearestNeighbors:
         self._build_index()
 
     @property
-    def train_x(self) -> np.ndarray:
+    def train_x(self) -> object:
         return self._train_x
 
     @property
-    def train_y(self) -> np.ndarray:
+    def train_y(self) -> object:
         return self._train_y
 
     @property
-    def train_yvar(self) -> np.ndarray:
+    def train_yvar(self) -> object:
         return self._train_yvar
 
     @property
@@ -52,6 +51,9 @@ class EpistemicNearestNeighbors:
         return self._num_obs
 
     def _build_index(self) -> None:
+        import faiss
+        import numpy as np
+
         if self._num_obs == 0:
             return
         x_scaled = self._train_x / self._x_scale
@@ -63,9 +65,9 @@ class EpistemicNearestNeighbors:
         index.add(x_scaled)
         self._index = index
 
-    def _search(
-        self, x: np.ndarray, k: int, exclude_nearest: bool
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def _search(self, x, k: int, exclude_nearest: bool) -> tuple:
+        import numpy as np
+
         if self._index is None or len(self) == 0:
             raise RuntimeError("index is not initialized")
         if x.ndim != 2 or x.shape[1] != self._num_dim:
@@ -86,11 +88,15 @@ class EpistemicNearestNeighbors:
 
     def _calc_enn_normal(
         self,
-        dist2s: np.ndarray,
-        y: np.ndarray,
-        yvar: np.ndarray,
+        dist2s,
+        y,
+        yvar,
         var_scale: float,
-    ) -> ENNNormal:
+    ):
+        import numpy as np
+
+        from .enn_normal import ENNNormal
+
         if dist2s.ndim != 2:
             raise ValueError(dist2s.shape)
         if y.shape != yvar.shape:
@@ -128,12 +134,16 @@ class EpistemicNearestNeighbors:
 
     def posterior(
         self,
-        x: np.ndarray,
+        x,
         *,
         k: int,
         var_scale: float,
         exclude_nearest: bool = False,
-    ) -> ENNNormal:
+    ):
+        import numpy as np
+
+        from .enn_normal import ENNNormal
+
         if len(self) == 0:
             if x.ndim != 2:
                 raise ValueError(x.shape)

@@ -1,31 +1,24 @@
 from __future__ import annotations
 
-from typing import Iterable
-
-import numpy as np
-
-from .core import EpistemicNearestNeighbors
-
 
 def subsample_loglik(
-    model: EpistemicNearestNeighbors,
-    x: np.ndarray,
-    y: np.ndarray,
-    yvar: np.ndarray | None = None,
+    model,
+    x,
+    y,
     *,
     k: int,
     var_scale: float,
     P: int = 10,
-    rng: np.random.Generator,
+    rng,
 ) -> float:
+    import numpy as np
+
     if x.ndim != 2:
         raise ValueError(x.shape)
     if y.ndim != 1:
         raise ValueError(y.shape)
     if x.shape[0] != y.shape[0]:
         raise ValueError((x.shape, y.shape))
-    if yvar is not None and yvar.shape != y.shape:
-        raise ValueError((y.shape, yvar.shape))
     if P <= 0:
         raise ValueError(P)
     n = x.shape[0]
@@ -80,73 +73,64 @@ def subsample_loglik(
 
 
 def enn_fit(
-    model: EpistemicNearestNeighbors,
-    k_values: Iterable[float] | None = None,
-    var_scale_values: Iterable[float] | None = None,
+    model,
     *,
-    num_iterations: int = 1,
+    num_tries: int,
     P: int = 10,
-    rng: np.random.Generator,
+    rng,
 ) -> dict[str, float]:
+    import numpy as np
+
     train_x = model.train_x
     train_y = model.train_y
     train_yvar = model.train_yvar
     if train_y.shape[1] != 1 or train_yvar.shape[1] != 1:
         raise ValueError((train_y.shape, train_yvar.shape))
     y = train_y[:, 0]
-    yvar = train_yvar[:, 0]
     num_obs = len(model)
-    max_k = min(100, max(1, num_obs))
-    if k_values is None:
-        if max_k == 1:
-            k_values = [1.0]
-        else:
-            k_values = np.logspace(0.0, np.log10(float(max_k)), num=30)
-    k_list = []
-    for v in k_values:
-        i = int(round(float(v)))
-        if 3 <= i <= max_k:
-            if i not in k_list:
-                k_list.append(i)
-    if not k_list:
-        k_list = [1]
-    if var_scale_values is None:
-        var_scale_values = np.logspace(-4.0, 3.0, num=30)
-    var_scale_list = [float(v) for v in var_scale_values]
+    max_k = min(100, max(3, num_obs))
+    num_k = int(np.ceil(np.sqrt(float(num_tries))))
+    num_var_scale = int(np.ceil(float(num_tries) / float(num_k)))
+    k_log_min = np.log10(3.0)
+    k_log_max = np.log10(float(max_k))
+    k_log_values = np.linspace(k_log_min, k_log_max, num=num_k)
+    k_values = [int(round(10**v)) for v in k_log_values]
+    k_values = [k for k in k_values if 3 <= k <= max_k]
+    k_values = sorted(set(k_values))
+    if not k_values:
+        k_values = [3]
+    var_scale_log_min = -3.0
+    var_scale_log_max = 3.0
+    var_scale_log_values = np.linspace(
+        var_scale_log_min, var_scale_log_max, num=num_var_scale
+    )
+    var_scale_values = [10**v for v in var_scale_log_values]
+    pairs = []
+    for k in k_values:
+        for var_scale in var_scale_values:
+            pairs.append((k, var_scale))
+    if len(pairs) > num_tries:
+        indices = rng.choice(len(pairs), size=num_tries, replace=False)
+        pairs = [pairs[i] for i in indices]
     best_k: int | None = None
     best_var_scale: float | None = None
-    best_k_mll: float | None = None
-    for k in k_list:
+    best_mll: float | None = None
+    for k, var_scale in pairs:
         value = subsample_loglik(
             model,
             train_x,
             y,
-            yvar,
             k=k,
-            var_scale=float(np.median(var_scale_list)),
-            P=P,
-            rng=rng,
-        )
-        if best_k_mll is None or value > best_k_mll:
-            best_k_mll = value
-            best_k = k
-    if best_k is None:
-        best_k = k_list[0]
-    best_var_scale_mll: float | None = None
-    for var_scale in var_scale_list:
-        value = subsample_loglik(
-            model,
-            train_x,
-            y,
-            yvar,
-            k=best_k,
             var_scale=var_scale,
             P=P,
             rng=rng,
         )
-        if best_var_scale_mll is None or value > best_var_scale_mll:
-            best_var_scale_mll = value
+        if best_mll is None or value > best_mll:
+            best_mll = value
+            best_k = k
             best_var_scale = var_scale
+    if best_k is None:
+        best_k = k_values[0]
     if best_var_scale is None:
-        best_var_scale = var_scale_list[0]
+        best_var_scale = var_scale_values[0]
     return {"k": float(best_k), "var_scale": float(best_var_scale)}
