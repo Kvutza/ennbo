@@ -14,7 +14,24 @@ if [[ -z "$status_output" ]]; then
   exit 0
 fi
 
-py_files="$(printf "%s\n" "$status_output" | awk '{print $2}' | grep -E '\.py$' || true)"
+# Select only:
+# - untracked files ("??")
+# - or files with unstaged changes (second status column non-space)
+# We parse the raw porcelain line as:
+#   XY <space> PATH
+# where X is index status, Y is work-tree status.
+py_files="$(
+  printf '%s\n' "$status_output" |
+    awk '{
+      line = $0
+      x = substr(line, 1, 1)
+      y = substr(line, 2, 1)
+      path = substr(line, 4)
+      if ((x == "?" && y == "?") || y != " ")
+        print path
+    }' |
+    grep -E '\.py$' || true
+)"
 
 if [[ -z "$py_files" ]]; then
   echo "No forgotten .py files detected."
@@ -23,3 +40,4 @@ fi
 
 echo "Potential forgotten Python files:"
 printf "%s\n" "$py_files"
+exit 1
