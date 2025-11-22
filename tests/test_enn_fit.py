@@ -15,6 +15,7 @@ def test_subsample_loglik_and_enn_fit_improve_hyperparameters():
     y = (y_mean + noise).reshape(-1, 1)
     yvar = (noise_std**2) * np.ones_like(y)
     model = EpistemicNearestNeighbors(x, y, yvar, hnsw_threshold=None)
+    rng_base = np.random.default_rng(0)
     base_ll = subsample_loglik(
         model,
         x,
@@ -23,13 +24,21 @@ def test_subsample_loglik_and_enn_fit_improve_hyperparameters():
         k=1,
         var_scale=1.0,
         P=20,
+        rng=rng_base,
     )
+    rng_fit = np.random.default_rng(1)
     result = enn_fit(
-        model, k_values=None, var_scale_values=None, num_iterations=1, P=20
+        model,
+        k_values=None,
+        var_scale_values=None,
+        num_iterations=1,
+        P=20,
+        rng=rng_fit,
     )
     assert "k" in result and "var_scale" in result
     assert result["k"] >= 1
     assert result["var_scale"] > 0.0
+    rng_tuned = np.random.default_rng(2)
     tuned_ll = subsample_loglik(
         model,
         x,
@@ -38,5 +47,6 @@ def test_subsample_loglik_and_enn_fit_improve_hyperparameters():
         k=int(result["k"]),
         var_scale=float(result["var_scale"]),
         P=20,
+        rng=rng_tuned,
     )
     assert tuned_ll >= base_ll

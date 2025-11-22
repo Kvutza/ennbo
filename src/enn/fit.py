@@ -16,6 +16,7 @@ def subsample_loglik(
     k: int,
     var_scale: float,
     P: int = 10,
+    rng: np.random.Generator,
 ) -> float:
     if x.ndim != 2:
         raise ValueError(x.shape)
@@ -23,9 +24,7 @@ def subsample_loglik(
         raise ValueError(y.shape)
     if x.shape[0] != y.shape[0]:
         raise ValueError((x.shape, y.shape))
-    if yvar is None:
-        yvar = np.zeros_like(y, dtype=float)
-    if yvar.shape != y.shape:
+    if yvar is not None and yvar.shape != y.shape:
         raise ValueError((y.shape, yvar.shape))
     if P <= 0:
         raise ValueError(P)
@@ -38,7 +37,7 @@ def subsample_loglik(
     if P_actual == n:
         indices = np.arange(n, dtype=int)
     else:
-        indices = np.random.permutation(n)[:P_actual]
+        indices = rng.permutation(n)[:P_actual]
     x_selected = x[indices]
     y_selected = y[indices]
     if not np.isfinite(y_selected).all():
@@ -85,8 +84,9 @@ def enn_fit(
     k_values: Iterable[float] | None = None,
     var_scale_values: Iterable[float] | None = None,
     *,
-    num_iterations: int = 2,
+    num_iterations: int = 1,
     P: int = 10,
+    rng: np.random.Generator,
 ) -> dict[str, float]:
     train_x = model.train_x
     train_y = model.train_y
@@ -113,29 +113,40 @@ def enn_fit(
     if var_scale_values is None:
         var_scale_values = np.logspace(-4.0, 3.0, num=30)
     var_scale_list = [float(v) for v in var_scale_values]
-    var_scale_array = np.asarray(var_scale_list, dtype=float)
     best_k: int | None = None
     best_var_scale: float | None = None
-    for _ in range(num_iterations):
-        median_var_scale = float(np.median(var_scale_array))
-        best_k_mll: float | None = None
-        for k in k_list:
-            value = subsample_loglik(
-                model, train_x, y, yvar, k=k, var_scale=median_var_scale, P=P
-            )
-            if best_k_mll is None or value > best_k_mll:
-                best_k_mll = value
-                best_k = k
-        if best_k is None:
-            best_k = k_list[0]
-        best_var_scale_mll: float | None = None
-        for var_scale in var_scale_list:
-            value = subsample_loglik(
-                model, train_x, y, yvar, k=best_k, var_scale=var_scale, P=P
-            )
-            if best_var_scale_mll is None or value > best_var_scale_mll:
-                best_var_scale_mll = value
-                best_var_scale = var_scale
-        if best_var_scale is None:
-            best_var_scale = var_scale_list[0]
+    best_k_mll: float | None = None
+    for k in k_list:
+        value = subsample_loglik(
+            model,
+            train_x,
+            y,
+            yvar,
+            k=k,
+            var_scale=float(np.median(var_scale_list)),
+            P=P,
+            rng=rng,
+        )
+        if best_k_mll is None or value > best_k_mll:
+            best_k_mll = value
+            best_k = k
+    if best_k is None:
+        best_k = k_list[0]
+    best_var_scale_mll: float | None = None
+    for var_scale in var_scale_list:
+        value = subsample_loglik(
+            model,
+            train_x,
+            y,
+            yvar,
+            k=best_k,
+            var_scale=var_scale,
+            P=P,
+            rng=rng,
+        )
+        if best_var_scale_mll is None or value > best_var_scale_mll:
+            best_var_scale_mll = value
+            best_var_scale = var_scale
+    if best_var_scale is None:
+        best_var_scale = var_scale_list[0]
     return {"k": float(best_k), "var_scale": float(best_var_scale)}
