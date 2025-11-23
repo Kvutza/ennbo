@@ -2,63 +2,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
+from .turbo_utils import argmax_random_tie, fit_gp, latin_hypercube, pareto_front
+
 if TYPE_CHECKING:
-    from gpytorch.likelihoods import GaussianLikelihood
-
     from .core import EpistemicNearestNeighbors
-    from .turbo_gp import TurboGP
     from .turbo_mode import TurboMode
-
-
-def _latin_hypercube(num_points: int, num_dim: int, *, rng) -> object:
-    import numpy as np
-
-    cut = np.linspace(0.0, 1.0, num_points + 1)
-    a = cut[:num_points]
-    b = cut[1 : num_points + 1]
-    rdpoints = np.zeros((num_points, num_dim))
-    for j in range(num_dim):
-        u = rng.uniform(size=num_points)
-        rdpoints[:, j] = u * (b - a) + a
-        rng.shuffle(rdpoints[:, j])
-    return rdpoints
-
-
-def _argmax_random_tie(values, *, rng) -> int:
-    import numpy as np
-
-    if values.ndim != 1:
-        raise ValueError(values.shape)
-    max_val = float(np.max(values))
-    idx = np.nonzero(values >= max_val)[0]
-    if idx.size == 0:
-        return int(rng.integers(values.size))
-    if idx.size == 1:
-        return int(idx[0])
-    j = int(rng.integers(idx.size))
-    return int(idx[j])
-
-
-def _pareto_front(mu, se) -> object:
-    import numpy as np
-
-    if mu.shape != se.shape or mu.ndim != 1:
-        raise ValueError((mu.shape, se.shape))
-    n = mu.size
-    if n == 0:
-        return np.zeros((0,), dtype=bool)
-    order = np.argsort(-mu)
-    mu_sorted = mu[order]
-    se_sorted = se[order]
-    is_pareto_sorted = np.zeros_like(mu_sorted, dtype=bool)
-    best_se = float("inf")
-    for i in range(n):
-        if se_sorted[i] < best_se:
-            best_se = float(se_sorted[i])
-            is_pareto_sorted[i] = True
-    is_pareto = np.zeros_like(is_pareto_sorted, dtype=bool)
-    is_pareto[order] = is_pareto_sorted
-    return is_pareto
 
 
 class TurboOptimizer:
@@ -71,6 +19,8 @@ class TurboOptimizer:
         num_candidates: Optional[int] = None,
         rng,
         hnsw_threshold: Optional[int] = None,
+        num_fit_samples: int = 10,
+        num_fit_candidates: int = 100,
     ) -> None:
         import numpy as np
         from scipy.stats import qmc
@@ -101,6 +51,8 @@ class TurboOptimizer:
         self._gp_num_steps: int = 50
         self._enn_model: EpistemicNearestNeighbors | None = None
         self._hnsw_threshold = hnsw_threshold
+        self._num_fit_samples = num_fit_samples
+        self._num_fit_candidates = num_fit_candidates
 
     @property
     def num_dim(self) -> int:
@@ -154,62 +106,8 @@ class TurboOptimizer:
         if self._mode == TurboMode.TURBO_ENN:
             self._update_enn_model()
 
-    def _fit_gp(self) -> tuple[TurboGP | None, GaussianLikelihood | None]:
-        import numpy as np
-        import torch
-        from gpytorch.constraints import Interval
-        from gpytorch.likelihoods import GaussianLikelihood
-        from gpytorch.mlls import ExactMarginalLogLikelihood
-
-        from .turbo_gp import TurboGP
-
-        x = np.asarray(self._x_obs_list, dtype=float)
-        y = np.asarray(self._y_obs_list, dtype=float)
-        n = x.shape[0]
-        if n == 0:
-            return None, None
-        if n == 1:
-            self._gp_y_mean = float(y[0])
-            self._gp_y_std = 1.0
-            return None, None
-        self._gp_y_mean = float(np.mean(y))
-        y_centered = y - self._gp_y_mean
-        self._gp_y_std = float(np.std(y_centered))
-        if not np.isfinite(self._gp_y_std) or self._gp_y_std <= 0.0:
-            self._gp_y_std = 1.0
-        z = y_centered / self._gp_y_std
-        train_x = torch.as_tensor(x, dtype=torch.float32)
-        train_y = torch.as_tensor(z, dtype=torch.float32)
-        noise_constraint = Interval(5e-4, 0.2)
-        lengthscale_constraint = Interval(0.005, float(np.sqrt(self._num_dim)))
-        outputscale_constraint = Interval(0.05, 20.0)
-        likelihood = GaussianLikelihood(noise_constraint=noise_constraint).to(
-            dtype=train_y.dtype
-        )
-        model = TurboGP(
-            train_x=train_x,
-            train_y=train_y,
-            likelihood=likelihood,
-            lengthscale_constraint=lengthscale_constraint,
-            outputscale_constraint=outputscale_constraint,
-            ard_dims=self._num_dim,
-        ).to(dtype=train_x.dtype)
-        model.train()
-        likelihood.train()
-        mll = ExactMarginalLogLikelihood(likelihood, model)
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
-        for _ in range(self._gp_num_steps):
-            optimizer.zero_grad()
-            output = model(train_x)
-            loss = -mll(output, train_y)
-            loss.backward()
-            optimizer.step()
-        model.eval()
-        likelihood.eval()
-        return model, likelihood
-
     def _draw_initial(self, num_arms: int) -> object:
-        unit = _latin_hypercube(num_arms, self._num_dim, rng=self._rng)
+        unit = latin_hypercube(num_arms, self._num_dim, rng=self._rng)
         return self._from_unit(unit)
 
     def _best_x(self) -> object:
@@ -218,7 +116,7 @@ class TurboOptimizer:
         y_obs_array = np.asarray(self._y_obs_list, dtype=float)
         if y_obs_array.size == 0:
             raise RuntimeError("no observations")
-        idx = _argmax_random_tie(y_obs_array, rng=self._rng)
+        idx = argmax_random_tie(y_obs_array, rng=self._rng)
         x_obs_array = np.asarray(self._x_obs_list, dtype=float)
         return x_obs_array[idx]
 
@@ -255,7 +153,12 @@ class TurboOptimizer:
 
         if len(self._x_obs_list) == 0:
             return self._select_sobol(x_cand, num_arms)
-        model, _likelihood = self._fit_gp()
+        model, _likelihood, self._gp_y_mean, self._gp_y_std = fit_gp(
+            self._x_obs_list,
+            self._y_obs_list,
+            self._num_dim,
+            num_steps=self._gp_num_steps,
+        )
         if model is None:
             return self._select_sobol(x_cand, num_arms)
         x_torch = torch.as_tensor(x_cand, dtype=torch.float32)
@@ -307,8 +210,8 @@ class TurboOptimizer:
             return self._select_sobol(x_cand, num_arms)
         result = enn_fit(
             self._enn_model,
-            num_tries=100,
-            P=10,
+            num_fit_candidates=self._num_fit_candidates,
+            num_fit_samples=self._num_fit_samples,
             rng=self._rng,
         )
         k = int(result["k"])
@@ -322,7 +225,7 @@ class TurboOptimizer:
         while len(chosen_list) < num_arms and remaining_idx.size > 0:
             mu_remaining = mu[remaining_idx]
             se_remaining = se[remaining_idx]
-            mask = _pareto_front(mu_remaining, se_remaining)
+            mask = pareto_front(mu_remaining, se_remaining)
             idx_front = np.sort(remaining_idx[mask])
             if idx_front.size == 0:
                 break

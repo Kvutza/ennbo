@@ -29,8 +29,8 @@ def test_subsample_loglik_and_enn_fit_improve_hyperparameters():
     rng_fit = np.random.default_rng(1)
     result = enn_fit(
         model,
-        num_tries=30,
-        P=20,
+        num_fit_candidates=30,
+        num_fit_samples=20,
         rng=rng_fit,
     )
     assert "k" in result and "var_scale" in result

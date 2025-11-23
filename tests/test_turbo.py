@@ -68,12 +68,12 @@ def test_turbo_enn_uses_enn_and_is_reasonable():
 def test_latin_hypercube_stratification_and_bounds():
     import numpy as np
 
-    from enn.turbo_optimizer import _latin_hypercube
+    from enn.turbo_utils import latin_hypercube
 
     rng = np.random.default_rng(0)
     n = 8
     d = 3
-    x = _latin_hypercube(n, d, rng=rng)
+    x = latin_hypercube(n, d, rng=rng)
     assert x.shape == (n, d)
     assert np.all(x >= 0.0) and np.all(x <= 1.0)
     for j in range(d):
@@ -85,43 +85,28 @@ def test_latin_hypercube_stratification_and_bounds():
             assert np.any(in_bin)
 
 
-@pytest.mark.skip(reason="_sobol_like function no longer exists")
-def test_sobol_like_unit_cube_and_reproducible():
-    import numpy as np
-
-    from enn.turbo_optimizer import _sobol_like
-
-    rng1 = np.random.default_rng(0)
-    rng2 = np.random.default_rng(0)
-    x1 = _sobol_like(16, 2, rng=rng1)
-    x2 = _sobol_like(16, 2, rng=rng2)
-    assert x1.shape == (16, 2)
-    assert np.all(x1 >= 0.0) and np.all(x1 <= 1.0)
-    assert np.allclose(x1, x2)
-
-
 def test_argmax_random_tie_uses_rng_and_is_deterministic():
     import numpy as np
 
-    from enn.turbo_optimizer import _argmax_random_tie
+    from enn.turbo_utils import argmax_random_tie
 
     values = np.array([1.0, 2.0, 2.0, 0.0], dtype=float)
     rng = np.random.default_rng(0)
-    idx1 = _argmax_random_tie(values, rng=rng)
+    idx1 = argmax_random_tie(values, rng=rng)
     assert idx1 in (1, 2)
     rng = np.random.default_rng(0)
-    idx2 = _argmax_random_tie(values, rng=rng)
+    idx2 = argmax_random_tie(values, rng=rng)
     assert idx1 == idx2
 
 
 def test_pareto_front_simple_case():
     import numpy as np
 
-    from enn.turbo_optimizer import _pareto_front
+    from enn.turbo_utils import pareto_front
 
     mu = np.array([1.0, 0.9, 0.8], dtype=float)
     se = np.array([1.0, 0.5, 0.7], dtype=float)
-    mask = _pareto_front(mu, se)
+    mask = pareto_front(mu, se)
     assert mask.dtype == bool
     assert mask.shape == mu.shape
     assert mask[0]

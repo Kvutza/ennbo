@@ -155,7 +155,8 @@ class EpistemicNearestNeighbors:
             else:
                 dist2s_expanded = dist2s[..., np.newaxis]
                 var_component = (
-                    params.var_scale * self._y_scale * dist2s_expanded + yvar_neighbors
+                    params.var_scale * dist2s_expanded
+                    + yvar_neighbors / self._y_scale**2
                 )
                 w = 1.0 / (self._eps_var + var_component)
                 norm = np.sum(w, axis=1)
@@ -164,5 +165,5 @@ class EpistemicNearestNeighbors:
                 noise_var = np.sum(w * yvar_neighbors, axis=1) / norm
                 vvar = epistemic_var + noise_var
                 vvar = np.maximum(vvar, self._eps_var)
-                se_all[i] = np.sqrt(vvar)
+                se_all[i] = np.sqrt(vvar) * self._y_scale
         return ENNNormal(mu_all, se_all)
