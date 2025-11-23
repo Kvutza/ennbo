@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Callable, Optional
 if TYPE_CHECKING:
     import numpy as np
 
+    from .turbo_gp import TurboGP
+
 
 def select_enn_pareto(
     x_cand: np.ndarray,
@@ -107,6 +109,10 @@ def select_gp_thompson(
     gp_y_std: float,
     select_sobol_fn: Callable[[np.ndarray, int], np.ndarray],
     from_unit_fn: Callable[[np.ndarray], np.ndarray],
+    *,
+    model: Optional["TurboGP"] = None,
+    new_gp_y_mean: Optional[float] = None,
+    new_gp_y_std: Optional[float] = None,
 ) -> tuple[np.ndarray, float, float]:
     import contextlib
 
@@ -127,15 +133,20 @@ def select_gp_thompson(
 
     if len(x_obs_list) == 0:
         return select_sobol_fn(x_cand, num_arms), gp_y_mean, gp_y_std, None
-    model, _likelihood, new_gp_y_mean, new_gp_y_std = fit_gp(
-        x_obs_list,
-        y_obs_list,
-        num_dim,
-        num_steps=gp_num_steps,
-    )
+    if model is None:
+        model, _likelihood, new_gp_y_mean, new_gp_y_std = fit_gp(
+            x_obs_list,
+            y_obs_list,
+            num_dim,
+            num_steps=gp_num_steps,
+        )
     if model is None:
         return select_sobol_fn(x_cand, num_arms), gp_y_mean, gp_y_std, None
-    x_torch = torch.as_tensor(x_cand, dtype=torch.float32)
+    if new_gp_y_mean is None:
+        new_gp_y_mean = gp_y_mean
+    if new_gp_y_std is None:
+        new_gp_y_std = gp_y_std
+    x_torch = torch.as_tensor(x_cand, dtype=torch.float64)
     seed = int(rng.integers(2**31 - 1))
     gen = torch.Generator(device=x_torch.device)
     gen.manual_seed(seed)

@@ -40,7 +40,7 @@ class TurboOptimizer:
         if tr_num_arms <= 0:
             raise ValueError(tr_num_arms)
         if num_candidates is None:
-            num_candidates = min(10000, 100 * self._num_dim)
+            num_candidates = min(5000, 100 * self._num_dim)
         self._num_candidates = int(num_candidates)
         if self._num_candidates <= 0:
             raise ValueError(self._num_candidates)
@@ -138,7 +138,10 @@ class TurboOptimizer:
                     self._bounds,
                 )
                 return self._get_init_lhd_points(num_arms)
-        x_center = self._best_x()
+        if self._mode == TurboMode.TURBO_ONE and self._x_tr_list is not None:
+            x_center = self._best_x_tr()
+        else:
+            x_center = self._best_x()
         x_center_2d = x_center[None, :]
         lb_local, ub_local = self._tr_state.create_bounds(x_center_2d)
         lb_local = lb_local[0]
@@ -167,7 +170,7 @@ class TurboOptimizer:
 
             from .turbo_utils import fit_gp
 
-            gp_model, _likelihood, _gp_y_mean_temp, _gp_y_std_temp = fit_gp(
+            gp_model, _likelihood, gp_y_mean_fitted, gp_y_std_fitted = fit_gp(
                 x_tr_slice,
                 y_tr_slice,
                 self._num_dim,
@@ -225,6 +228,9 @@ class TurboOptimizer:
                     x, n, self._num_dim, self._rng, from_unit_fn
                 ),
                 from_unit_fn,
+                model=gp_model,
+                new_gp_y_mean=gp_y_mean_fitted,
+                new_gp_y_std=gp_y_std_fitted,
             )
             return selected
         if self._mode == TurboMode.TURBO_ENN:
@@ -292,3 +298,13 @@ class TurboOptimizer:
         idx = argmax_random_tie(y_obs_array, rng=self._rng)
         x_obs_array = np.asarray(self._x_obs_list, dtype=float)
         return x_obs_array[idx]
+
+    def _best_x_tr(self) -> np.ndarray:
+        import numpy as np
+
+        y_tr_array = np.asarray(self._y_tr_list, dtype=float)
+        if y_tr_array.size == 0:
+            raise RuntimeError("no trust-region observations")
+        idx = argmax_random_tie(y_tr_array, rng=self._rng)
+        x_tr_array = np.asarray(self._x_tr_list, dtype=float)
+        return x_tr_array[idx]

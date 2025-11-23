@@ -38,16 +38,16 @@ def fit_gp(
         gp_y_mean = float(y[0])
         gp_y_std = 1.0
         return None, None, gp_y_mean, gp_y_std
-    gp_y_mean = float(np.mean(y))
-    y_centered = y - gp_y_mean
-    gp_y_std = float(np.std(y_centered))
+    gp_y_mean = float(np.median(y))
+    gp_y_std = float(np.std(y))
     if not np.isfinite(gp_y_std) or gp_y_std <= 0.0:
         gp_y_std = 1.0
+    y_centered = y - gp_y_mean
     z = y_centered / gp_y_std
-    train_x = torch.as_tensor(x, dtype=torch.float32)
-    train_y = torch.as_tensor(z, dtype=torch.float32)
+    train_x = torch.as_tensor(x, dtype=torch.float64)
+    train_y = torch.as_tensor(z, dtype=torch.float64)
     noise_constraint = Interval(5e-4, 0.2)
-    lengthscale_constraint = Interval(0.005, float(np.sqrt(num_dim)))
+    lengthscale_constraint = Interval(0.005, 2.0)
     outputscale_constraint = Interval(0.05, 20.0)
     likelihood = GaussianLikelihood(noise_constraint=noise_constraint).to(
         dtype=train_y.dtype
@@ -60,6 +60,11 @@ def fit_gp(
         outputscale_constraint=outputscale_constraint,
         ard_dims=num_dim,
     ).to(dtype=train_x.dtype)
+    model.covar_module.outputscale = torch.tensor(1.0, dtype=train_x.dtype)
+    model.covar_module.base_kernel.lengthscale = torch.full(
+        (num_dim,), 0.5, dtype=train_x.dtype
+    )
+    likelihood.noise = torch.tensor(0.005, dtype=train_y.dtype)
     model.train()
     likelihood.train()
     mll = ExactMarginalLogLikelihood(likelihood, model)
