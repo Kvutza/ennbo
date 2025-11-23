@@ -14,11 +14,11 @@ def _sphere(x) -> object:
 def _run_bo(mode: TurboMode, num_steps: int = 15) -> float:
     import numpy as np
 
-    from enn.turbo_optimizer import TurboOptimizer
+    from enn import Turbo
 
     bounds = np.array([[-1.0, 1.0], [-1.0, 1.0]], dtype=float)
     rng = np.random.default_rng(0)
-    opt = TurboOptimizer(bounds=bounds, mode=mode, num_arms=4, rng=rng)
+    opt = Turbo(bounds=bounds, mode=mode, num_arms=4, rng=rng)
     best = -np.inf
     for _ in range(num_steps):
         x = opt.ask(num_arms=4)
@@ -31,11 +31,11 @@ def _run_bo(mode: TurboMode, num_steps: int = 15) -> float:
 def test_turbo_zero_ask_tell_and_shape():
     import numpy as np
 
-    from enn.turbo_optimizer import TurboOptimizer
+    from enn import Turbo
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(0)
-    opt = TurboOptimizer(
+    opt = Turbo(
         bounds=bounds,
         mode=TurboMode.TURBO_ZERO,
         num_arms=3,
@@ -85,6 +85,7 @@ def test_latin_hypercube_stratification_and_bounds():
             assert np.any(in_bin)
 
 
+@pytest.mark.skip(reason="_sobol_like function no longer exists")
 def test_sobol_like_unit_cube_and_reproducible():
     import numpy as np
 
@@ -154,7 +155,7 @@ def test_trust_region_state_update_and_restart_and_bounds():
 def test_turbo_behavior_independent_of_affine_x(mode: TurboMode) -> None:
     import numpy as np
 
-    from enn.turbo_optimizer import TurboOptimizer
+    from enn import Turbo
 
     bounds1 = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     bounds2 = np.array([[2.0, 4.0], [-3.0, 1.0]], dtype=float)
@@ -162,13 +163,13 @@ def test_turbo_behavior_independent_of_affine_x(mode: TurboMode) -> None:
     num_steps = 8
     rng1 = np.random.default_rng(0)
     rng2 = np.random.default_rng(0)
-    opt1 = TurboOptimizer(
+    opt1 = Turbo(
         bounds=bounds1,
         mode=mode,
         num_arms=num_arms,
         rng=rng1,
     )
-    opt2 = TurboOptimizer(
+    opt2 = Turbo(
         bounds=bounds2,
         mode=mode,
         num_arms=num_arms,
@@ -203,7 +204,7 @@ def test_turbo_behavior_independent_of_affine_x(mode: TurboMode) -> None:
 def test_turbo_behavior_independent_of_affine_y(mode: TurboMode) -> None:
     import numpy as np
 
-    from enn.turbo_optimizer import TurboOptimizer
+    from enn import Turbo
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     num_arms = 3
@@ -211,7 +212,7 @@ def test_turbo_behavior_independent_of_affine_y(mode: TurboMode) -> None:
 
     def run_with_transform(scale: float, shift: float) -> np.ndarray:
         rng = np.random.default_rng(0)
-        opt = TurboOptimizer(
+        opt = Turbo(
             bounds=bounds,
             mode=mode,
             num_arms=num_arms,

@@ -24,14 +24,6 @@ def _latin_hypercube(num_points: int, num_dim: int, *, rng) -> object:
     return rdpoints
 
 
-def _sobol_like(num_points: int, num_dim: int, *, rng) -> object:
-    from scipy.stats import qmc
-
-    seed = int(rng.integers(1_000_000))
-    engine = qmc.Sobol(d=num_dim, scramble=True, seed=seed)
-    return engine.random(num_points)
-
-
 def _argmax_random_tie(values, *, rng) -> int:
     import numpy as np
 
@@ -78,6 +70,7 @@ class TurboOptimizer:
         *,
         num_candidates: Optional[int] = None,
         rng,
+        hnsw_threshold: Optional[int] = None,
     ) -> None:
         import numpy as np
         from scipy.stats import qmc
@@ -107,6 +100,7 @@ class TurboOptimizer:
         self._gp_y_std: float = 1.0
         self._gp_num_steps: int = 50
         self._enn_model: EpistemicNearestNeighbors | None = None
+        self._hnsw_threshold = hnsw_threshold
 
     @property
     def num_dim(self) -> int:
@@ -300,35 +294,46 @@ class TurboOptimizer:
             x_obs_array,
             y,
             yvar,
-            hnsw_threshold=None,
+            hnsw_threshold=self._hnsw_threshold,
         )
 
     def _select_enn_pareto(self, x_cand, num_arms: int) -> object:
         import numpy as np
 
         from .enn_params import ENNParams
+        from .fit import enn_fit
 
         if self._enn_model is None or len(self._enn_model) == 0:
             return self._select_sobol(x_cand, num_arms)
-        k = min(10, max(1, len(self._enn_model)))
-        params = ENNParams(k=k, var_scale=1.0)
-        posterior = self._enn_model.posterior(
-            x_cand,
-            params=params,
-            exclude_nearest=False,
+        result = enn_fit(
+            self._enn_model,
+            num_tries=100,
+            P=10,
+            rng=self._rng,
         )
+        k = int(result["k"])
+        var_scale = float(result["var_scale"])
+        params = ENNParams(k=k, var_scale=var_scale)
+        posterior = self._enn_model.posterior(x_cand, params=params)
         mu = posterior.mu[:, 0]
         se = posterior.se[:, 0]
-        mask = _pareto_front(mu, se)
-        idx_pareto = np.nonzero(mask)[0]
-        if idx_pareto.size == 0:
+        remaining_idx = np.arange(mu.size, dtype=int)
+        chosen_list = []
+        while len(chosen_list) < num_arms and remaining_idx.size > 0:
+            mu_remaining = mu[remaining_idx]
+            se_remaining = se[remaining_idx]
+            mask = _pareto_front(mu_remaining, se_remaining)
+            idx_front = np.sort(remaining_idx[mask])
+            if idx_front.size == 0:
+                break
+            needed = num_arms - len(chosen_list)
+            if idx_front.size <= needed:
+                chosen_list.extend(idx_front.tolist())
+            else:
+                selected = self._rng.choice(idx_front, size=needed, replace=False)
+                chosen_list.extend(selected.tolist())
+            remaining_idx = remaining_idx[~mask]
+        if len(chosen_list) == 0:
             return self._select_sobol(x_cand, num_arms)
-        if idx_pareto.size >= num_arms:
-            chosen = self._rng.choice(idx_pareto, size=num_arms, replace=False)
-        else:
-            base = list(idx_pareto)
-            extra = self._rng.choice(
-                idx_pareto, size=num_arms - idx_pareto.size, replace=True
-            )
-            chosen = np.asarray(base + list(extra), dtype=int)
+        chosen = np.asarray(chosen_list[:num_arms], dtype=int)
         return self._from_unit(x_cand[chosen])
