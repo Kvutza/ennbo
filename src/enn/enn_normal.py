@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 @dataclass
 class ENNNormal:
-    mu: object
-    se: object
+    mu: np.ndarray
+    se: np.ndarray
 
     def sample(
         self,
         num_samples: int,
         rng,
         clip=None,
-    ) -> object:
+    ) -> np.ndarray:
         import numpy as np
 
         size = (*self.se.shape, num_samples)

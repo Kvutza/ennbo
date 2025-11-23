@@ -12,7 +12,23 @@ license = { file = "LICENSE" }
 authors = [
   { name = "YUBO Lab", email = "david.sweet@yu.edu" },
 ]
-dependencies = []
+dependencies = [
+    "numpy>=2.0.0",
+    "torch>=2.0.0",
+    "gpytorch>=1.0.0",
+    "faiss>=1.7.0",
+    "scipy>=1.0.0",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+]
 
 [project.urls]
 Homepage = "https://github.com/yubo-research/enn"

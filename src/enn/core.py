@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from .enn_params import ENNParams
 
 
@@ -42,15 +44,15 @@ class EpistemicNearestNeighbors:
         self._build_index()
 
     @property
-    def train_x(self) -> object:
+    def train_x(self) -> np.ndarray:
         return self._train_x
 
     @property
-    def train_y(self) -> object:
+    def train_y(self) -> np.ndarray:
         return self._train_y
 
     @property
-    def train_yvar(self) -> object:
+    def train_yvar(self) -> np.ndarray:
         return self._train_yvar
 
     @property
@@ -68,7 +70,7 @@ class EpistemicNearestNeighbors:
             return
         x_scaled = self._train_x / self._x_scale
         x_scaled = x_scaled.astype(np.float32, copy=False)
-        if self._hnsw_threshold is not None and self._num_obs > self._hnsw_threshold:
+        if self._hnsw_threshold is not None and self._num_obs >= self._hnsw_threshold:
             index = faiss.IndexHNSWFlat(self._num_dim, self._hnsw_M)
         else:
             index = faiss.IndexFlatL2(self._num_dim)
@@ -116,9 +118,9 @@ class EpistemicNearestNeighbors:
         if exclude_nearest:
             if len(self) <= 1:
                 raise ValueError(len(self))
-            search_k = min(max_k + 1, len(self))
+            search_k = int(min(max_k + 1, len(self)))
         else:
-            search_k = min(max_k, len(self))
+            search_k = int(min(max_k, len(self)))
         x_scaled = x / self._x_scale
         x_scaled = x_scaled.astype(np.float32, copy=False)
         if self._index is None:
@@ -141,29 +143,16 @@ class EpistemicNearestNeighbors:
             idx = idx_full[:, :k]
             y_neighbors = self._train_y[idx]
             yvar_neighbors = self._train_yvar[idx]
-            if k == 1:
-                mu_all[i] = y_neighbors[:, 0, :]
-                epistemic_var = (
-                    params.var_scale
-                    * self._y_scale
-                    * np.ones((batch_size, self._num_metrics), dtype=float)
-                )
-                noise_var = yvar_neighbors[:, 0, :]
-                vvar = epistemic_var + noise_var
-                vvar = np.maximum(vvar, self._eps_var)
-                se_all[i] = np.sqrt(vvar)
-            else:
-                dist2s_expanded = dist2s[..., np.newaxis]
-                var_component = (
-                    params.var_scale * dist2s_expanded
-                    + yvar_neighbors / self._y_scale**2
-                )
-                w = 1.0 / (self._eps_var + var_component)
-                norm = np.sum(w, axis=1)
-                mu_all[i] = np.sum(w * y_neighbors, axis=1) / norm
-                epistemic_var = 1.0 / norm
-                noise_var = np.sum(w * yvar_neighbors, axis=1) / norm
-                vvar = epistemic_var + noise_var
-                vvar = np.maximum(vvar, self._eps_var)
-                se_all[i] = np.sqrt(vvar) * self._y_scale
+            dist2s_expanded = dist2s[..., np.newaxis]
+            var_component = (
+                params.var_scale * dist2s_expanded + yvar_neighbors / self._y_scale**2
+            )
+            w = 1.0 / (self._eps_var + var_component)
+            norm = np.sum(w, axis=1)
+            mu_all[i] = np.sum(w * y_neighbors, axis=1) / norm
+            epistemic_var = 1.0 / norm
+            noise_var = np.sum(w * yvar_neighbors, axis=1) / norm
+            vvar = epistemic_var + noise_var
+            vvar = np.maximum(vvar, self._eps_var)
+            se_all[i] = np.sqrt(vvar) * self._y_scale
         return ENNNormal(mu_all, se_all)

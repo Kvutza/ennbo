@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .turbo_utils import standardize_y
+
 
 def subsample_loglik(
     model,
@@ -48,9 +50,7 @@ def subsample_loglik(
         P_actual,
     ):
         raise ValueError((mu_batch.shape, se_batch.shape, (num_params, P_actual)))
-    y_std = float(np.std(y))
-    if not np.isfinite(y_std) or y_std <= 0.0:
-        y_std = 1.0
+    _, y_std = standardize_y(y)
     y_scaled = y_selected / y_std
     mu_scaled = mu_batch / y_std
     se_scaled = se_batch / y_std
@@ -79,48 +79,35 @@ def subsample_loglik(
 def enn_fit(
     model,
     *,
+    k: int | None = None,
     num_fit_candidates: int,
     num_fit_samples: int = 10,
     rng,
-) -> dict[str, float]:
-    import numpy as np
-
+):
     from .enn_params import ENNParams
 
+    if k is not None:
+        return ENNParams(k=k, var_scale=1.0)
     train_x = model.train_x
     train_y = model.train_y
     train_yvar = model.train_yvar
     if train_y.shape[1] != 1 or train_yvar.shape[1] != 1:
         raise ValueError((train_y.shape, train_yvar.shape))
     y = train_y[:, 0]
-    num_obs = len(model)
-    max_k = min(100, max(3, num_obs))
-    num_k = int(np.ceil(np.sqrt(float(num_fit_candidates))))
-    num_var_scale = int(np.ceil(float(num_fit_candidates) / float(num_k)))
-    k_log_min = np.log10(3.0)
-    k_log_max = np.log10(float(max_k))
-    k_log_values = np.linspace(k_log_min, k_log_max, num=num_k)
-    k_values = [int(round(10**v)) for v in k_log_values]
-    k_values = [k for k in k_values if 3 <= k <= max_k]
-    k_values = sorted(set(k_values))
-    if not k_values:
-        k_values = [3]
-    var_scale_log_min = -3.0
-    var_scale_log_max = 3.0
-    var_scale_log_values = np.linspace(
-        var_scale_log_min, var_scale_log_max, num=num_var_scale
+    k_candidates = [3, 4, 5, 6, 7, 8, 9, 10, 20, 30, 50, 100]
+    k_values = rng.choice(k_candidates, size=num_fit_candidates, replace=True).tolist()
+    var_scale_log_min = -2.0
+    var_scale_log_max = 2.0
+    var_scale_log_values = rng.uniform(
+        var_scale_log_min, var_scale_log_max, size=num_fit_candidates
     )
-    var_scale_values = [10**v for v in var_scale_log_values]
-    pairs = []
-    for k in k_values:
-        for var_scale in var_scale_values:
-            pairs.append((k, var_scale))
-    if len(pairs) > num_fit_candidates:
-        indices = rng.choice(len(pairs), size=num_fit_candidates, replace=False)
-        pairs = [pairs[i] for i in indices]
-    if len(pairs) == 0:
-        return {"k": float(k_values[0]), "var_scale": float(var_scale_values[0])}
-    paramss = [ENNParams(k=k, var_scale=var_scale) for k, var_scale in pairs]
+    var_scale_values = (10**var_scale_log_values).tolist()
+    paramss = [
+        ENNParams(k=k_val, var_scale=var_scale_val)
+        for k_val, var_scale_val in zip(k_values, var_scale_values)
+    ]
+    if len(paramss) == 0:
+        return ENNParams(k=10, var_scale=1.0)
     logliks = subsample_loglik(
         model, train_x, y, paramss=paramss, P=num_fit_samples, rng=rng
     )
@@ -131,5 +118,5 @@ def enn_fit(
             best_mll = loglik
             best_idx = i
     if best_idx is None:
-        return {"k": float(pairs[0][0]), "var_scale": float(pairs[0][1])}
-    return {"k": float(pairs[best_idx][0]), "var_scale": float(pairs[best_idx][1])}
+        return ENNParams(k=k_values[0], var_scale=float(var_scale_values[0]))
+    return paramss[best_idx]

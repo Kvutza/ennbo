@@ -3,9 +3,21 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import numpy as np
     from gpytorch.likelihoods import GaussianLikelihood
 
     from .turbo_gp import TurboGP
+
+
+def standardize_y(y) -> tuple[float, float]:
+    import numpy as np
+
+    y_array = np.asarray(y, dtype=float)
+    center = float(np.median(y_array))
+    scale = float(np.std(y_array))
+    if not np.isfinite(scale) or scale <= 0.0:
+        scale = 1.0
+    return center, scale
 
 
 def fit_gp(
@@ -37,16 +49,13 @@ def fit_gp(
         gp_y_mean = float(y[0])
         gp_y_std = 1.0
         return None, None, gp_y_mean, gp_y_std
-    gp_y_mean = float(np.mean(y))
+    gp_y_mean, gp_y_std = standardize_y(y)
     y_centered = y - gp_y_mean
-    gp_y_std = float(np.std(y_centered))
-    if not np.isfinite(gp_y_std) or gp_y_std <= 0.0:
-        gp_y_std = 1.0
     z = y_centered / gp_y_std
-    train_x = torch.as_tensor(x, dtype=torch.float32)
-    train_y = torch.as_tensor(z, dtype=torch.float32)
+    train_x = torch.as_tensor(x, dtype=torch.float64)
+    train_y = torch.as_tensor(z, dtype=torch.float64)
     noise_constraint = Interval(5e-4, 0.2)
-    lengthscale_constraint = Interval(0.005, float(np.sqrt(num_dim)))
+    lengthscale_constraint = Interval(0.005, 2.0)
     outputscale_constraint = Interval(0.05, 20.0)
     likelihood = GaussianLikelihood(noise_constraint=noise_constraint).to(
         dtype=train_y.dtype
@@ -59,6 +68,11 @@ def fit_gp(
         outputscale_constraint=outputscale_constraint,
         ard_dims=num_dim,
     ).to(dtype=train_x.dtype)
+    model.covar_module.outputscale = torch.tensor(1.0, dtype=train_x.dtype)
+    model.covar_module.base_kernel.lengthscale = torch.full(
+        (num_dim,), 0.5, dtype=train_x.dtype
+    )
+    likelihood.noise = torch.tensor(0.005, dtype=train_y.dtype)
     model.train()
     likelihood.train()
     mll = ExactMarginalLogLikelihood(likelihood, model)
@@ -74,7 +88,7 @@ def fit_gp(
     return model, likelihood, gp_y_mean, gp_y_std
 
 
-def latin_hypercube(num_points: int, num_dim: int, *, rng) -> object:
+def latin_hypercube(num_points: int, num_dim: int, *, rng) -> np.ndarray:
     import numpy as np
 
     cut = np.linspace(0.0, 1.0, num_points + 1)
@@ -103,7 +117,7 @@ def argmax_random_tie(values, *, rng) -> int:
     return int(idx[j])
 
 
-def pareto_front(mu, se) -> object:
+def pareto_front(mu, se) -> np.ndarray:
     import numpy as np
 
     if mu.shape != se.shape or mu.ndim != 1:
@@ -123,3 +137,90 @@ def pareto_front(mu, se) -> object:
     is_pareto = np.zeros_like(is_pareto_sorted, dtype=bool)
     is_pareto[order] = is_pareto_sorted
     return is_pareto
+
+
+def arms_from_pareto_fronts(x_cand, mu, se, num_arms, rng) -> np.ndarray:
+    import numpy as np
+
+    if x_cand.ndim != 2:
+        raise ValueError(x_cand.shape)
+    if mu.shape != se.shape or mu.ndim != 1:
+        raise ValueError((mu.shape, se.shape))
+    if mu.size != x_cand.shape[0]:
+        raise ValueError((mu.size, x_cand.shape[0]))
+
+    mu_neg = -mu
+
+    i = np.argsort(mu_neg)
+    x_cand_sorted = x_cand[i]
+    se_sorted = se[i]
+
+    i_all = list(range(len(se_sorted)))
+    i_keep = []
+
+    while len(i_keep) < num_arms:
+        se_max = float("-inf")
+        i_front = []
+        for idx in i_all:
+            if se_sorted[idx] >= se_max:
+                i_front.append(idx)
+                se_max = se_sorted[idx]
+        if len(i_keep) + len(i_front) <= num_arms:
+            i_keep.extend(i_front)
+        else:
+            i_keep.extend(
+                rng.choice(i_front, size=num_arms - len(i_keep), replace=False)
+            )
+        i_all = sorted(set(i_all) - set(i_front))
+
+    i_keep = np.array(i_keep)
+    x_arms = x_cand_sorted[i_keep]
+
+    return x_arms
+
+
+def sobol_perturb_np(
+    x_center, lb, ub, num_candidates, mask, *, sobol_engine
+) -> np.ndarray:
+    import numpy as np
+
+    sobol_samples = sobol_engine.random(num_candidates)
+    lb_array = np.asarray(lb)
+    ub_array = np.asarray(ub)
+    pert = lb_array + (ub_array - lb_array) * sobol_samples
+    candidates = np.tile(x_center, (num_candidates, 1))
+    if np.any(mask):
+        candidates[mask] = pert[mask]
+    return candidates
+
+
+def raasp(
+    x_center, lb, ub, num_candidates, *, num_pert: int = 20, rng, sobol_engine
+) -> np.ndarray:
+    import numpy as np
+
+    num_dim = x_center.shape[-1]
+    prob_perturb = min(num_pert / num_dim, 1.0)
+    mask = rng.random((num_candidates, num_dim)) <= prob_perturb
+    ind = np.where(np.sum(mask, axis=1) == 0)[0]
+    if len(ind) > 0:
+        mask[ind, rng.integers(0, num_dim, size=len(ind))] = True
+    return sobol_perturb_np(
+        x_center, lb, ub, num_candidates, mask, sobol_engine=sobol_engine
+    )
+
+
+def to_unit(x, bounds) -> np.ndarray:
+    import numpy as np
+
+    lb = bounds[:, 0]
+    ub = bounds[:, 1]
+    if np.any(ub <= lb):
+        raise ValueError(bounds)
+    return (x - lb) / (ub - lb)
+
+
+def from_unit(x_unit, bounds) -> np.ndarray:
+    lb = bounds[:, 0]
+    ub = bounds[:, 1]
+    return lb + x_unit * (ub - lb)
