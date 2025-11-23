@@ -236,9 +236,7 @@ def test_turbo_behavior_independent_of_affine_x(mode: TurboMode) -> None:
         opt2.tell(x2, y2)
 
 
-@pytest.mark.parametrize(
-    "mode", [TurboMode.TURBO_ZERO, TurboMode.TURBO_ONE, TurboMode.TURBO_ENN]
-)
+@pytest.mark.parametrize("mode", [TurboMode.TURBO_ZERO, TurboMode.TURBO_ENN])
 def test_turbo_behavior_independent_of_affine_y(mode: TurboMode) -> None:
     import numpy as np
 
@@ -272,6 +270,9 @@ def test_turbo_behavior_independent_of_affine_y(mode: TurboMode) -> None:
     traj_affine = run_with_transform(scale=2.0, shift=0.5)
     # The sequence of unit-space query points should be invariant to affine
     # rescalings (scale and center) of the observed y values.
+    # Note: TURBO_ONE is excluded because it uses a relative threshold
+    # (1e-3 * abs(best_value)) for improvement detection, which breaks affine
+    # invariance by design (matching the reference implementation).
     assert np.allclose(traj_base, traj_affine)
 
 
@@ -686,7 +687,7 @@ def test_select_gp_thompson_uses_gp_and_returns_correct_shape():
         idx = rng.choice(x.shape[0], size=n, replace=False)
         return from_unit_fn(x[idx])
 
-    selected, new_mean, new_std = select_gp_thompson(
+    selected, new_mean, new_std, _ = select_gp_thompson(
         x_cand,
         num_arms,
         x_obs.tolist(),
@@ -730,7 +731,7 @@ def test_select_gp_thompson_fallback_on_empty_observations():
         idx = rng.choice(x.shape[0], size=n, replace=False)
         return from_unit_fn(x[idx])
 
-    selected, mean, std = select_gp_thompson(
+    selected, mean, std, _ = select_gp_thompson(
         x_cand,
         num_arms,
         [],

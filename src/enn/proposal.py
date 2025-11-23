@@ -48,8 +48,8 @@ def select_enn_pareto(
             return fallback_fn(x_cand, num_arms)
         best_params = enn_fit(
             enn_model,
-            num_fit_candidates=30,
-            num_fit_samples=10,
+            num_fit_candidates=100,
+            num_fit_samples=100,
             rng=rng,
         )
         k = best_params.k
@@ -126,7 +126,7 @@ def select_gp_thompson(
             torch.set_rng_state(old_state)
 
     if len(x_obs_list) == 0:
-        return select_sobol_fn(x_cand, num_arms), gp_y_mean, gp_y_std
+        return select_sobol_fn(x_cand, num_arms), gp_y_mean, gp_y_std, None
     model, _likelihood, new_gp_y_mean, new_gp_y_std = fit_gp(
         x_obs_list,
         y_obs_list,
@@ -134,7 +134,7 @@ def select_gp_thompson(
         num_steps=gp_num_steps,
     )
     if model is None:
-        return select_sobol_fn(x_cand, num_arms), gp_y_mean, gp_y_std
+        return select_sobol_fn(x_cand, num_arms), gp_y_mean, gp_y_std, None
     x_torch = torch.as_tensor(x_cand, dtype=torch.float32)
     seed = int(rng.integers(2**31 - 1))
     gen = torch.Generator(device=x_torch.device)
@@ -154,4 +154,4 @@ def select_gp_thompson(
     if x_cand.shape[0] < num_arms:
         raise ValueError((x_cand.shape[0], num_arms))
     idx = np.argpartition(-scores, num_arms - 1)[:num_arms]
-    return from_unit_fn(x_cand[idx]), new_gp_y_mean, new_gp_y_std
+    return from_unit_fn(x_cand[idx]), new_gp_y_mean, new_gp_y_std, model

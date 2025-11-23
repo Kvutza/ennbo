@@ -131,17 +131,13 @@ def sobol_perturb_np(
 ) -> np.ndarray:
     import numpy as np
 
-    num_dim = x_center.shape[-1]
     sobol_samples = sobol_engine.random(num_candidates)
     lb_array = np.asarray(lb)
     ub_array = np.asarray(ub)
     pert = lb_array + (ub_array - lb_array) * sobol_samples
     candidates = np.tile(x_center, (num_candidates, 1))
     if np.any(mask):
-        alpha = np.ones((num_candidates, num_dim))
-        candidates[mask] = candidates[mask] + alpha[mask] * (
-            pert[mask] - candidates[mask]
-        )
+        candidates[mask] = pert[mask]
     return candidates
 
 

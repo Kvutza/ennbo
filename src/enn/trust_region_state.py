@@ -43,7 +43,7 @@ class TrustRegionState:
             self.best_value = float(np.max(new_values))
             self.prev_num_obs = values.size
             return
-        improved = np.max(new_values) > self.best_value
+        improved = np.max(new_values) > self.best_value + 1e-3 * np.abs(self.best_value)
         if improved:
             self.success_counter += 1
             self.failure_counter = 0

@@ -143,15 +143,6 @@ class TurboOptimizer:
         lb_local, ub_local = self._tr_state.create_bounds(x_center_2d)
         lb_local = lb_local[0]
         ub_local = ub_local[0]
-        x_cand = raasp(
-            x_center,
-            lb_local,
-            ub_local,
-            self._num_candidates,
-            num_pert=20,
-            rng=self._rng,
-            sobol_engine=self._sobol_engine,
-        )
 
         def from_unit_fn(x):
             return from_unit(x, self._bounds)
@@ -163,14 +154,6 @@ class TurboOptimizer:
             x_obs_slice = self._x_obs_list
             y_obs_slice = self._y_obs_list
 
-        if self._mode == TurboMode.TURBO_ZERO:
-            return select_uniform(
-                x_cand,
-                num_arms,
-                self._num_dim,
-                self._rng,
-                from_unit_fn,
-            )
         if self._mode == TurboMode.TURBO_ONE:
             if len(self._x_tr_list) == 0:
                 return self._get_init_lhd_points(num_arms)
@@ -180,7 +163,55 @@ class TurboOptimizer:
             else:
                 x_tr_slice = self._x_tr_list
                 y_tr_slice = self._y_tr_list
-            selected, self._gp_y_mean, self._gp_y_std = select_gp_thompson(
+            import numpy as np
+
+            from .turbo_utils import fit_gp
+
+            gp_model, _likelihood, _gp_y_mean_temp, _gp_y_std_temp = fit_gp(
+                x_tr_slice,
+                y_tr_slice,
+                self._num_dim,
+                num_steps=self._gp_num_steps,
+            )
+            if gp_model is not None:
+                weights = (
+                    gp_model.covar_module.base_kernel.lengthscale.cpu()
+                    .detach()
+                    .numpy()
+                    .ravel()
+                )
+                weights = weights / weights.mean()
+                weights = weights / np.prod(np.power(weights, 1.0 / len(weights)))
+                length = self._tr_state.length
+                lb_local = np.clip(x_center - weights * length / 2.0, 0.0, 1.0)
+                ub_local = np.clip(x_center + weights * length / 2.0, 0.0, 1.0)
+
+        x_cand = raasp(
+            x_center,
+            lb_local,
+            ub_local,
+            self._num_candidates,
+            num_pert=20,
+            rng=self._rng,
+            sobol_engine=self._sobol_engine,
+        )
+
+        if self._mode == TurboMode.TURBO_ZERO:
+            return select_uniform(
+                x_cand,
+                num_arms,
+                self._num_dim,
+                self._rng,
+                from_unit_fn,
+            )
+        if self._mode == TurboMode.TURBO_ONE:
+            if self._trailing_obs is not None:
+                x_tr_slice = self._x_tr_list[-self._trailing_obs :]
+                y_tr_slice = self._y_tr_list[-self._trailing_obs :]
+            else:
+                x_tr_slice = self._x_tr_list
+                y_tr_slice = self._y_tr_list
+            selected, self._gp_y_mean, self._gp_y_std, _ = select_gp_thompson(
                 x_cand,
                 num_arms,
                 x_tr_slice,
