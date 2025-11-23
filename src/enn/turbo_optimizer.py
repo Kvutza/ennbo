@@ -19,8 +19,9 @@ class TurboOptimizer:
         num_candidates: Optional[int] = None,
         rng,
         hnsw_threshold: Optional[int] = None,
-        num_fit_samples: int = 10,
-        num_fit_candidates: int = 100,
+        num_fit_samples: int = 100,
+        num_fit_candidates: int = 30,
+        k: int = 10,
     ) -> None:
         import numpy as np
         from scipy.stats import qmc
@@ -53,6 +54,10 @@ class TurboOptimizer:
         self._hnsw_threshold = hnsw_threshold
         self._num_fit_samples = num_fit_samples
         self._num_fit_candidates = num_fit_candidates
+        k_val = int(k)
+        if k_val < 3:
+            raise ValueError(f"k must be >= 3, got {k_val}")
+        self._k = k_val
 
     @property
     def num_dim(self) -> int:
@@ -210,13 +215,13 @@ class TurboOptimizer:
             return self._select_sobol(x_cand, num_arms)
         result = enn_fit(
             self._enn_model,
+            k=self._k,
             num_fit_candidates=self._num_fit_candidates,
             num_fit_samples=self._num_fit_samples,
             rng=self._rng,
         )
-        k = int(result["k"])
         var_scale = float(result["var_scale"])
-        params = ENNParams(k=k, var_scale=var_scale)
+        params = ENNParams(k=self._k, var_scale=var_scale)
         posterior = self._enn_model.posterior(x_cand, params=params)
         mu = posterior.mu[:, 0]
         se = posterior.se[:, 0]

@@ -27,21 +27,23 @@ def test_subsample_loglik_and_enn_fit_improve_hyperparameters():
     )
     base_ll = base_lls[0]
     rng_fit = np.random.default_rng(1)
+    k_fit = 10
     result = enn_fit(
         model,
+        k=k_fit,
         num_fit_candidates=30,
         num_fit_samples=20,
         rng=rng_fit,
     )
     assert "k" in result and "var_scale" in result
-    assert result["k"] >= 1
+    assert result["k"] == k_fit
     assert result["var_scale"] > 0.0
     rng_tuned = np.random.default_rng(2)
     tuned_lls = subsample_loglik(
         model,
         x,
         y[:, 0],
-        paramss=[ENNParams(k=int(result["k"]), var_scale=float(result["var_scale"]))],
+        paramss=[ENNParams(k=k_fit, var_scale=float(result["var_scale"]))],
         P=20,
         rng=rng_tuned,
     )

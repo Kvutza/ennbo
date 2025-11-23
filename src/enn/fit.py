@@ -79,6 +79,7 @@ def subsample_loglik(
 def enn_fit(
     model,
     *,
+    k: int,
     num_fit_candidates: int,
     num_fit_samples: int = 10,
     rng,
@@ -93,34 +94,15 @@ def enn_fit(
     if train_y.shape[1] != 1 or train_yvar.shape[1] != 1:
         raise ValueError((train_y.shape, train_yvar.shape))
     y = train_y[:, 0]
-    num_obs = len(model)
-    max_k = min(100, max(3, num_obs))
-    num_k = int(np.ceil(np.sqrt(float(num_fit_candidates))))
-    num_var_scale = int(np.ceil(float(num_fit_candidates) / float(num_k)))
-    k_log_min = np.log10(3.0)
-    k_log_max = np.log10(float(max_k))
-    k_log_values = np.linspace(k_log_min, k_log_max, num=num_k)
-    k_values = [int(round(10**v)) for v in k_log_values]
-    k_values = [k for k in k_values if 3 <= k <= max_k]
-    k_values = sorted(set(k_values))
-    if not k_values:
-        k_values = [3]
     var_scale_log_min = -3.0
     var_scale_log_max = 3.0
     var_scale_log_values = np.linspace(
-        var_scale_log_min, var_scale_log_max, num=num_var_scale
+        var_scale_log_min, var_scale_log_max, num=num_fit_candidates
     )
     var_scale_values = [10**v for v in var_scale_log_values]
-    pairs = []
-    for k in k_values:
-        for var_scale in var_scale_values:
-            pairs.append((k, var_scale))
-    if len(pairs) > num_fit_candidates:
-        indices = rng.choice(len(pairs), size=num_fit_candidates, replace=False)
-        pairs = [pairs[i] for i in indices]
-    if len(pairs) == 0:
-        return {"k": float(k_values[0]), "var_scale": float(var_scale_values[0])}
-    paramss = [ENNParams(k=k, var_scale=var_scale) for k, var_scale in pairs]
+    if len(var_scale_values) == 0:
+        return {"var_scale": 1.0}
+    paramss = [ENNParams(k=k, var_scale=var_scale) for var_scale in var_scale_values]
     logliks = subsample_loglik(
         model, train_x, y, paramss=paramss, P=num_fit_samples, rng=rng
     )
@@ -131,5 +113,5 @@ def enn_fit(
             best_mll = loglik
             best_idx = i
     if best_idx is None:
-        return {"k": float(pairs[0][0]), "var_scale": float(pairs[0][1])}
-    return {"k": float(pairs[best_idx][0]), "var_scale": float(pairs[best_idx][1])}
+        return {"var_scale": float(var_scale_values[0])}
+    return {"var_scale": float(var_scale_values[best_idx])}
