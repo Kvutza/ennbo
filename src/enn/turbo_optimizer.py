@@ -41,6 +41,10 @@ class TurboOptimizer:
             raise ValueError(tr_num_arms)
         if num_candidates is None:
             num_candidates = min(5000, 100 * self._num_dim)
+        from .turbo_mode import TurboMode
+
+        if mode == TurboMode.TURBO_ENN:
+            num_candidates = max(num_candidates, 10 * tr_num_arms)
         self._num_candidates = int(num_candidates)
         if self._num_candidates <= 0:
             raise ValueError(self._num_candidates)
@@ -49,9 +53,8 @@ class TurboOptimizer:
         self._sobol_engine = qmc.Sobol(d=self._num_dim, scramble=True, seed=sobol_seed)
         self._x_obs_list: list = []
         self._y_obs_list: list = []
-        from .turbo_mode import TurboMode
 
-        if mode == TurboMode.TURBO_ONE:
+        if mode == TurboMode.TURBO_ONE or mode == TurboMode.TURBO_ENN:
             self._x_tr_list: list = []
             self._y_tr_list: list = []
         else:
@@ -129,7 +132,7 @@ class TurboOptimizer:
 
         if self._tr_state.needs_restart():
             self._tr_state.restart()
-            if self._mode == TurboMode.TURBO_ONE:
+            if self._mode == TurboMode.TURBO_ONE or self._mode == TurboMode.TURBO_ENN:
                 self._x_tr_list.clear()
                 self._y_tr_list.clear()
                 self._init_idx = 0
@@ -138,26 +141,22 @@ class TurboOptimizer:
                     self._bounds,
                 )
                 return self._get_init_lhd_points(num_arms)
-        if self._mode == TurboMode.TURBO_ONE and self._x_tr_list is not None:
+        if (
+            self._mode == TurboMode.TURBO_ONE or self._mode == TurboMode.TURBO_ENN
+        ) and self._x_tr_list is not None:
             x_center = self._best_x_tr()
         else:
             x_center = self._best_x()
-        x_center_2d = x_center[None, :]
-        lb_local, ub_local = self._tr_state.create_bounds(x_center_2d)
-        lb_local = lb_local[0]
-        ub_local = ub_local[0]
 
         def from_unit_fn(x):
             return from_unit(x, self._bounds)
 
-        if self._trailing_obs is not None:
-            x_obs_slice = self._x_obs_list[-self._trailing_obs :]
-            y_obs_slice = self._y_obs_list[-self._trailing_obs :]
-        else:
-            x_obs_slice = self._x_obs_list
-            y_obs_slice = self._y_obs_list
+        gp_model = None
+        gp_y_mean_fitted = None
+        gp_y_std_fitted = None
+        weights = None
 
-        if self._mode == TurboMode.TURBO_ONE:
+        if self._mode == TurboMode.TURBO_ONE or self._mode == TurboMode.TURBO_ENN:
             if len(self._x_tr_list) == 0:
                 return self._get_init_lhd_points(num_arms)
             if self._trailing_obs is not None:
@@ -166,28 +165,29 @@ class TurboOptimizer:
             else:
                 x_tr_slice = self._x_tr_list
                 y_tr_slice = self._y_tr_list
-            import numpy as np
 
-            from .turbo_utils import fit_gp
+            if self._mode == TurboMode.TURBO_ONE:
+                import numpy as np
 
-            gp_model, _likelihood, gp_y_mean_fitted, gp_y_std_fitted = fit_gp(
-                x_tr_slice,
-                y_tr_slice,
-                self._num_dim,
-                num_steps=self._gp_num_steps,
-            )
-            if gp_model is not None:
-                weights = (
-                    gp_model.covar_module.base_kernel.lengthscale.cpu()
-                    .detach()
-                    .numpy()
-                    .ravel()
+                from .turbo_utils import fit_gp
+
+                gp_model, _likelihood, gp_y_mean_fitted, gp_y_std_fitted = fit_gp(
+                    x_tr_slice,
+                    y_tr_slice,
+                    self._num_dim,
+                    num_steps=self._gp_num_steps,
                 )
-                weights = weights / weights.mean()
-                weights = weights / np.prod(np.power(weights, 1.0 / len(weights)))
-                length = self._tr_state.length
-                lb_local = np.clip(x_center - weights * length / 2.0, 0.0, 1.0)
-                ub_local = np.clip(x_center + weights * length / 2.0, 0.0, 1.0)
+                if gp_model is not None:
+                    weights = (
+                        gp_model.covar_module.base_kernel.lengthscale.cpu()
+                        .detach()
+                        .numpy()
+                        .ravel()
+                    )
+                    weights = weights / weights.mean()
+                    weights = weights / np.prod(np.power(weights, 1.0 / len(weights)))
+
+        lb_local, ub_local = self._tr_state._compute_bounds_1d(x_center, weights)
 
         x_cand = raasp(
             x_center,
@@ -199,6 +199,9 @@ class TurboOptimizer:
             sobol_engine=self._sobol_engine,
         )
 
+        def fallback_fn(x, n):
+            return select_uniform(x, n, self._num_dim, self._rng, from_unit_fn)
+
         if self._mode == TurboMode.TURBO_ZERO:
             return select_uniform(
                 x_cand,
@@ -208,12 +211,6 @@ class TurboOptimizer:
                 from_unit_fn,
             )
         if self._mode == TurboMode.TURBO_ONE:
-            if self._trailing_obs is not None:
-                x_tr_slice = self._x_tr_list[-self._trailing_obs :]
-                y_tr_slice = self._y_tr_list[-self._trailing_obs :]
-            else:
-                x_tr_slice = self._x_tr_list
-                y_tr_slice = self._y_tr_list
             selected, self._gp_y_mean, self._gp_y_std, _ = select_gp_thompson(
                 x_cand,
                 num_arms,
@@ -224,9 +221,7 @@ class TurboOptimizer:
                 self._rng,
                 self._gp_y_mean,
                 self._gp_y_std,
-                lambda x, n: select_uniform(
-                    x, n, self._num_dim, self._rng, from_unit_fn
-                ),
+                fallback_fn,
                 from_unit_fn,
                 model=gp_model,
                 new_gp_y_mean=gp_y_mean_fitted,
@@ -237,20 +232,18 @@ class TurboOptimizer:
             return select_enn_pareto(
                 x_cand,
                 num_arms,
-                x_obs_slice,
-                y_obs_slice,
+                x_tr_slice,
+                y_tr_slice,
                 self._k,
                 self._var_scale,
                 self._hnsw_threshold,
                 self._rng,
-                lambda x, n: select_uniform(
-                    x, n, self._num_dim, self._rng, from_unit_fn
-                ),
+                fallback_fn,
                 from_unit_fn,
             )
         raise RuntimeError(self._mode)
 
-    def tell(self, x, y) -> None:
+    def _append_observations(self, x, y) -> None:
         import numpy as np
 
         x = np.asarray(x, dtype=float)
@@ -269,6 +262,19 @@ class TurboOptimizer:
             self._y_tr_list.extend(y.tolist())
         y_obs_array = np.asarray(self._y_obs_list, dtype=float)
         self._tr_state.update(y_obs_array)
+
+    def tell(self, x, y) -> None:
+        self._append_observations(x, y)
+
+    def _best_x_from_lists(self, x_list, y_list, error_msg: str) -> np.ndarray:
+        import numpy as np
+
+        y_array = np.asarray(y_list, dtype=float)
+        if y_array.size == 0:
+            raise RuntimeError(error_msg)
+        idx = argmax_random_tie(y_array, rng=self._rng)
+        x_array = np.asarray(x_list, dtype=float)
+        return x_array[idx]
 
     def _draw_initial(self, num_arms: int) -> np.ndarray:
         unit = latin_hypercube(num_arms, self._num_dim, rng=self._rng)
@@ -290,21 +296,11 @@ class TurboOptimizer:
         return result
 
     def _best_x(self) -> np.ndarray:
-        import numpy as np
-
-        y_obs_array = np.asarray(self._y_obs_list, dtype=float)
-        if y_obs_array.size == 0:
-            raise RuntimeError("no observations")
-        idx = argmax_random_tie(y_obs_array, rng=self._rng)
-        x_obs_array = np.asarray(self._x_obs_list, dtype=float)
-        return x_obs_array[idx]
+        return self._best_x_from_lists(
+            self._x_obs_list, self._y_obs_list, "no observations"
+        )
 
     def _best_x_tr(self) -> np.ndarray:
-        import numpy as np
-
-        y_tr_array = np.asarray(self._y_tr_list, dtype=float)
-        if y_tr_array.size == 0:
-            raise RuntimeError("no trust-region observations")
-        idx = argmax_random_tie(y_tr_array, rng=self._rng)
-        x_tr_array = np.asarray(self._x_tr_list, dtype=float)
-        return x_tr_array[idx]
+        return self._best_x_from_lists(
+            self._x_tr_list, self._y_tr_list, "no trust-region observations"
+        )

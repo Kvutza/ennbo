@@ -1,14 +1,10 @@
 from __future__ import annotations
 
+import conftest
 import pytest
 
 from enn.turbo_mode import TurboMode
-
-
-def _sphere(x) -> object:
-    import numpy as np
-
-    return -np.sum(x**2, axis=1)
+from enn.turbo_utils import to_unit
 
 
 def _run_bo(mode: TurboMode, num_steps: int = 15) -> float:
@@ -22,7 +18,7 @@ def _run_bo(mode: TurboMode, num_steps: int = 15) -> float:
     best = -np.inf
     for _ in range(num_steps):
         x = opt.ask(num_arms=4)
-        y = _sphere(x)
+        y = conftest.sphere_objective(x)
         opt.tell(x, y)
         best = max(best, float(np.max(y)))
     return best
@@ -44,7 +40,7 @@ def test_turbo_zero_ask_tell_and_shape():
     x0 = opt.ask(num_arms=3)
     assert x0.shape == (3, 2)
     assert np.all(x0 >= 0.0) and np.all(x0 <= 1.0)
-    y0 = _sphere(x0)
+    y0 = conftest.sphere_objective(x0)
     opt.tell(x0, y0)
     x1 = opt.ask(num_arms=3)
     assert x1.shape == (3, 2)
@@ -214,23 +210,16 @@ def test_turbo_behavior_independent_of_affine_x(mode: TurboMode) -> None:
         rng=rng2,
     )
 
-    def to_unit(x: np.ndarray, bounds: np.ndarray) -> np.ndarray:
-        lb = bounds[:, 0]
-        ub = bounds[:, 1]
-        return (x - lb) / (ub - lb)
-
     for _ in range(num_steps):
         x1 = opt1.ask(num_arms=num_arms)
         x2 = opt2.ask(num_arms=num_arms)
         u1 = to_unit(x1, bounds1)
         u2 = to_unit(x2, bounds2)
-        # Optimizer behavior in unit space should not depend on how x is scaled or centered.
         assert np.allclose(u1, u2)
-        # Use a common objective defined on unit coordinates to ensure identical y across runs.
         z1 = 2.0 * u1 - 1.0
         z2 = 2.0 * u2 - 1.0
-        y1 = _sphere(z1)
-        y2 = _sphere(z2)
+        y1 = conftest.sphere_objective(z1)
+        y2 = conftest.sphere_objective(z2)
         assert np.allclose(y1, y2)
         opt1.tell(x1, y1)
         opt2.tell(x2, y2)
@@ -260,7 +249,7 @@ def test_turbo_behavior_independent_of_affine_y(mode: TurboMode) -> None:
             # With these bounds, x already lives in unit space.
             u = x.copy()
             z = 2.0 * u - 1.0
-            base_y = _sphere(z)
+            base_y = conftest.sphere_objective(z)
             y = scale * base_y + shift
             opt.tell(x, y)
             unit_trajectory.append(u)
@@ -485,7 +474,7 @@ def test_raasp_probability_scaling():
 def test_to_unit_and_from_unit_roundtrip():
     import numpy as np
 
-    from enn.turbo_utils import from_unit, to_unit
+    from enn.turbo_utils import from_unit
 
     bounds = np.array([[0.0, 2.0], [-1.0, 1.0], [5.0, 10.0]], dtype=float)
     x_original = np.array([[1.0, 0.0, 7.5], [0.5, -0.5, 8.0]], dtype=float)
@@ -499,8 +488,6 @@ def test_to_unit_and_from_unit_roundtrip():
 def test_to_unit_bounds_validation():
     import numpy as np
 
-    from enn.turbo_utils import to_unit
-
     bounds_invalid = np.array([[1.0, 0.0]], dtype=float)
     x = np.array([[0.5]], dtype=float)
     with pytest.raises(ValueError):
@@ -511,7 +498,6 @@ def test_select_uniform_shape_and_uniformity():
     import numpy as np
 
     from enn.proposal import select_uniform
-    from enn.turbo_utils import from_unit
 
     num_candidates = 100
     num_dim = 3
@@ -519,9 +505,7 @@ def test_select_uniform_shape_and_uniformity():
     x_cand = np.random.default_rng(0).random((num_candidates, num_dim))
     bounds = np.array([[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(42)
-
-    def from_unit_fn(x):
-        return from_unit(x, bounds)
+    from_unit_fn = conftest.make_from_unit_fn(bounds)
 
     selected = select_uniform(x_cand, num_arms, num_dim, rng, from_unit_fn)
     assert selected.shape == (num_arms, num_dim)
@@ -532,13 +516,10 @@ def test_select_uniform_validation():
     import numpy as np
 
     from enn.proposal import select_uniform
-    from enn.turbo_utils import from_unit
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(0)
-
-    def from_unit_fn(x):
-        return from_unit(x, bounds)
+    from_unit_fn = conftest.make_from_unit_fn(bounds)
 
     x_cand_wrong_dim = np.random.default_rng(0).random((10, 3))
     with pytest.raises(ValueError):
@@ -553,7 +534,6 @@ def test_select_enn_pareto_uses_enn_and_selects_pareto():
     import numpy as np
 
     from enn.proposal import select_enn_pareto
-    from enn.turbo_utils import from_unit
 
     num_candidates = 50
     num_dim = 2
@@ -563,13 +543,8 @@ def test_select_enn_pareto_uses_enn_and_selects_pareto():
     y_obs = (x_obs.sum(axis=1)).tolist()
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(42)
-
-    def from_unit_fn(x):
-        return from_unit(x, bounds)
-
-    def fallback_fn(x, n):
-        idx = rng.choice(x.shape[0], size=n, replace=False)
-        return from_unit_fn(x[idx])
+    from_unit_fn = conftest.make_from_unit_fn(bounds)
+    fallback_fn = conftest.make_fallback_fn(bounds, rng)
 
     selected = select_enn_pareto(
         x_cand,
@@ -591,7 +566,6 @@ def test_select_enn_pareto_fallback_on_empty_observations():
     import numpy as np
 
     from enn.proposal import select_enn_pareto
-    from enn.turbo_utils import from_unit
 
     num_candidates = 20
     num_dim = 2
@@ -599,9 +573,7 @@ def test_select_enn_pareto_fallback_on_empty_observations():
     x_cand = np.random.default_rng(0).random((num_candidates, num_dim))
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(42)
-
-    def from_unit_fn(x):
-        return from_unit(x, bounds)
+    from_unit_fn = conftest.make_from_unit_fn(bounds)
 
     fallback_called = False
 
@@ -631,7 +603,6 @@ def test_select_enn_pareto_with_k_none_fits_model():
     import numpy as np
 
     from enn.proposal import select_enn_pareto
-    from enn.turbo_utils import from_unit
 
     num_candidates = 50
     num_dim = 2
@@ -641,13 +612,8 @@ def test_select_enn_pareto_with_k_none_fits_model():
     y_obs = (x_obs.sum(axis=1)).tolist()
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(42)
-
-    def from_unit_fn(x):
-        return from_unit(x, bounds)
-
-    def fallback_fn(x, n):
-        idx = rng.choice(x.shape[0], size=n, replace=False)
-        return from_unit_fn(x[idx])
+    from_unit_fn = conftest.make_from_unit_fn(bounds)
+    fallback_fn = conftest.make_fallback_fn(bounds, rng)
 
     selected = select_enn_pareto(
         x_cand,
@@ -669,7 +635,6 @@ def test_select_gp_thompson_uses_gp_and_returns_correct_shape():
     import numpy as np
 
     from enn.proposal import select_gp_thompson
-    from enn.turbo_utils import from_unit
 
     num_candidates = 30
     num_dim = 2
@@ -679,13 +644,8 @@ def test_select_gp_thompson_uses_gp_and_returns_correct_shape():
     y_obs = (x_obs.sum(axis=1)).tolist()
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(42)
-
-    def from_unit_fn(x):
-        return from_unit(x, bounds)
-
-    def select_sobol_fn(x, n):
-        idx = rng.choice(x.shape[0], size=n, replace=False)
-        return from_unit_fn(x[idx])
+    from_unit_fn = conftest.make_from_unit_fn(bounds)
+    select_sobol_fn = conftest.make_select_sobol_fn(bounds, rng)
 
     selected, new_mean, new_std, _ = select_gp_thompson(
         x_cand,
@@ -711,7 +671,6 @@ def test_select_gp_thompson_fallback_on_empty_observations():
     import numpy as np
 
     from enn.proposal import select_gp_thompson
-    from enn.turbo_utils import from_unit
 
     num_candidates = 20
     num_dim = 2
@@ -719,9 +678,7 @@ def test_select_gp_thompson_fallback_on_empty_observations():
     x_cand = np.random.default_rng(0).random((num_candidates, num_dim))
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(42)
-
-    def from_unit_fn(x):
-        return from_unit(x, bounds)
+    from_unit_fn = conftest.make_from_unit_fn(bounds)
 
     fallback_called = False
 

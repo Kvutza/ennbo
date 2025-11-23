@@ -9,6 +9,17 @@ if TYPE_CHECKING:
     from .turbo_gp import TurboGP
 
 
+def standardize_y(y) -> tuple[float, float]:
+    import numpy as np
+
+    y_array = np.asarray(y, dtype=float)
+    center = float(np.median(y_array))
+    scale = float(np.std(y_array))
+    if not np.isfinite(scale) or scale <= 0.0:
+        scale = 1.0
+    return center, scale
+
+
 def fit_gp(
     x_obs_list: list,
     y_obs_list: list,
@@ -38,10 +49,7 @@ def fit_gp(
         gp_y_mean = float(y[0])
         gp_y_std = 1.0
         return None, None, gp_y_mean, gp_y_std
-    gp_y_mean = float(np.median(y))
-    gp_y_std = float(np.std(y))
-    if not np.isfinite(gp_y_std) or gp_y_std <= 0.0:
-        gp_y_std = 1.0
+    gp_y_mean, gp_y_std = standardize_y(y)
     y_centered = y - gp_y_mean
     z = y_centered / gp_y_std
     train_x = torch.as_tensor(x, dtype=torch.float64)
@@ -129,6 +137,46 @@ def pareto_front(mu, se) -> np.ndarray:
     is_pareto = np.zeros_like(is_pareto_sorted, dtype=bool)
     is_pareto[order] = is_pareto_sorted
     return is_pareto
+
+
+def arms_from_pareto_fronts(x_cand, mu, se, num_arms, rng) -> np.ndarray:
+    import numpy as np
+
+    if x_cand.ndim != 2:
+        raise ValueError(x_cand.shape)
+    if mu.shape != se.shape or mu.ndim != 1:
+        raise ValueError((mu.shape, se.shape))
+    if mu.size != x_cand.shape[0]:
+        raise ValueError((mu.size, x_cand.shape[0]))
+
+    mu_neg = -mu
+
+    i = np.argsort(mu_neg)
+    x_cand_sorted = x_cand[i]
+    se_sorted = se[i]
+
+    i_all = list(range(len(se_sorted)))
+    i_keep = []
+
+    while len(i_keep) < num_arms:
+        se_max = float("-inf")
+        i_front = []
+        for idx in i_all:
+            if se_sorted[idx] >= se_max:
+                i_front.append(idx)
+                se_max = se_sorted[idx]
+        if len(i_keep) + len(i_front) <= num_arms:
+            i_keep.extend(i_front)
+        else:
+            i_keep.extend(
+                rng.choice(i_front, size=num_arms - len(i_keep), replace=False)
+            )
+        i_all = sorted(set(i_all) - set(i_front))
+
+    i_keep = np.array(i_keep)
+    x_arms = x_cand_sorted[i_keep]
+
+    return x_arms
 
 
 def sobol_perturb_np(

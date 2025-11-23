@@ -69,15 +69,31 @@ class TrustRegionState:
         self.best_value = -float("inf")
         self.prev_num_obs = 0
 
-    def create_bounds(self, x_center) -> tuple:
+    def _compute_bounds_1d(self, x_center, weights=None):
         import numpy as np
 
+        if x_center.ndim != 1 or x_center.shape[0] != self.num_dim:
+            raise ValueError(x_center.shape)
+        if weights is None:
+            half_length = 0.5 * self.length
+            lb = np.clip(x_center - half_length, 0.0, 1.0)
+            ub = np.clip(x_center + half_length, 0.0, 1.0)
+        else:
+            if weights.ndim != 1 or weights.shape[0] != self.num_dim:
+                raise ValueError(weights.shape)
+            half_length = weights * self.length / 2.0
+            lb = np.clip(x_center - half_length, 0.0, 1.0)
+            ub = np.clip(x_center + half_length, 0.0, 1.0)
+        return lb, ub
+
+    def create_bounds(self, x_center) -> tuple:
         if (
             x_center.ndim != 2
             or x_center.shape[0] != 1
             or x_center.shape[1] != self.num_dim
         ):
             raise ValueError(x_center.shape)
-        lb = np.clip(x_center - 0.5 * self.length, 0.0, 1.0)
-        ub = np.clip(x_center + 0.5 * self.length, 0.0, 1.0)
+        lb_1d, ub_1d = self._compute_bounds_1d(x_center[0])
+        lb = lb_1d[None, :]
+        ub = ub_1d[None, :]
         return lb, ub

@@ -7,6 +7,8 @@ if TYPE_CHECKING:
 
     from .turbo_gp import TurboGP
 
+from .turbo_utils import standardize_y
+
 
 def select_enn_pareto(
     x_cand: np.ndarray,
@@ -24,14 +26,18 @@ def select_enn_pareto(
 
     from .core import EpistemicNearestNeighbors
     from .enn_params import ENNParams
-    from .turbo_utils import pareto_front
+    from .turbo_utils import arms_from_pareto_fronts
 
     if len(x_obs_list) == 0:
         return fallback_fn(x_cand, num_arms)
     y_obs_array = np.asarray(y_obs_list, dtype=float)
     if y_obs_array.size == 0:
         return fallback_fn(x_cand, num_arms)
-    y = y_obs_array.reshape(-1, 1)
+
+    mu_y, sigma_y = standardize_y(y_obs_array)
+    y_standardized = (y_obs_array - mu_y) / sigma_y
+
+    y = y_standardized.reshape(-1, 1)
     yvar = np.zeros_like(y, dtype=float)
     x_obs_array = np.asarray(x_obs_list, dtype=float)
     enn_model = EpistemicNearestNeighbors(
@@ -42,44 +48,17 @@ def select_enn_pareto(
     )
     if len(enn_model) == 0:
         return fallback_fn(x_cand, num_arms)
-    if k is None:
-        from .fit import enn_fit
 
-        n_obs = len(enn_model)
-        if n_obs < 3:
-            return fallback_fn(x_cand, num_arms)
-        best_params = enn_fit(
-            enn_model,
-            num_fit_candidates=100,
-            num_fit_samples=100,
-            rng=rng,
-        )
-        k = best_params.k
-        var_scale = best_params.var_scale
+    if k is None:
+        k = 10
+
     params = ENNParams(k=k, var_scale=var_scale)
     posterior = enn_model.posterior(x_cand, params=params)
     mu = posterior.mu[:, 0]
     se = posterior.se[:, 0]
-    remaining_idx = np.arange(mu.size, dtype=int)
-    chosen_list = []
-    while len(chosen_list) < num_arms and remaining_idx.size > 0:
-        mu_remaining = mu[remaining_idx]
-        se_remaining = se[remaining_idx]
-        mask = pareto_front(mu_remaining, se_remaining)
-        idx_front = np.sort(remaining_idx[mask])
-        if idx_front.size == 0:
-            break
-        needed = num_arms - len(chosen_list)
-        if idx_front.size <= needed:
-            chosen_list.extend(idx_front.tolist())
-        else:
-            selected = rng.choice(idx_front, size=needed, replace=False)
-            chosen_list.extend(selected.tolist())
-        remaining_idx = remaining_idx[~mask]
-    if len(chosen_list) == 0:
-        return fallback_fn(x_cand, num_arms)
-    chosen = np.asarray(chosen_list[:num_arms], dtype=int)
-    return from_unit_fn(x_cand[chosen])
+
+    x_arms = arms_from_pareto_fronts(x_cand, mu, se, num_arms, rng)
+    return from_unit_fn(x_arms)
 
 
 def select_uniform(

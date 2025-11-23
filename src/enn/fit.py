@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .turbo_utils import standardize_y
+
 
 def subsample_loglik(
     model,
@@ -48,9 +50,7 @@ def subsample_loglik(
         P_actual,
     ):
         raise ValueError((mu_batch.shape, se_batch.shape, (num_params, P_actual)))
-    y_std = float(np.std(y))
-    if not np.isfinite(y_std) or y_std <= 0.0:
-        y_std = 1.0
+    _, y_std = standardize_y(y)
     y_scaled = y_selected / y_std
     mu_scaled = mu_batch / y_std
     se_scaled = se_batch / y_std
