@@ -1,0 +1,34 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+
+  # Forbid committing binary files and run custom checks
+  - repo: local
+    hooks:
+      - id: forbid-binary
+        name: Forbid committing binary files
+        entry: bash -c 'echo \"Binary files are not allowed in this repository.\"; exit 1'
+        language: system
+        types: [binary]
+
+      - id: find-forgotten-py
+        name: Find forgotten Python files via git status
+        entry: admin/find_forgotten_py.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+  # Linting, formatting, and import sorting via Ruff
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.0
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format

@@ -92,7 +92,7 @@ def select_gp_thompson(
     model: Optional["TurboGP"] = None,
     new_gp_y_mean: Optional[float] = None,
     new_gp_y_std: Optional[float] = None,
-) -> tuple[np.ndarray, float, float]:
+) -> tuple[np.ndarray, float, float, TurboGP | None]:
     import contextlib
 
     import gpytorch
