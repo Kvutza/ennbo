@@ -91,15 +91,13 @@ def fit_gp(
 def latin_hypercube(num_points: int, num_dim: int, *, rng) -> np.ndarray:
     import numpy as np
 
-    cut = np.linspace(0.0, 1.0, num_points + 1)
-    a = cut[:num_points]
-    b = cut[1 : num_points + 1]
-    rdpoints = np.zeros((num_points, num_dim))
+    x = np.zeros((num_points, num_dim))
+    centers = (1.0 + 2.0 * np.arange(0.0, num_points)) / float(2 * num_points)
     for j in range(num_dim):
-        u = rng.uniform(size=num_points)
-        rdpoints[:, j] = u * (b - a) + a
-        rng.shuffle(rdpoints[:, j])
-    return rdpoints
+        x[:, j] = centers[rng.permutation(num_points)]
+    pert = rng.uniform(-1.0, 1.0, size=(num_points, num_dim)) / float(2 * num_points)
+    x += pert
+    return x
 
 
 def argmax_random_tie(values, *, rng) -> int:
