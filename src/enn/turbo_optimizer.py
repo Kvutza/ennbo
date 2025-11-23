@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from .turbo_utils import argmax_random_tie, fit_gp, latin_hypercube, pareto_front
+from .proposal import select_enn_pareto, select_gp_thompson, select_uniform
+from .turbo_utils import argmax_random_tie, from_unit, latin_hypercube, raasp, to_unit
 
 if TYPE_CHECKING:
-    from .core import EpistemicNearestNeighbors
+    import numpy as np
+
     from .turbo_mode import TurboMode
 
 
@@ -19,14 +21,15 @@ class TurboOptimizer:
         num_candidates: Optional[int] = None,
         rng,
         hnsw_threshold: Optional[int] = None,
-        num_fit_samples: int = 100,
-        num_fit_candidates: int = 30,
-        k: int = 10,
+        k: Optional[int] = None,
+        var_scale: float = 1.0,
+        trailing_obs: Optional[int] = None,
+        num_init: Optional[int] = None,
     ) -> None:
         import numpy as np
         from scipy.stats import qmc
 
-        from .trust_region_state import _TrustRegionState
+        from .trust_region_state import TrustRegionState
 
         if bounds.ndim != 2 or bounds.shape[1] != 2:
             raise ValueError(bounds.shape)
@@ -37,7 +40,7 @@ class TurboOptimizer:
         if tr_num_arms <= 0:
             raise ValueError(tr_num_arms)
         if num_candidates is None:
-            num_candidates = 100 * self._num_dim
+            num_candidates = min(10000, 100 * self._num_dim)
         self._num_candidates = int(num_candidates)
         if self._num_candidates <= 0:
             raise ValueError(self._num_candidates)
@@ -46,18 +49,48 @@ class TurboOptimizer:
         self._sobol_engine = qmc.Sobol(d=self._num_dim, scramble=True, seed=sobol_seed)
         self._x_obs_list: list = []
         self._y_obs_list: list = []
-        self._tr_state = _TrustRegionState(num_dim=self._num_dim, num_arms=tr_num_arms)
+        from .turbo_mode import TurboMode
+
+        if mode == TurboMode.TURBO_ONE:
+            self._x_tr_list: list = []
+            self._y_tr_list: list = []
+        else:
+            self._x_tr_list = None
+            self._y_tr_list = None
+        self._tr_state = TrustRegionState(num_dim=self._num_dim, num_arms=tr_num_arms)
         self._gp_y_mean: float = 0.0
         self._gp_y_std: float = 1.0
         self._gp_num_steps: int = 50
-        self._enn_model: EpistemicNearestNeighbors | None = None
         self._hnsw_threshold = hnsw_threshold
-        self._num_fit_samples = num_fit_samples
-        self._num_fit_candidates = num_fit_candidates
-        k_val = int(k)
-        if k_val < 3:
-            raise ValueError(f"k must be >= 3, got {k_val}")
-        self._k = k_val
+        if k is not None:
+            k_val = int(k)
+            if k_val < 3:
+                raise ValueError(f"k must be >= 3, got {k_val}")
+            self._k = k_val
+        else:
+            self._k = None
+        var_scale_val = float(var_scale)
+        if var_scale_val <= 0.0:
+            raise ValueError(f"var_scale must be > 0, got {var_scale_val}")
+        self._var_scale = var_scale_val
+        if trailing_obs is not None:
+            trailing_obs_val = int(trailing_obs)
+            if trailing_obs_val <= 0:
+                raise ValueError(f"trailing_obs must be > 0, got {trailing_obs_val}")
+            self._trailing_obs = trailing_obs_val
+        else:
+            self._trailing_obs = None
+        if num_init is None:
+            num_init = 2 * self._num_dim
+        num_init_val = int(num_init)
+        if num_init_val <= 0:
+            raise ValueError(f"num_init must be > 0, got {num_init_val}")
+        self._num_init = num_init_val
+        self._init_lhd = from_unit(
+            latin_hypercube(self._num_init, self._num_dim, rng=self._rng),
+            self._bounds,
+        )
+        self._init_idx = 0
 
     @property
     def num_dim(self) -> int:
@@ -67,33 +100,121 @@ class TurboOptimizer:
     def mode(self) -> TurboMode:
         return self._mode
 
-    def ask(self, num_arms: int) -> object:
+    def ask(self, num_arms: int) -> np.ndarray:
         from .turbo_mode import TurboMode
 
         num_arms = int(num_arms)
         if num_arms <= 0:
             raise ValueError(num_arms)
+        if self._mode == TurboMode.LHD_ONLY:
+            return self._draw_initial(num_arms)
+        if (
+            self._mode == TurboMode.TURBO_ONE
+            and self._x_tr_list is not None
+            and len(self._x_tr_list) == 0
+        ):
+            return self._get_init_lhd_points(num_arms)
+        if self._init_idx < self._num_init:
+            if len(self._x_obs_list) == 0:
+                fallback_fn = None
+            else:
+                fallback_fn = self._ask_normal
+            return self._get_init_lhd_points(num_arms, fallback_fn=fallback_fn)
         if len(self._x_obs_list) == 0:
             return self._draw_initial(num_arms)
+        return self._ask_normal(num_arms)
+
+    def _ask_normal(self, num_arms: int) -> np.ndarray:
+        from .turbo_mode import TurboMode
+
         if self._tr_state.needs_restart():
             self._tr_state.restart()
-        x_center = self._best_x()[None, :]
-        lb_local, ub_local = self._tr_state.create_bounds(x_center)
+            if self._mode == TurboMode.TURBO_ONE:
+                self._x_tr_list.clear()
+                self._y_tr_list.clear()
+                self._init_idx = 0
+                self._init_lhd = from_unit(
+                    latin_hypercube(self._num_init, self._num_dim, rng=self._rng),
+                    self._bounds,
+                )
+                return self._get_init_lhd_points(num_arms)
+        x_center = self._best_x()
+        x_center_2d = x_center[None, :]
+        lb_local, ub_local = self._tr_state.create_bounds(x_center_2d)
         lb_local = lb_local[0]
         ub_local = ub_local[0]
-        x_cand = self._sample_candidates(lb_local, ub_local, self._num_candidates)
+        x_cand = raasp(
+            x_center,
+            lb_local,
+            ub_local,
+            self._num_candidates,
+            num_pert=20,
+            rng=self._rng,
+            sobol_engine=self._sobol_engine,
+        )
+
+        def from_unit_fn(x):
+            return from_unit(x, self._bounds)
+
+        if self._trailing_obs is not None:
+            x_obs_slice = self._x_obs_list[-self._trailing_obs :]
+            y_obs_slice = self._y_obs_list[-self._trailing_obs :]
+        else:
+            x_obs_slice = self._x_obs_list
+            y_obs_slice = self._y_obs_list
+
         if self._mode == TurboMode.TURBO_ZERO:
-            return self._select_sobol(x_cand, num_arms)
+            return select_uniform(
+                x_cand,
+                num_arms,
+                self._num_dim,
+                self._rng,
+                from_unit_fn,
+            )
         if self._mode == TurboMode.TURBO_ONE:
-            return self._select_gp_thompson(x_cand, num_arms)
+            if len(self._x_tr_list) == 0:
+                return self._get_init_lhd_points(num_arms)
+            if self._trailing_obs is not None:
+                x_tr_slice = self._x_tr_list[-self._trailing_obs :]
+                y_tr_slice = self._y_tr_list[-self._trailing_obs :]
+            else:
+                x_tr_slice = self._x_tr_list
+                y_tr_slice = self._y_tr_list
+            selected, self._gp_y_mean, self._gp_y_std = select_gp_thompson(
+                x_cand,
+                num_arms,
+                x_tr_slice,
+                y_tr_slice,
+                self._num_dim,
+                self._gp_num_steps,
+                self._rng,
+                self._gp_y_mean,
+                self._gp_y_std,
+                lambda x, n: select_uniform(
+                    x, n, self._num_dim, self._rng, from_unit_fn
+                ),
+                from_unit_fn,
+            )
+            return selected
         if self._mode == TurboMode.TURBO_ENN:
-            return self._select_enn_pareto(x_cand, num_arms)
+            return select_enn_pareto(
+                x_cand,
+                num_arms,
+                x_obs_slice,
+                y_obs_slice,
+                self._k,
+                self._var_scale,
+                self._hnsw_threshold,
+                self._rng,
+                lambda x, n: select_uniform(
+                    x, n, self._num_dim, self._rng, from_unit_fn
+                ),
+                from_unit_fn,
+            )
         raise RuntimeError(self._mode)
 
     def tell(self, x, y) -> None:
         import numpy as np
-
-        from .turbo_mode import TurboMode
 
         x = np.asarray(x, dtype=float)
         y = np.asarray(y, dtype=float)
@@ -103,19 +224,35 @@ class TurboOptimizer:
             raise ValueError((x.shape, y.shape))
         if x.shape[0] == 0:
             return
-        x_unit = self._to_unit(x)
+        x_unit = to_unit(x, self._bounds)
         self._x_obs_list.extend(x_unit.tolist())
         self._y_obs_list.extend(y.tolist())
+        if self._x_tr_list is not None:
+            self._x_tr_list.extend(x_unit.tolist())
+            self._y_tr_list.extend(y.tolist())
         y_obs_array = np.asarray(self._y_obs_list, dtype=float)
         self._tr_state.update(y_obs_array)
-        if self._mode == TurboMode.TURBO_ENN:
-            self._update_enn_model()
 
-    def _draw_initial(self, num_arms: int) -> object:
+    def _draw_initial(self, num_arms: int) -> np.ndarray:
         unit = latin_hypercube(num_arms, self._num_dim, rng=self._rng)
-        return self._from_unit(unit)
+        return from_unit(unit, self._bounds)
 
-    def _best_x(self) -> object:
+    def _get_init_lhd_points(self, num_arms: int, fallback_fn=None) -> np.ndarray:
+        import numpy as np
+
+        remaining_init = self._num_init - self._init_idx
+        num_to_return = min(num_arms, remaining_init)
+        result = self._init_lhd[self._init_idx : self._init_idx + num_to_return]
+        self._init_idx += num_to_return
+        if num_to_return < num_arms:
+            remaining = num_arms - num_to_return
+            if fallback_fn is not None:
+                result = np.vstack([result, fallback_fn(remaining)])
+            else:
+                result = np.vstack([result, self._draw_initial(remaining)])
+        return result
+
+    def _best_x(self) -> np.ndarray:
         import numpy as np
 
         y_obs_array = np.asarray(self._y_obs_list, dtype=float)
@@ -124,124 +261,3 @@ class TurboOptimizer:
         idx = argmax_random_tie(y_obs_array, rng=self._rng)
         x_obs_array = np.asarray(self._x_obs_list, dtype=float)
         return x_obs_array[idx]
-
-    def _to_unit(self, x) -> object:
-        import numpy as np
-
-        lb = self._bounds[:, 0]
-        ub = self._bounds[:, 1]
-        if np.any(ub <= lb):
-            raise ValueError(self._bounds)
-        return (x - lb) / (ub - lb)
-
-    def _from_unit(self, x_unit) -> object:
-        lb = self._bounds[:, 0]
-        ub = self._bounds[:, 1]
-        return lb + x_unit * (ub - lb)
-
-    def _sample_candidates(self, lb, ub, num_candidates: int) -> object:
-        unit = self._sobol_engine.random(num_candidates)
-        return lb + unit * (ub - lb)
-
-    def _select_sobol(self, x_cand, num_arms: int) -> object:
-        if x_cand.ndim != 2 or x_cand.shape[1] != self._num_dim:
-            raise ValueError(x_cand.shape)
-        if x_cand.shape[0] < num_arms:
-            raise ValueError((x_cand.shape[0], num_arms))
-        idx = self._rng.choice(x_cand.shape[0], size=num_arms, replace=False)
-        return self._from_unit(x_cand[idx])
-
-    def _select_gp_thompson(self, x_cand, num_arms: int) -> object:
-        import gpytorch
-        import numpy as np
-        import torch
-
-        if len(self._x_obs_list) == 0:
-            return self._select_sobol(x_cand, num_arms)
-        model, _likelihood, self._gp_y_mean, self._gp_y_std = fit_gp(
-            self._x_obs_list,
-            self._y_obs_list,
-            self._num_dim,
-            num_steps=self._gp_num_steps,
-        )
-        if model is None:
-            return self._select_sobol(x_cand, num_arms)
-        x_torch = torch.as_tensor(x_cand, dtype=torch.float32)
-        seed = int(self._rng.integers(2**31 - 1))
-        with torch.no_grad(), gpytorch.settings.fast_pred_var():
-            gen = torch.Generator(device=x_torch.device)
-            gen.manual_seed(seed)
-            old_state = torch.get_rng_state()
-            torch.set_rng_state(gen.get_state())
-            posterior = model.posterior(x_torch)
-            samples = posterior.sample(
-                sample_shape=torch.Size([1]),
-            )
-            torch.set_rng_state(old_state)
-        ts = samples[0].reshape(-1)
-        scores = ts.detach().cpu().numpy().reshape(-1)
-        scores = self._gp_y_mean + self._gp_y_std * scores
-        if x_cand.shape[0] < num_arms:
-            raise ValueError((x_cand.shape[0], num_arms))
-        idx = np.argpartition(-scores, num_arms - 1)[:num_arms]
-        return self._from_unit(x_cand[idx])
-
-    def _update_enn_model(self) -> None:
-        import numpy as np
-
-        from .core import EpistemicNearestNeighbors
-
-        y_obs_array = np.asarray(self._y_obs_list, dtype=float)
-        if y_obs_array.size == 0:
-            self._enn_model = None
-            return
-        y = y_obs_array.reshape(-1, 1)
-        yvar = np.zeros_like(y, dtype=float)
-        x_obs_array = np.asarray(self._x_obs_list, dtype=float)
-        self._enn_model = EpistemicNearestNeighbors(
-            x_obs_array,
-            y,
-            yvar,
-            hnsw_threshold=self._hnsw_threshold,
-        )
-
-    def _select_enn_pareto(self, x_cand, num_arms: int) -> object:
-        import numpy as np
-
-        from .enn_params import ENNParams
-        from .fit import enn_fit
-
-        if self._enn_model is None or len(self._enn_model) == 0:
-            return self._select_sobol(x_cand, num_arms)
-        result = enn_fit(
-            self._enn_model,
-            k=self._k,
-            num_fit_candidates=self._num_fit_candidates,
-            num_fit_samples=self._num_fit_samples,
-            rng=self._rng,
-        )
-        var_scale = float(result["var_scale"])
-        params = ENNParams(k=self._k, var_scale=var_scale)
-        posterior = self._enn_model.posterior(x_cand, params=params)
-        mu = posterior.mu[:, 0]
-        se = posterior.se[:, 0]
-        remaining_idx = np.arange(mu.size, dtype=int)
-        chosen_list = []
-        while len(chosen_list) < num_arms and remaining_idx.size > 0:
-            mu_remaining = mu[remaining_idx]
-            se_remaining = se[remaining_idx]
-            mask = pareto_front(mu_remaining, se_remaining)
-            idx_front = np.sort(remaining_idx[mask])
-            if idx_front.size == 0:
-                break
-            needed = num_arms - len(chosen_list)
-            if idx_front.size <= needed:
-                chosen_list.extend(idx_front.tolist())
-            else:
-                selected = self._rng.choice(idx_front, size=needed, replace=False)
-                chosen_list.extend(selected.tolist())
-            remaining_idx = remaining_idx[~mask]
-        if len(chosen_list) == 0:
-            return self._select_sobol(x_cand, num_arms)
-        chosen = np.asarray(chosen_list[:num_arms], dtype=int)
-        return self._from_unit(x_cand[chosen])

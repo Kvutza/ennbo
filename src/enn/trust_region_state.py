@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class _TrustRegionState:
+class TrustRegionState:
     num_dim: int
     num_arms: int
     length: float = 0.8

@@ -3,12 +3,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    pass
-
-from gpytorch.models import ExactGP
+    from gpytorch.distributions import MultivariateNormal
 
 
-class TurboGP(ExactGP):
+def _get_exact_gp_base():
+    from gpytorch.models import ExactGP
+
+    return ExactGP
+
+
+class TurboGP(_get_exact_gp_base()):
     def __init__(
         self,
         train_x,
@@ -33,12 +37,12 @@ class TurboGP(ExactGP):
             outputscale_constraint=outputscale_constraint,
         )
 
-    def forward(self, x) -> object:
+    def forward(self, x) -> MultivariateNormal:
         from gpytorch.distributions import MultivariateNormal
 
         mean_x = self.mean_module(x)
         covar_x = self.covar_module(x)
         return MultivariateNormal(mean_x, covar_x)
 
-    def posterior(self, x) -> object:
+    def posterior(self, x) -> MultivariateNormal:
         return self(x)

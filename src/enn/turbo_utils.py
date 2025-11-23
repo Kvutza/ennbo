@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import numpy as np
     from gpytorch.likelihoods import GaussianLikelihood
 
     from .turbo_gp import TurboGP
@@ -74,7 +75,7 @@ def fit_gp(
     return model, likelihood, gp_y_mean, gp_y_std
 
 
-def latin_hypercube(num_points: int, num_dim: int, *, rng) -> object:
+def latin_hypercube(num_points: int, num_dim: int, *, rng) -> np.ndarray:
     import numpy as np
 
     cut = np.linspace(0.0, 1.0, num_points + 1)
@@ -103,7 +104,7 @@ def argmax_random_tie(values, *, rng) -> int:
     return int(idx[j])
 
 
-def pareto_front(mu, se) -> object:
+def pareto_front(mu, se) -> np.ndarray:
     import numpy as np
 
     if mu.shape != se.shape or mu.ndim != 1:
@@ -123,3 +124,54 @@ def pareto_front(mu, se) -> object:
     is_pareto = np.zeros_like(is_pareto_sorted, dtype=bool)
     is_pareto[order] = is_pareto_sorted
     return is_pareto
+
+
+def sobol_perturb_np(
+    x_center, lb, ub, num_candidates, mask, *, sobol_engine
+) -> np.ndarray:
+    import numpy as np
+
+    num_dim = x_center.shape[-1]
+    sobol_samples = sobol_engine.random(num_candidates)
+    lb_array = np.asarray(lb)
+    ub_array = np.asarray(ub)
+    pert = lb_array + (ub_array - lb_array) * sobol_samples
+    candidates = np.tile(x_center, (num_candidates, 1))
+    if np.any(mask):
+        alpha = np.ones((num_candidates, num_dim))
+        candidates[mask] = candidates[mask] + alpha[mask] * (
+            pert[mask] - candidates[mask]
+        )
+    return candidates
+
+
+def raasp(
+    x_center, lb, ub, num_candidates, *, num_pert: int = 20, rng, sobol_engine
+) -> np.ndarray:
+    import numpy as np
+
+    num_dim = x_center.shape[-1]
+    prob_perturb = min(num_pert / num_dim, 1.0)
+    mask = rng.random((num_candidates, num_dim)) <= prob_perturb
+    ind = np.where(np.sum(mask, axis=1) == 0)[0]
+    if len(ind) > 0:
+        mask[ind, rng.integers(0, num_dim, size=len(ind))] = True
+    return sobol_perturb_np(
+        x_center, lb, ub, num_candidates, mask, sobol_engine=sobol_engine
+    )
+
+
+def to_unit(x, bounds) -> np.ndarray:
+    import numpy as np
+
+    lb = bounds[:, 0]
+    ub = bounds[:, 1]
+    if np.any(ub <= lb):
+        raise ValueError(bounds)
+    return (x - lb) / (ub - lb)
+
+
+def from_unit(x_unit, bounds) -> np.ndarray:
+    lb = bounds[:, 0]
+    ub = bounds[:, 1]
+    return lb + x_unit * (ub - lb)
