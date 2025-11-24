@@ -6,7 +6,7 @@ A fast, alternative surrogate for Bayesian optimization
 	- `TURBO_ONE` - A clone of the TuRBO [2] reference [code](https://github.com/uber-research/TuRBO), reworked to have an `ask()`/`tell()` interface.
 	- `TURBO_ENN` - Same as TURBO_ONE, except uses ENN instead of GP and Pareto(mu, se) instead of Thompson sampling.
 	- `TURBO_ZERO` - Same as TURBO_ONE, except randomly-chosen RAASP [3] candidates are picked to be proposals. There is no surrogate.
-	- `LHD_ONLY` - Just creates an LHD design for every `ask()`. Good for a baseline and testing.
+	- `LHD_ONLY` - Just creates an LHD design for every `ask()`. Good for a baseline and for testing.
 
 [1] **Sweet, D., & Jadhav, S. A. (2025).** Taking the GP Out of the Loop. *arXiv preprint arXiv:2506.12818*.  
    https://arxiv.org/abs/2506.12818  
