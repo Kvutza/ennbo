@@ -114,6 +114,54 @@ def test_turbo_optimizer_with_trailing_obs():
         assert x_final.shape == (2, 2)
 
 
+def test_trailing_obs_includes_incumbent():
+    import numpy as np
+
+    from enn.turbo_mode import TurboMode
+    from enn.turbo_optimizer import TurboOptimizer
+
+    bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
+    rng = np.random.default_rng(123)
+
+    for mode in [TurboMode.TURBO_ONE, TurboMode.TURBO_ENN]:
+        opt = TurboOptimizer(
+            bounds=bounds,
+            mode=mode,
+            num_arms=2,
+            rng=rng,
+            trailing_obs=5,
+        )
+        # Add many observations, with the best one early
+        # Use values that won't trigger a restart
+        for i in range(15):
+            x = opt.ask(num_arms=2)
+            # Make the first observation the best one
+            if i == 0:
+                y = np.array([10.0, 9.0])  # High values
+            else:
+                # Use values that are worse but not too much worse to avoid restart
+                y = np.array([5.0 - i * 0.1, 4.0 - i * 0.1])
+            opt.tell(x, y)
+
+        # Verify the lists are actually trimmed to trailing_obs length
+        assert len(opt._y_tr_list) <= 5, "Lists should be trimmed to trailing_obs"
+        assert len(opt._x_tr_list) <= 5, "Lists should be trimmed to trailing_obs"
+        assert len(opt._y_tr_list) == 5, "Should have exactly trailing_obs observations"
+
+        # Verify that the incumbent (best observation) is still in the trimmed lists
+        y_tr_array = np.asarray(opt._y_tr_list, dtype=float)
+        incumbent_idx = np.argmax(y_tr_array)
+        best_y = y_tr_array[incumbent_idx]
+        assert best_y == 10.0, "Incumbent should be preserved in trimmed list"
+
+        # Verify the optimizer still works correctly with trimmed lists
+        x_new = opt.ask(num_arms=2)
+        assert x_new.shape == (2, 2)
+
+        # Verify lists are still trimmed after asking
+        assert len(opt._y_tr_list) <= 5, "Lists should remain trimmed"
+
+
 def test_latin_hypercube_stratification_and_bounds():
     import numpy as np
 

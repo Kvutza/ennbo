@@ -159,12 +159,8 @@ class TurboOptimizer:
         if self._mode == TurboMode.TURBO_ONE or self._mode == TurboMode.TURBO_ENN:
             if len(self._x_tr_list) == 0:
                 return self._get_init_lhd_points(num_arms)
-            if self._trailing_obs is not None:
-                x_tr_slice = self._x_tr_list[-self._trailing_obs :]
-                y_tr_slice = self._y_tr_list[-self._trailing_obs :]
-            else:
-                x_tr_slice = self._x_tr_list
-                y_tr_slice = self._y_tr_list
+            x_tr_slice = self._x_tr_list
+            y_tr_slice = self._y_tr_list
 
             if self._mode == TurboMode.TURBO_ONE:
                 import numpy as np
@@ -243,6 +239,35 @@ class TurboOptimizer:
             )
         raise RuntimeError(self._mode)
 
+    def _trim_trailing_obs(self) -> None:
+        import numpy as np
+
+        from .turbo_utils import argmax_random_tie
+
+        if len(self._x_tr_list) <= self._trailing_obs:
+            return
+        y_tr_array = np.asarray(self._y_tr_list, dtype=float)
+        incumbent_idx = argmax_random_tie(y_tr_array, rng=self._rng)
+        num_total = len(self._x_tr_list)
+        start_idx = max(0, num_total - self._trailing_obs)
+        if incumbent_idx < start_idx:
+            indices = np.array(
+                [incumbent_idx]
+                + list(range(num_total - (self._trailing_obs - 1), num_total)),
+                dtype=int,
+            )
+        else:
+            indices = np.arange(start_idx, num_total, dtype=int)
+        assert incumbent_idx in indices, "Incumbent must be included in trimmed list"
+        x_tr_array = np.asarray(self._x_tr_list, dtype=float)
+        incumbent_value = y_tr_array[incumbent_idx]
+        self._x_tr_list = x_tr_array[indices].tolist()
+        self._y_tr_list = y_tr_array[indices].tolist()
+        y_tr_trimmed = np.asarray(self._y_tr_list, dtype=float)
+        assert np.any(
+            np.abs(y_tr_trimmed - incumbent_value) < 1e-10
+        ), "Incumbent value must be preserved in trimmed list"
+
     def _append_observations(self, x, y) -> None:
         import numpy as np
 
@@ -260,6 +285,8 @@ class TurboOptimizer:
         if self._x_tr_list is not None:
             self._x_tr_list.extend(x_unit.tolist())
             self._y_tr_list.extend(y.tolist())
+            if self._trailing_obs is not None:
+                self._trim_trailing_obs()
         y_obs_array = np.asarray(self._y_obs_list, dtype=float)
         self._tr_state.update(y_obs_array)
 
