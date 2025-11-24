@@ -1,5 +1,5 @@
-# enn
-Epistemic Nearest Neighbors
+# Epistemic Nearest Neighbors
+A fast, alternative surrogate for Bayesian optimization
 
 - ENN model, `EpistemicNearestNeighbors` [1]
 - TuRBO-ENN optimizer, class `Turbo` has four modes
