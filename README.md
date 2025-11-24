@@ -1,7 +1,7 @@
 # Epistemic Nearest Neighbors
 A fast, alternative surrogate for Bayesian optimization
 
-ENN estimates a function's value and associated epistemic uncertainty using a K-Nearest Neighbors model. Queries take $O(N \lnK)$ time, where $N$ is the number of observations available for KNN lookups. Compare to an exact GP, which takes $O(N^2)$ time. Additionally, measured running times are very small compared to GPs and other alternative surrogates. [1]
+ENN estimates a function's value and associated epistemic uncertainty using a K-Nearest Neighbors model. Queries take $O(N lnK)$ time, where $N$ is the number of observations available for KNN lookups. Compare to an exact GP, which takes $O(N^2)$ time. Additionally, measured running times are very small compared to GPs and other alternative surrogates. [1]
 
 ## Contents
 - ENN model, [`EpistemicNearestNeighbors`](https://github.com/yubo-research/enn/blob/main/src/enn/core.py) [1]
