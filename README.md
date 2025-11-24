@@ -1,7 +1,7 @@
 # Epistemic Nearest Neighbors
 A fast, alternative surrogate for Bayesian optimization
 
-- ENN model, `EpistemicNearestNeighbors` [1]
+- ENN model, [`EpistemicNearestNeighbors`](https://github.com/yubo-research/enn/blob/main/src/enn/core.py) [1]
 - TuRBO-ENN optimizer, class `Turbo` has four modes
 	- `TURBO_ONE` - A clone of the TuRBO [2] reference [code](https://github.com/uber-research/TuRBO), reworked to have an `ask()`/`tell()` interface.
 	- `TURBO_ENN` - Same as TURBO_ONE, except uses ENN instead of GP and Pareto(mu, se) instead of Thompson sampling.
