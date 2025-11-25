@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import numpy as np
 
+    from .enn_normal import ENNNormal
     from .enn_params import ENNParams
 
 
 class EpistemicNearestNeighbors:
     def __init__(
         self,
-        train_x,
-        train_y,
-        train_yvar,
-        hnsw_threshold: int | None = None,
-        hnsw_M: int = 32,
+        train_x: np.ndarray | Any,
+        train_y: np.ndarray | Any,
+        train_yvar: np.ndarray | Any,
+        sobol_indices: bool = False,
     ) -> None:
         import numpy as np
 
@@ -31,16 +31,13 @@ class EpistemicNearestNeighbors:
         self._num_obs, self._num_dim = self._train_x.shape
         _, self._num_metrics = self._train_y.shape
         self._eps_var = 1e-9
-        self._x_scale = np.std(self._train_x, axis=0).astype(float)
-        self._x_scale = np.maximum(self._x_scale, 1e-6)
+        self._x_scale = self._calc_x_scale(sobol_indices)
         if len(self._train_y) < 2:
             self._y_scale = np.ones(shape=(1, self._num_metrics), dtype=float)
         else:
             self._y_scale = np.std(self._train_y, axis=0, keepdims=True).astype(float)
 
-        self._index = None
-        self._hnsw_threshold = hnsw_threshold
-        self._hnsw_M = int(hnsw_M)
+        self._index: Any | None = None
         self._build_index()
 
     @property
@@ -62,6 +59,26 @@ class EpistemicNearestNeighbors:
     def __len__(self) -> int:
         return self._num_obs
 
+    def _calc_x_scale(self, sobol_indices: bool) -> np.ndarray:
+        import numpy as np
+
+        s = np.std(self._train_x, axis=0, ddof=0).astype(float)
+        s = np.maximum(s, 1e-6)
+        if sobol_indices:
+            from .enn_util import calculate_sobol_indices
+
+            if self._num_metrics != 1:
+                raise ValueError(
+                    "sobol_indices=True requires train_y to have exactly 1 metric"
+                )
+            si = calculate_sobol_indices(self._train_x, self._train_y[:, 0])
+            w = si / s
+            w_sum = np.maximum(w.sum(), 1e-12)
+            w = w / w_sum
+            return s / w
+        else:
+            return s
+
     def _build_index(self) -> None:
         import faiss
         import numpy as np
@@ -70,20 +87,17 @@ class EpistemicNearestNeighbors:
             return
         x_scaled = self._train_x / self._x_scale
         x_scaled = x_scaled.astype(np.float32, copy=False)
-        if self._hnsw_threshold is not None and self._num_obs >= self._hnsw_threshold:
-            index = faiss.IndexHNSWFlat(self._num_dim, self._hnsw_M)
-        else:
-            index = faiss.IndexFlatL2(self._num_dim)
+        index = faiss.IndexFlatL2(self._num_dim)
         index.add(x_scaled)
         self._index = index
 
     def posterior(
         self,
-        x,
+        x: np.ndarray | Any,
         *,
         params: ENNParams,
         exclude_nearest: bool = False,
-    ):
+    ) -> ENNNormal:
         from .enn_normal import ENNNormal
 
         post_batch = self.batch_posterior(x, [params], exclude_nearest=exclude_nearest)
@@ -93,11 +107,11 @@ class EpistemicNearestNeighbors:
 
     def batch_posterior(
         self,
-        x,
+        x: np.ndarray | Any,
         paramss: list[ENNParams],
         *,
         exclude_nearest: bool = False,
-    ):
+    ) -> ENNNormal:
         import numpy as np
 
         from .enn_normal import ENNNormal

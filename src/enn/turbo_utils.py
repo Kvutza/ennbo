@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import numpy as np
     from gpytorch.likelihoods import GaussianLikelihood
+    from numpy.random import Generator
+    from scipy.stats._qmc import QMCEngine
 
     from .turbo_gp import TurboGP
 
 
-def standardize_y(y) -> tuple[float, float]:
+def standardize_y(y: np.ndarray | list[float] | Any) -> tuple[float, float]:
     import numpy as np
 
     y_array = np.asarray(y, dtype=float)
@@ -21,8 +23,8 @@ def standardize_y(y) -> tuple[float, float]:
 
 
 def fit_gp(
-    x_obs_list: list,
-    y_obs_list: list,
+    x_obs_list: list[float] | list[list[float]],
+    y_obs_list: list[float] | list[list[float]],
     num_dim: int,
     *,
     num_steps: int = 50,
@@ -88,7 +90,9 @@ def fit_gp(
     return model, likelihood, gp_y_mean, gp_y_std
 
 
-def latin_hypercube(num_points: int, num_dim: int, *, rng) -> np.ndarray:
+def latin_hypercube(
+    num_points: int, num_dim: int, *, rng: Generator | Any
+) -> np.ndarray:
     import numpy as np
 
     x = np.zeros((num_points, num_dim))
@@ -100,7 +104,7 @@ def latin_hypercube(num_points: int, num_dim: int, *, rng) -> np.ndarray:
     return x
 
 
-def argmax_random_tie(values, *, rng) -> int:
+def argmax_random_tie(values: np.ndarray | Any, *, rng: Generator | Any) -> int:
     import numpy as np
 
     if values.ndim != 1:
@@ -115,7 +119,7 @@ def argmax_random_tie(values, *, rng) -> int:
     return int(idx[j])
 
 
-def pareto_front(mu, se) -> np.ndarray:
+def pareto_front(mu: np.ndarray | Any, se: np.ndarray | Any) -> np.ndarray:
     import numpy as np
 
     if mu.shape != se.shape or mu.ndim != 1:
@@ -137,48 +141,14 @@ def pareto_front(mu, se) -> np.ndarray:
     return is_pareto
 
 
-def arms_from_pareto_fronts(x_cand, mu, se, num_arms, rng) -> np.ndarray:
-    import numpy as np
-
-    if x_cand.ndim != 2:
-        raise ValueError(x_cand.shape)
-    if mu.shape != se.shape or mu.ndim != 1:
-        raise ValueError((mu.shape, se.shape))
-    if mu.size != x_cand.shape[0]:
-        raise ValueError((mu.size, x_cand.shape[0]))
-
-    mu_neg = -mu
-
-    i = np.argsort(mu_neg)
-    x_cand_sorted = x_cand[i]
-    se_sorted = se[i]
-
-    i_all = list(range(len(se_sorted)))
-    i_keep = []
-
-    while len(i_keep) < num_arms:
-        se_max = float("-inf")
-        i_front = []
-        for idx in i_all:
-            if se_sorted[idx] >= se_max:
-                i_front.append(idx)
-                se_max = se_sorted[idx]
-        if len(i_keep) + len(i_front) <= num_arms:
-            i_keep.extend(i_front)
-        else:
-            i_keep.extend(
-                rng.choice(i_front, size=num_arms - len(i_keep), replace=False)
-            )
-        i_all = sorted(set(i_all) - set(i_front))
-
-    i_keep = np.array(i_keep)
-    x_arms = x_cand_sorted[i_keep]
-
-    return x_arms
-
-
 def sobol_perturb_np(
-    x_center, lb, ub, num_candidates, mask, *, sobol_engine
+    x_center: np.ndarray | Any,
+    lb: np.ndarray | list[float] | Any,
+    ub: np.ndarray | list[float] | Any,
+    num_candidates: int,
+    mask: np.ndarray | Any,
+    *,
+    sobol_engine: QMCEngine | Any,
 ) -> np.ndarray:
     import numpy as np
 
@@ -193,7 +163,14 @@ def sobol_perturb_np(
 
 
 def raasp(
-    x_center, lb, ub, num_candidates, *, num_pert: int = 20, rng, sobol_engine
+    x_center: np.ndarray | Any,
+    lb: np.ndarray | list[float] | Any,
+    ub: np.ndarray | list[float] | Any,
+    num_candidates: int,
+    *,
+    num_pert: int = 20,
+    rng: Generator | Any,
+    sobol_engine: QMCEngine | Any,
 ) -> np.ndarray:
     import numpy as np
 
@@ -208,7 +185,7 @@ def raasp(
     )
 
 
-def to_unit(x, bounds) -> np.ndarray:
+def to_unit(x: np.ndarray | Any, bounds: np.ndarray | Any) -> np.ndarray:
     import numpy as np
 
     lb = bounds[:, 0]
@@ -218,7 +195,7 @@ def to_unit(x, bounds) -> np.ndarray:
     return (x - lb) / (ub - lb)
 
 
-def from_unit(x_unit, bounds) -> np.ndarray:
+def from_unit(x_unit: np.ndarray | Any, bounds: np.ndarray | Any) -> np.ndarray:
     lb = bounds[:, 0]
     ub = bounds[:, 1]
     return lb + x_unit * (ub - lb)

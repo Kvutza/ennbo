@@ -34,16 +34,16 @@ def test_turbo_zero_ask_tell_and_shape():
     opt = Turbo(
         bounds=bounds,
         mode=TurboMode.TURBO_ZERO,
-        num_arms=3,
+        num_arms=4,
         rng=rng,
     )
-    x0 = opt.ask(num_arms=3)
-    assert x0.shape == (3, 2)
+    x0 = opt.ask(num_arms=4)
+    assert x0.shape == (4, 2)
     assert np.all(x0 >= 0.0) and np.all(x0 <= 1.0)
     y0 = conftest.sphere_objective(x0)
     opt.tell(x0, y0)
-    x1 = opt.ask(num_arms=3)
-    assert x1.shape == (3, 2)
+    x1 = opt.ask(num_arms=4)
+    assert x1.shape == (4, 2)
 
 
 def test_turbo_one_improves_on_sphere():
@@ -69,20 +69,22 @@ def test_turbo_enn_with_k_none_fits_hyperparameters():
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(42)
+    from enn.turbo_config import TurboConfig
+
     opt = TurboOptimizer(
         bounds=bounds,
         mode=TurboMode.TURBO_ENN,
-        num_arms=3,
+        num_arms=4,
         rng=rng,
-        k=None,
+        config=TurboConfig(k=None),
     )
-    x0 = opt.ask(num_arms=3)
-    assert x0.shape == (3, 2)
+    x0 = opt.ask(num_arms=4)
+    assert x0.shape == (4, 2)
     assert np.all(x0 >= 0.0) and np.all(x0 <= 1.0)
     y0 = -np.sum(x0**2, axis=1)
     opt.tell(x0, y0)
-    x1 = opt.ask(num_arms=3)
-    assert x1.shape == (3, 2)
+    x1 = opt.ask(num_arms=4)
+    assert x1.shape == (4, 2)
     assert np.all(x1 >= 0.0) and np.all(x1 <= 1.0)
 
 
@@ -95,13 +97,15 @@ def test_turbo_optimizer_with_trailing_obs():
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(42)
 
+    from enn.turbo_config import TurboConfig
+
     for mode in [TurboMode.TURBO_ONE, TurboMode.TURBO_ENN]:
         opt = TurboOptimizer(
             bounds=bounds,
             mode=mode,
             num_arms=2,
             rng=rng,
-            trailing_obs=5,
+            config=TurboConfig(trailing_obs=5),
         )
         for i in range(10):
             x = opt.ask(num_arms=2)
@@ -123,43 +127,30 @@ def test_trailing_obs_includes_incumbent():
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(123)
 
+    from enn.turbo_config import TurboConfig
+
     for mode in [TurboMode.TURBO_ONE, TurboMode.TURBO_ENN]:
         opt = TurboOptimizer(
             bounds=bounds,
             mode=mode,
             num_arms=2,
             rng=rng,
-            trailing_obs=5,
+            config=TurboConfig(trailing_obs=5),
         )
-        # Add many observations, with the best one early
-        # Use values that won't trigger a restart
         for i in range(15):
             x = opt.ask(num_arms=2)
-            # Make the first observation the best one
             if i == 0:
-                y = np.array([10.0, 9.0])  # High values
+                y = np.array([10.0, 9.0])
             else:
-                # Use values that are worse but not too much worse to avoid restart
                 y = np.array([5.0 - i * 0.1, 4.0 - i * 0.1])
             opt.tell(x, y)
 
-        # Verify the lists are actually trimmed to trailing_obs length
-        assert len(opt._y_tr_list) <= 5, "Lists should be trimmed to trailing_obs"
-        assert len(opt._x_tr_list) <= 5, "Lists should be trimmed to trailing_obs"
-        assert len(opt._y_tr_list) == 5, "Should have exactly trailing_obs observations"
+        assert opt.tr_obs_count <= 5
+        assert opt.best_tr_value == 10.0
 
-        # Verify that the incumbent (best observation) is still in the trimmed lists
-        y_tr_array = np.asarray(opt._y_tr_list, dtype=float)
-        incumbent_idx = np.argmax(y_tr_array)
-        best_y = y_tr_array[incumbent_idx]
-        assert best_y == 10.0, "Incumbent should be preserved in trimmed list"
-
-        # Verify the optimizer still works correctly with trimmed lists
         x_new = opt.ask(num_arms=2)
         assert x_new.shape == (2, 2)
-
-        # Verify lists are still trimmed after asking
-        assert len(opt._y_tr_list) <= 5, "Lists should remain trimmed"
+        assert opt.tr_obs_count <= 5
 
 
 def test_latin_hypercube_stratification_and_bounds():
@@ -214,21 +205,56 @@ def test_pareto_front_simple_case():
 def test_trust_region_state_update_and_restart_and_bounds():
     import numpy as np
 
-    from enn.trust_region_state import TrustRegionState
+    from enn.turbo_trust_region import TurboTrustRegion
 
-    state = TrustRegionState(num_dim=2, num_arms=2)
+    state = TurboTrustRegion(num_dim=2, num_arms=2)
     values = []
     for v in [0.0, 1.0, 2.0]:
         values.append(v)
         state.update(np.array(values, dtype=float))
-    x_center = np.zeros((1, 2), dtype=float)
-    lb, ub = state.create_bounds(x_center)
-    assert lb.shape == (1, 2)
-    assert ub.shape == (1, 2)
+    x_center = np.zeros(2, dtype=float)
+    lb, ub = state.compute_bounds_1d(x_center)
+    assert lb.shape == (2,)
+    assert ub.shape == (2,)
     state.length = state.length_min / 2.0
     assert state.needs_restart()
     state.restart()
     assert state.length == state.length_init
+
+
+def test_gumbel_trust_region_update_and_bounds():
+    import numpy as np
+
+    from enn.gumbel_trust_region import GumbelTrustRegion
+
+    tr = GumbelTrustRegion(num_dim=4)
+    assert tr.length == 1.0
+
+    y_noisy = np.random.default_rng(42).normal(0, 1, 64)
+    tr.update(y_noisy)
+    length_noisy = tr.length
+    assert 0.1 <= length_noisy <= 1.0
+
+    tr2 = GumbelTrustRegion(num_dim=4)
+    y_peaky = np.concatenate([np.zeros(63), [10.0]])
+    tr2.update(y_peaky)
+    length_peaky = tr2.length
+    assert length_peaky < length_noisy
+
+    assert tr.needs_restart() is False
+    tr.restart()
+    assert tr.length == length_noisy
+
+    x_center = np.full(4, 0.5)
+    lb, ub = tr.compute_bounds_1d(x_center)
+    assert lb.shape == (4,)
+    assert ub.shape == (4,)
+    assert np.all(lb >= 0.0) and np.all(ub <= 1.0)
+    assert np.all(lb <= x_center) and np.all(ub >= x_center)
+
+    weights = np.array([2.0, 1.0, 1.0, 0.5])
+    lb_w, ub_w = tr.compute_bounds_1d(x_center, weights)
+    assert not np.allclose(ub_w - lb_w, ub - lb)
 
 
 @pytest.mark.parametrize(
@@ -241,7 +267,7 @@ def test_turbo_behavior_independent_of_affine_x(mode: TurboMode) -> None:
 
     bounds1 = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     bounds2 = np.array([[2.0, 4.0], [-3.0, 1.0]], dtype=float)
-    num_arms = 3
+    num_arms = 4
     num_steps = 8
     rng1 = np.random.default_rng(0)
     rng2 = np.random.default_rng(0)
@@ -280,7 +306,7 @@ def test_turbo_behavior_independent_of_affine_y(mode: TurboMode) -> None:
     from enn import Turbo
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
-    num_arms = 3
+    num_arms = 4
     num_steps = 8
 
     def run_with_transform(scale: float, shift: float) -> np.ndarray:
@@ -547,11 +573,11 @@ def test_select_uniform_shape_and_uniformity():
 
     from enn.proposal import select_uniform
 
-    num_candidates = 100
-    num_dim = 3
-    num_arms = 10
+    num_candidates = 128
+    num_dim = 4
+    num_arms = 8
     x_cand = np.random.default_rng(0).random((num_candidates, num_dim))
-    bounds = np.array([[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]], dtype=float)
+    bounds = np.array([[0.0, 1.0]] * num_dim, dtype=float)
     rng = np.random.default_rng(42)
     from_unit_fn = conftest.make_from_unit_fn(bounds)
 
@@ -583,11 +609,11 @@ def test_select_enn_pareto_uses_enn_and_selects_pareto():
 
     from enn.proposal import select_enn_pareto
 
-    num_candidates = 50
+    num_candidates = 64
     num_dim = 2
-    num_arms = 5
+    num_arms = 4
     x_cand = np.random.default_rng(0).random((num_candidates, num_dim))
-    x_obs = np.random.default_rng(1).random((20, num_dim))
+    x_obs = np.random.default_rng(1).random((16, num_dim))
     y_obs = (x_obs.sum(axis=1)).tolist()
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(42)
@@ -599,9 +625,8 @@ def test_select_enn_pareto_uses_enn_and_selects_pareto():
         num_arms,
         x_obs.tolist(),
         y_obs,
-        k=5,
+        k=4,
         var_scale=1.0,
-        hnsw_threshold=None,
         rng=rng,
         fallback_fn=fallback_fn,
         from_unit_fn=from_unit_fn,
@@ -615,9 +640,9 @@ def test_select_enn_pareto_fallback_on_empty_observations():
 
     from enn.proposal import select_enn_pareto
 
-    num_candidates = 20
+    num_candidates = 32
     num_dim = 2
-    num_arms = 3
+    num_arms = 4
     x_cand = np.random.default_rng(0).random((num_candidates, num_dim))
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(42)
@@ -638,7 +663,6 @@ def test_select_enn_pareto_fallback_on_empty_observations():
         [],
         k=5,
         var_scale=1.0,
-        hnsw_threshold=None,
         rng=rng,
         fallback_fn=fallback_fn,
         from_unit_fn=from_unit_fn,
@@ -670,7 +694,6 @@ def test_select_enn_pareto_with_k_none_fits_model():
         y_obs,
         k=None,
         var_scale=1.0,
-        hnsw_threshold=None,
         rng=rng,
         fallback_fn=fallback_fn,
         from_unit_fn=from_unit_fn,

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Callable
 
 from .proposal import select_enn_pareto, select_gp_thompson, select_uniform
+from .turbo_config import TurboConfig
 from .turbo_utils import argmax_random_tie, from_unit, latin_hypercube, raasp, to_unit
 
 if TYPE_CHECKING:
     import numpy as np
+    from numpy.random import Generator
 
     from .turbo_mode import TurboMode
 
@@ -14,22 +16,22 @@ if TYPE_CHECKING:
 class TurboOptimizer:
     def __init__(
         self,
-        bounds,
-        mode,
+        bounds: np.ndarray | Any,
+        mode: TurboMode | Any,
         num_arms: int,
         *,
-        num_candidates: Optional[int] = None,
-        rng,
-        hnsw_threshold: Optional[int] = None,
-        k: Optional[int] = None,
-        var_scale: float = 1.0,
-        trailing_obs: Optional[int] = None,
-        num_init: Optional[int] = None,
+        rng: Generator | Any,
+        config: TurboConfig | None = None,
     ) -> None:
         import numpy as np
         from scipy.stats import qmc
 
-        from .trust_region_state import TrustRegionState
+        from .gumbel_trust_region import GumbelTrustRegion
+        from .turbo_trust_region import TurboTrustRegion
+
+        if config is None:
+            config = TurboConfig()
+        self._config = config
 
         if bounds.ndim != 2 or bounds.shape[1] != 2:
             raise ValueError(bounds.shape)
@@ -39,6 +41,7 @@ class TurboOptimizer:
         tr_num_arms = int(num_arms)
         if tr_num_arms <= 0:
             raise ValueError(tr_num_arms)
+        num_candidates = config.num_candidates
         if num_candidates is None:
             num_candidates = min(5000, 100 * self._num_dim)
         from .turbo_mode import TurboMode
@@ -60,29 +63,36 @@ class TurboOptimizer:
         else:
             self._x_tr_list = None
             self._y_tr_list = None
-        self._tr_state = TrustRegionState(num_dim=self._num_dim, num_arms=tr_num_arms)
+        if config.gumbel:
+            self._tr_state: GumbelTrustRegion | TurboTrustRegion = GumbelTrustRegion(
+                num_dim=self._num_dim
+            )
+        else:
+            self._tr_state = TurboTrustRegion(
+                num_dim=self._num_dim, num_arms=tr_num_arms
+            )
         self._gp_y_mean: float = 0.0
         self._gp_y_std: float = 1.0
         self._gp_num_steps: int = 50
-        self._hnsw_threshold = hnsw_threshold
-        if k is not None:
-            k_val = int(k)
+        if config.k is not None:
+            k_val = int(config.k)
             if k_val < 3:
                 raise ValueError(f"k must be >= 3, got {k_val}")
             self._k = k_val
         else:
             self._k = None
-        var_scale_val = float(var_scale)
+        var_scale_val = float(config.var_scale)
         if var_scale_val <= 0.0:
             raise ValueError(f"var_scale must be > 0, got {var_scale_val}")
         self._var_scale = var_scale_val
-        if trailing_obs is not None:
-            trailing_obs_val = int(trailing_obs)
+        if config.trailing_obs is not None:
+            trailing_obs_val = int(config.trailing_obs)
             if trailing_obs_val <= 0:
                 raise ValueError(f"trailing_obs must be > 0, got {trailing_obs_val}")
             self._trailing_obs = trailing_obs_val
         else:
             self._trailing_obs = None
+        num_init = config.num_init
         if num_init is None:
             num_init = 2 * self._num_dim
         num_init_val = int(num_init)
@@ -102,6 +112,20 @@ class TurboOptimizer:
     @property
     def mode(self) -> TurboMode:
         return self._mode
+
+    @property
+    def tr_obs_count(self) -> int:
+        if self._y_tr_list is None:
+            return 0
+        return len(self._y_tr_list)
+
+    @property
+    def best_tr_value(self) -> float | None:
+        import numpy as np
+
+        if self._y_tr_list is None or len(self._y_tr_list) == 0:
+            return None
+        return float(np.max(self._y_tr_list))
 
     def ask(self, num_arms: int) -> np.ndarray:
         from .turbo_mode import TurboMode
@@ -183,7 +207,7 @@ class TurboOptimizer:
                     weights = weights / weights.mean()
                     weights = weights / np.prod(np.power(weights, 1.0 / len(weights)))
 
-        lb_local, ub_local = self._tr_state._compute_bounds_1d(x_center, weights)
+        lb_local, ub_local = self._tr_state.compute_bounds_1d(x_center, weights)
 
         x_cand = raasp(
             x_center,
@@ -232,10 +256,10 @@ class TurboOptimizer:
                 y_tr_slice,
                 self._k,
                 self._var_scale,
-                self._hnsw_threshold,
                 self._rng,
                 fallback_fn,
                 from_unit_fn,
+                sobol_indices=self._config.sobol_indices,
             )
         raise RuntimeError(self._mode)
 
@@ -268,7 +292,7 @@ class TurboOptimizer:
             np.abs(y_tr_trimmed - incumbent_value) < 1e-10
         ), "Incumbent value must be preserved in trimmed list"
 
-    def _append_observations(self, x, y) -> None:
+    def _append_observations(self, x: np.ndarray | Any, y: np.ndarray | Any) -> None:
         import numpy as np
 
         x = np.asarray(x, dtype=float)
@@ -290,10 +314,15 @@ class TurboOptimizer:
         y_obs_array = np.asarray(self._y_obs_list, dtype=float)
         self._tr_state.update(y_obs_array)
 
-    def tell(self, x, y) -> None:
+    def tell(self, x: np.ndarray | Any, y: np.ndarray | Any) -> None:
         self._append_observations(x, y)
 
-    def _best_x_from_lists(self, x_list, y_list, error_msg: str) -> np.ndarray:
+    def _best_x_from_lists(
+        self,
+        x_list: list[float] | list[list[float]],
+        y_list: list[float] | list[list[float]],
+        error_msg: str,
+    ) -> np.ndarray:
         import numpy as np
 
         y_array = np.asarray(y_list, dtype=float)
@@ -307,7 +336,9 @@ class TurboOptimizer:
         unit = latin_hypercube(num_arms, self._num_dim, rng=self._rng)
         return from_unit(unit, self._bounds)
 
-    def _get_init_lhd_points(self, num_arms: int, fallback_fn=None) -> np.ndarray:
+    def _get_init_lhd_points(
+        self, num_arms: int, fallback_fn: Callable[[int], np.ndarray] | None = None
+    ) -> np.ndarray:
         import numpy as np
 
         remaining_init = self._num_init - self._init_idx

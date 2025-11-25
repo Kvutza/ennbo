@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 if TYPE_CHECKING:
     import numpy as np
+    from numpy.random import Generator
 
     from .turbo_gp import TurboGP
 
@@ -13,20 +14,21 @@ from .turbo_utils import standardize_y
 def select_enn_pareto(
     x_cand: np.ndarray,
     num_arms: int,
-    x_obs_list: list,
-    y_obs_list: list,
+    x_obs_list: list[float] | list[list[float]],
+    y_obs_list: list[float] | list[list[float]],
     k: Optional[int],
     var_scale: float,
-    hnsw_threshold: Optional[int],
-    rng,
+    rng: Generator | Any,
     fallback_fn: Callable[[np.ndarray, int], np.ndarray],
     from_unit_fn: Callable[[np.ndarray], np.ndarray],
+    *,
+    sobol_indices: bool = False,
 ) -> np.ndarray:
     import numpy as np
 
     from .core import EpistemicNearestNeighbors
     from .enn_params import ENNParams
-    from .turbo_utils import arms_from_pareto_fronts
+    from .enn_util import arms_from_pareto_fronts
 
     if len(x_obs_list) == 0:
         return fallback_fn(x_cand, num_arms)
@@ -44,7 +46,7 @@ def select_enn_pareto(
         x_obs_array,
         y,
         yvar,
-        hnsw_threshold=hnsw_threshold,
+        sobol_indices=sobol_indices,
     )
     if len(enn_model) == 0:
         return fallback_fn(x_cand, num_arms)
@@ -65,7 +67,7 @@ def select_uniform(
     x_cand: np.ndarray,
     num_arms: int,
     num_dim: int,
-    rng,
+    rng: Generator | Any,
     from_unit_fn: Callable[[np.ndarray], np.ndarray],
 ) -> np.ndarray:
     if x_cand.ndim != 2 or x_cand.shape[1] != num_dim:
@@ -79,11 +81,11 @@ def select_uniform(
 def select_gp_thompson(
     x_cand: np.ndarray,
     num_arms: int,
-    x_obs_list: list,
-    y_obs_list: list,
+    x_obs_list: list[float] | list[list[float]],
+    y_obs_list: list[float] | list[list[float]],
     num_dim: int,
     gp_num_steps: int,
-    rng,
+    rng: Generator | Any,
     gp_y_mean: float,
     gp_y_std: float,
     select_sobol_fn: Callable[[np.ndarray, int], np.ndarray],
@@ -102,7 +104,7 @@ def select_gp_thompson(
     from .turbo_utils import fit_gp
 
     @contextlib.contextmanager
-    def _torch_rng_context(generator):
+    def _torch_rng_context(generator: torch.Generator) -> Any:
         old_state = torch.get_rng_state()
         try:
             torch.set_rng_state(generator.get_state())

@@ -15,7 +15,7 @@ def test_subsample_loglik_and_enn_fit_improve_hyperparameters():
     noise = noise_std * rng.standard_normal(n)
     y = (y_mean + noise).reshape(-1, 1)
     yvar = (noise_std**2) * np.ones_like(y)
-    model = EpistemicNearestNeighbors(x, y, yvar, hnsw_threshold=None)
+    model = EpistemicNearestNeighbors(x, y, yvar)
     rng_fit = np.random.default_rng(1)
     result = enn_fit(
         model,

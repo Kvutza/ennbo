@@ -1,17 +1,26 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import numpy as np
+    from numpy.random import Generator
+
+    from .core import EpistemicNearestNeighbors
+    from .enn_params import ENNParams
+
 from .turbo_utils import standardize_y
 
 
 def subsample_loglik(
-    model,
-    x,
-    y,
+    model: EpistemicNearestNeighbors | Any,
+    x: np.ndarray | Any,
+    y: np.ndarray | Any,
     *,
-    paramss: list,
+    paramss: list[ENNParams] | list[Any],
     P: int = 10,
-    rng,
-) -> list:
+    rng: Generator | Any,
+) -> list[float]:
     import numpy as np
 
     if x.ndim != 2:
@@ -77,13 +86,13 @@ def subsample_loglik(
 
 
 def enn_fit(
-    model,
+    model: EpistemicNearestNeighbors | Any,
     *,
     k: int | None = None,
     num_fit_candidates: int,
     num_fit_samples: int = 10,
-    rng,
-):
+    rng: Generator | Any,
+) -> ENNParams:
     from .enn_params import ENNParams
 
     if k is not None:
