@@ -1,25 +1,38 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import contextlib
+from typing import TYPE_CHECKING, Any, Iterator
 
 if TYPE_CHECKING:
     import numpy as np
+    import torch
     from gpytorch.likelihoods import GaussianLikelihood
     from numpy.random import Generator
     from scipy.stats._qmc import QMCEngine
 
     from .turbo_gp import TurboGP
+    from .turbo_gp_noisy import TurboGPNoisy
 
 
-def standardize_y(y: np.ndarray | list[float] | Any) -> tuple[float, float]:
-    import numpy as np
+from enn.enn.enn_util import standardize_y
 
-    y_array = np.asarray(y, dtype=float)
-    center = float(np.median(y_array))
-    scale = float(np.std(y_array))
-    if not np.isfinite(scale) or scale <= 0.0:
-        scale = 1.0
-    return center, scale
+
+def _next_power_of_2(n: int) -> int:
+    if n <= 0:
+        return 1
+    return 1 << (n - 1).bit_length()
+
+
+@contextlib.contextmanager
+def torch_rng_context(generator: torch.Generator | Any) -> Iterator[None]:
+    import torch
+
+    old_state = torch.get_rng_state()
+    try:
+        torch.set_rng_state(generator.get_state())
+        yield
+    finally:
+        torch.set_rng_state(old_state)
 
 
 def fit_gp(
@@ -27,9 +40,10 @@ def fit_gp(
     y_obs_list: list[float] | list[list[float]],
     num_dim: int,
     *,
+    yvar_obs_list: list[float] | None = None,
     num_steps: int = 50,
 ) -> tuple[
-    "TurboGP | None",
+    "TurboGP | TurboGPNoisy | None",
     "GaussianLikelihood | None",
     float,
     float,
@@ -41,10 +55,16 @@ def fit_gp(
     from gpytorch.mlls import ExactMarginalLogLikelihood
 
     from .turbo_gp import TurboGP
+    from .turbo_gp_noisy import TurboGPNoisy
 
     x = np.asarray(x_obs_list, dtype=float)
     y = np.asarray(y_obs_list, dtype=float)
     n = x.shape[0]
+    if yvar_obs_list is not None:
+        if len(yvar_obs_list) != len(y_obs_list):
+            raise ValueError(
+                f"yvar_obs_list length {len(yvar_obs_list)} != y_obs_list length {len(y_obs_list)}"
+            )
     if n == 0:
         return None, None, 0.0, 1.0
     if n == 1:
@@ -56,25 +76,38 @@ def fit_gp(
     z = y_centered / gp_y_std
     train_x = torch.as_tensor(x, dtype=torch.float64)
     train_y = torch.as_tensor(z, dtype=torch.float64)
-    noise_constraint = Interval(5e-4, 0.2)
     lengthscale_constraint = Interval(0.005, 2.0)
     outputscale_constraint = Interval(0.05, 20.0)
-    likelihood = GaussianLikelihood(noise_constraint=noise_constraint).to(
-        dtype=train_y.dtype
-    )
-    model = TurboGP(
-        train_x=train_x,
-        train_y=train_y,
-        likelihood=likelihood,
-        lengthscale_constraint=lengthscale_constraint,
-        outputscale_constraint=outputscale_constraint,
-        ard_dims=num_dim,
-    ).to(dtype=train_x.dtype)
+    if yvar_obs_list is not None:
+        y_var = np.asarray(yvar_obs_list, dtype=float)
+        train_y_var = torch.as_tensor(y_var / (gp_y_std**2), dtype=torch.float64)
+        model = TurboGPNoisy(
+            train_x=train_x,
+            train_y=train_y,
+            train_y_var=train_y_var,
+            lengthscale_constraint=lengthscale_constraint,
+            outputscale_constraint=outputscale_constraint,
+            ard_dims=num_dim,
+        ).to(dtype=train_x.dtype)
+        likelihood = model.likelihood
+    else:
+        noise_constraint = Interval(5e-4, 0.2)
+        likelihood = GaussianLikelihood(noise_constraint=noise_constraint).to(
+            dtype=train_y.dtype
+        )
+        model = TurboGP(
+            train_x=train_x,
+            train_y=train_y,
+            likelihood=likelihood,
+            lengthscale_constraint=lengthscale_constraint,
+            outputscale_constraint=outputscale_constraint,
+            ard_dims=num_dim,
+        ).to(dtype=train_x.dtype)
+        likelihood.noise = torch.tensor(0.005, dtype=train_y.dtype)
     model.covar_module.outputscale = torch.tensor(1.0, dtype=train_x.dtype)
     model.covar_module.base_kernel.lengthscale = torch.full(
         (num_dim,), 0.5, dtype=train_x.dtype
     )
-    likelihood.noise = torch.tensor(0.005, dtype=train_y.dtype)
     model.train()
     likelihood.train()
     mll = ExactMarginalLogLikelihood(likelihood, model)
@@ -119,28 +152,6 @@ def argmax_random_tie(values: np.ndarray | Any, *, rng: Generator | Any) -> int:
     return int(idx[j])
 
 
-def pareto_front(mu: np.ndarray | Any, se: np.ndarray | Any) -> np.ndarray:
-    import numpy as np
-
-    if mu.shape != se.shape or mu.ndim != 1:
-        raise ValueError((mu.shape, se.shape))
-    n = mu.size
-    if n == 0:
-        return np.zeros((0,), dtype=bool)
-    order = np.argsort(-mu)
-    mu_sorted = mu[order]
-    se_sorted = se[order]
-    is_pareto_sorted = np.zeros_like(mu_sorted, dtype=bool)
-    best_se = float("inf")
-    for i in range(n):
-        if se_sorted[i] < best_se:
-            best_se = float(se_sorted[i])
-            is_pareto_sorted[i] = True
-    is_pareto = np.zeros_like(is_pareto_sorted, dtype=bool)
-    is_pareto[order] = is_pareto_sorted
-    return is_pareto
-
-
 def sobol_perturb_np(
     x_center: np.ndarray | Any,
     lb: np.ndarray | list[float] | Any,
@@ -152,7 +163,8 @@ def sobol_perturb_np(
 ) -> np.ndarray:
     import numpy as np
 
-    sobol_samples = sobol_engine.random(num_candidates)
+    n_sobol = _next_power_of_2(num_candidates)
+    sobol_samples = sobol_engine.random(n_sobol)[:num_candidates]
     lb_array = np.asarray(lb)
     ub_array = np.asarray(ub)
     pert = lb_array + (ub_array - lb_array) * sobol_samples
@@ -177,7 +189,7 @@ def raasp(
     num_dim = x_center.shape[-1]
     prob_perturb = min(num_pert / num_dim, 1.0)
     mask = rng.random((num_candidates, num_dim)) <= prob_perturb
-    ind = np.where(np.sum(mask, axis=1) == 0)[0]
+    ind = np.nonzero(~mask.any(axis=1))[0]
     if len(ind) > 0:
         mask[ind, rng.integers(0, num_dim, size=len(ind))] = True
     return sobol_perturb_np(
@@ -196,6 +208,41 @@ def to_unit(x: np.ndarray | Any, bounds: np.ndarray | Any) -> np.ndarray:
 
 
 def from_unit(x_unit: np.ndarray | Any, bounds: np.ndarray | Any) -> np.ndarray:
-    lb = bounds[:, 0]
-    ub = bounds[:, 1]
+    import numpy as np
+
+    lb = np.asarray(bounds[:, 0])
+    ub = np.asarray(bounds[:, 1])
     return lb + x_unit * (ub - lb)
+
+
+def gp_thompson_sample(
+    model: Any,
+    x_cand: np.ndarray | Any,
+    num_arms: int,
+    rng: Generator | Any,
+    gp_y_mean: float,
+    gp_y_std: float,
+) -> np.ndarray:
+    import gpytorch
+    import numpy as np
+    import torch
+
+    x_torch = torch.as_tensor(x_cand, dtype=torch.float64)
+    seed = int(rng.integers(2**31 - 1))
+    gen = torch.Generator(device=x_torch.device)
+    gen.manual_seed(seed)
+    with (
+        torch.no_grad(),
+        gpytorch.settings.fast_pred_var(),
+        torch_rng_context(gen),
+    ):
+        posterior = model.posterior(x_torch)
+        samples = posterior.sample(sample_shape=torch.Size([1]))
+    ts = samples[0].reshape(-1)
+    scores = ts.detach().cpu().numpy().reshape(-1)
+    scores = gp_y_mean + gp_y_std * scores
+    shuffled_indices = rng.permutation(len(scores))
+    shuffled_scores = scores[shuffled_indices]
+    top_k_in_shuffled = np.argpartition(-shuffled_scores, num_arms - 1)[:num_arms]
+    idx = shuffled_indices[top_k_in_shuffled]
+    return idx

@@ -7,30 +7,31 @@ if TYPE_CHECKING:
     from numpy.random import Generator
 
 
-def gumbel_expected_max(n: int) -> float:
+def standardize_y(y: np.ndarray | list[float] | Any) -> tuple[float, float]:
     import numpy as np
 
-    if n <= 0:
-        return 0.0
-    if n == 1:
-        return 0.0
-    log_n = np.log(n)
-    log_log_n = np.log(log_n)
-    return float(
-        np.sqrt(2 * log_n) - (log_log_n + np.log(4 * np.pi)) / (2 * np.sqrt(2 * log_n))
-    )
+    y_array = np.asarray(y, dtype=float)
+    center = float(np.median(y_array))
+    scale = float(np.std(y_array))
+    if not np.isfinite(scale) or scale <= 0.0:
+        scale = 1.0
+    return center, scale
 
 
 def calculate_sobol_indices(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     import numpy as np
 
-    assert x.ndim == 2
+    if x.ndim != 2:
+        raise ValueError(f"x must be 2D, got shape {x.shape}")
     n, d = x.shape
-    assert d > 0
+    if d <= 0:
+        raise ValueError(f"x must have at least 1 dimension, got {d}")
     if y.ndim == 2 and y.shape[1] == 1:
         y = y.reshape(-1)
-    assert y.ndim == 1
-    assert y.shape[0] == n
+    if y.ndim != 1:
+        raise ValueError(f"y must be 1D, got shape {y.shape}")
+    if y.shape[0] != n:
+        raise ValueError(f"y length {y.shape[0]} != x rows {n}")
     if n < 9:
         return np.ones(d, dtype=x.dtype)
     mu = y.mean()

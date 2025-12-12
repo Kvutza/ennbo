@@ -6,10 +6,10 @@ if TYPE_CHECKING:
     import numpy as np
     from numpy.random import Generator
 
-    from .core import EpistemicNearestNeighbors
+    from .enn import EpistemicNearestNeighbors
     from .enn_params import ENNParams
 
-from .turbo_utils import standardize_y
+from .enn_util import standardize_y
 
 
 def subsample_loglik(
@@ -47,7 +47,9 @@ def subsample_loglik(
     y_selected = y[indices]
     if not np.isfinite(y_selected).all():
         return [0.0] * len(paramss)
-    post_batch = model.batch_posterior(x_selected, paramss, exclude_nearest=True)
+    post_batch = model.batch_posterior(
+        x_selected, paramss, exclude_nearest=True, observation_noise=True
+    )
     mu_batch = post_batch.mu
     se_batch = post_batch.se
     if mu_batch.shape[2] == 1:
@@ -88,44 +90,54 @@ def subsample_loglik(
 def enn_fit(
     model: EpistemicNearestNeighbors | Any,
     *,
-    k: int | None = None,
+    k: int,
     num_fit_candidates: int,
     num_fit_samples: int = 10,
     rng: Generator | Any,
+    params_warm_start: ENNParams | Any | None = None,
 ) -> ENNParams:
     from .enn_params import ENNParams
 
-    if k is not None:
-        return ENNParams(k=k, var_scale=1.0)
     train_x = model.train_x
     train_y = model.train_y
     train_yvar = model.train_yvar
-    if train_y.shape[1] != 1 or train_yvar.shape[1] != 1:
-        raise ValueError((train_y.shape, train_yvar.shape))
+    if train_y.shape[1] != 1:
+        raise ValueError(train_y.shape)
+    if train_yvar is not None and train_yvar.shape[1] != 1:
+        raise ValueError(train_yvar.shape)
     y = train_y[:, 0]
-    k_candidates = [3, 4, 5, 6, 7, 8, 9, 10, 20, 30, 50, 100]
-    k_values = rng.choice(k_candidates, size=num_fit_candidates, replace=True).tolist()
-    var_scale_log_min = -2.0
-    var_scale_log_max = 2.0
-    var_scale_log_values = rng.uniform(
-        var_scale_log_min, var_scale_log_max, size=num_fit_candidates
+    log_min = -3.0
+    log_max = 3.0
+    epi_var_scale_log_values = rng.uniform(log_min, log_max, size=num_fit_candidates)
+    epi_var_scale_values = 10**epi_var_scale_log_values
+    ale_homoscedastic_log_values = rng.uniform(
+        log_min, log_max, size=num_fit_candidates
     )
-    var_scale_values = (10**var_scale_log_values).tolist()
+    ale_homoscedastic_values = 10**ale_homoscedastic_log_values
     paramss = [
-        ENNParams(k=k_val, var_scale=var_scale_val)
-        for k_val, var_scale_val in zip(k_values, var_scale_values)
+        ENNParams(
+            k=k,
+            epi_var_scale=float(epi_val),
+            ale_homoscedastic_scale=float(ale_val),
+        )
+        for epi_val, ale_val in zip(epi_var_scale_values, ale_homoscedastic_values)
     ]
+    if params_warm_start is not None:
+        paramss.append(
+            ENNParams(
+                k=k,
+                epi_var_scale=params_warm_start.epi_var_scale,
+                ale_homoscedastic_scale=params_warm_start.ale_homoscedastic_scale,
+            )
+        )
     if len(paramss) == 0:
-        return ENNParams(k=10, var_scale=1.0)
+        return ENNParams(k=k, epi_var_scale=1.0, ale_homoscedastic_scale=0.0)
+    import numpy as np
+
     logliks = subsample_loglik(
         model, train_x, y, paramss=paramss, P=num_fit_samples, rng=rng
     )
-    best_idx: int | None = None
-    best_mll: float | None = None
-    for i, loglik in enumerate(logliks):
-        if best_mll is None or loglik > best_mll:
-            best_mll = loglik
-            best_idx = i
-    if best_idx is None:
-        return ENNParams(k=k_values[0], var_scale=float(var_scale_values[0]))
+    if len(logliks) == 0:
+        return paramss[0]
+    best_idx = int(np.argmax(logliks))
     return paramss[best_idx]
