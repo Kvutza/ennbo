@@ -13,18 +13,25 @@ class TurboModeImpl(Protocol):
         x_obs_list: list,
         y_obs_list: list,
         rng: Generator,
+        tr_state: Any = None,
     ) -> np.ndarray | None: ...
 
     def needs_tr_list(self) -> bool: ...
 
-    def create_trust_region(self, num_dim: int, num_arms: int) -> Any: ...
+    def create_trust_region(
+        self,
+        num_dim: int,
+        num_arms: int,
+        rng: Generator,
+        num_metrics: int | None = None,
+    ) -> Any: ...
 
     def try_early_ask(
         self,
         num_arms: int,
         x_obs_list: list,
         draw_initial_fn: Callable[[int], np.ndarray],
-        get_init_lhd_points_fn: Callable[[int], np.ndarray | None],
+        get_init_lhd_points_fn: Callable[[int], np.ndarray],
     ) -> np.ndarray | None: ...
 
     def handle_restart(
@@ -54,11 +61,13 @@ class TurboModeImpl(Protocol):
         rng: Generator,
         fallback_fn: Callable[[np.ndarray, int], np.ndarray],
         from_unit_fn: Callable[[np.ndarray], np.ndarray],
+        tr_state: Any = None,
     ) -> np.ndarray: ...
 
     def update_trust_region(
         self,
         tr_state: Any,
+        x_obs_list: list,
         y_obs_list: list,
         x_center: np.ndarray | None = None,
         k: int | None = None,

@@ -22,6 +22,7 @@ def mk_enn(
     k: int,
     num_fit_samples: int | None = None,
     num_fit_candidates: int | None = None,
+    scale_x: bool = False,
     rng: Generator | Any | None = None,
     params_warm_start: ENNParams | Any | None = None,
 ) -> tuple[EpistemicNearestNeighbors | None, ENNParams | None]:
@@ -36,10 +37,17 @@ def mk_enn(
     if y_obs_array.size == 0:
         return None, None
 
-    y = y_obs_array.reshape(-1, 1)
+    # Preserve multi-metric shape if present, otherwise reshape to (n, 1)
+    if y_obs_array.ndim == 1:
+        y = y_obs_array.reshape(-1, 1)
+    else:
+        y = y_obs_array
     if yvar_obs_list is not None and len(yvar_obs_list) > 0:
         yvar_array = np.asarray(yvar_obs_list, dtype=float)
-        yvar = yvar_array.reshape(-1, 1)
+        if yvar_array.ndim == 1:
+            yvar = yvar_array.reshape(-1, 1)
+        else:
+            yvar = yvar_array
     else:
         yvar = None
     x_obs_array = np.asarray(x_obs_list, dtype=float)
@@ -47,6 +55,7 @@ def mk_enn(
         x_obs_array,
         y,
         yvar,
+        scale_x=scale_x,
     )
     if len(enn_model) == 0:
         return None, None

@@ -3,6 +3,29 @@ from __future__ import annotations
 import pytest
 
 
+def _params(
+    k: int, *, epi_var_scale: float = 1.0, ale_homoscedastic_scale: float = 0.0
+):
+    from enn.enn.enn_params import ENNParams
+
+    return ENNParams(
+        k=int(k),
+        epi_var_scale=float(epi_var_scale),
+        ale_homoscedastic_scale=float(ale_homoscedastic_scale),
+    )
+
+
+def _make_single_metric_train_data(*, rng, n: int, d: int, noise_std: float):
+    import numpy as np
+
+    train_x = rng.standard_normal((n, d))
+    train_y = train_x.sum(axis=1, keepdims=True) + rng.standard_normal((n, 1)) * float(
+        noise_std
+    )
+    train_yvar = 0.1 * np.ones_like(train_y)
+    return train_x, train_y, train_yvar
+
+
 def test_ennnormal_sample_shape_and_clip():
     import numpy as np
 
@@ -69,7 +92,6 @@ def test_epistemic_nearest_neighbors_with_few_observations_has_valid_posterior(
     import numpy as np
 
     from enn.enn import EpistemicNearestNeighbors
-    from enn.enn.enn_params import ENNParams
 
     rng = np.random.default_rng(0)
     d = 3
@@ -78,11 +100,7 @@ def test_epistemic_nearest_neighbors_with_few_observations_has_valid_posterior(
     yvar = 0.1 * np.ones_like(y)
     model = EpistemicNearestNeighbors(x, y, yvar)
     x_test = rng.standard_normal((5, d))
-    post = model.posterior(
-        x_test,
-        params=ENNParams(k=3, epi_var_scale=1.0, ale_homoscedastic_scale=0.0),
-        exclude_nearest=False,
-    )
+    post = model.posterior(x_test, params=_params(3), exclude_nearest=False)
     assert post.mu.shape == (5, 1)
     assert post.se.shape == (5, 1)
     assert np.all(np.isfinite(post.mu))
@@ -369,16 +387,13 @@ def test_epistemic_nearest_neighbors_scale_invariance():
     import numpy as np
 
     from enn.enn import EpistemicNearestNeighbors
-    from enn.enn.enn_params import ENNParams
 
     rng = np.random.default_rng(42)
     n = 20
     d = 3
-    train_x = rng.standard_normal((n, d))
-    train_y_base = (
-        train_x.sum(axis=1, keepdims=True) + rng.standard_normal((n, 1)) * 0.1
+    train_x, train_y_base, train_yvar_base = _make_single_metric_train_data(
+        rng=rng, n=n, d=d, noise_std=0.1
     )
-    train_yvar_base = 0.1 * np.ones_like(train_y_base)
 
     scale_factor = 100.0
     train_y_scaled = train_y_base * scale_factor
@@ -388,7 +403,7 @@ def test_epistemic_nearest_neighbors_scale_invariance():
     model_scaled = EpistemicNearestNeighbors(train_x, train_y_scaled, train_yvar_scaled)
 
     x_test = rng.standard_normal((10, d))
-    params = ENNParams(k=5, epi_var_scale=1.0, ale_homoscedastic_scale=0.0)
+    params = _params(5)
 
     post_base = model_base.posterior(x_test, params=params)
     post_scaled = model_scaled.posterior(x_test, params=params)
@@ -401,16 +416,13 @@ def test_epistemic_nearest_neighbors_shift_invariance():
     import numpy as np
 
     from enn.enn import EpistemicNearestNeighbors
-    from enn.enn.enn_params import ENNParams
 
     rng = np.random.default_rng(42)
     n = 20
     d = 3
-    train_x = rng.standard_normal((n, d))
-    train_y_base = (
-        train_x.sum(axis=1, keepdims=True) + rng.standard_normal((n, 1)) * 0.1
+    train_x, train_y_base, train_yvar = _make_single_metric_train_data(
+        rng=rng, n=n, d=d, noise_std=0.1
     )
-    train_yvar = 0.1 * np.ones_like(train_y_base)
 
     shift = 1000.0
     train_y_shifted = train_y_base + shift
@@ -419,7 +431,7 @@ def test_epistemic_nearest_neighbors_shift_invariance():
     model_shifted = EpistemicNearestNeighbors(train_x, train_y_shifted, train_yvar)
 
     x_test = rng.standard_normal((10, d))
-    params = ENNParams(k=5, epi_var_scale=1.0, ale_homoscedastic_scale=0.0)
+    params = _params(5)
 
     post_base = model_base.posterior(x_test, params=params)
     post_shifted = model_shifted.posterior(x_test, params=params)
@@ -453,3 +465,54 @@ def test_epistemic_nearest_neighbors_with_yvar_none():
     assert post.se.shape == (10, 1)
     assert np.all(np.isfinite(post.mu))
     assert np.all(np.isfinite(post.se))
+
+
+def test_epistemic_nearest_neighbors_constant_y_scale_is_safe():
+    import numpy as np
+
+    from enn.enn import EpistemicNearestNeighbors
+    from enn.enn.enn_params import ENNParams
+
+    rng = np.random.default_rng(0)
+    n = 20
+    d = 3
+    train_x = rng.standard_normal((n, d))
+    train_y = np.zeros((n, 1), dtype=float)
+    train_yvar = 0.1 * np.ones_like(train_y)
+    model = EpistemicNearestNeighbors(train_x, train_y, train_yvar)
+
+    x_test = rng.standard_normal((5, d))
+    params = ENNParams(k=5, epi_var_scale=1.0, ale_homoscedastic_scale=0.0)
+    post = model.posterior(x_test, params=params)
+    assert np.all(np.isfinite(post.mu))
+    assert np.all(np.isfinite(post.se))
+
+
+def test_epistemic_nearest_neighbors_x_rescaling_is_invariant_when_scale_x_enabled():
+    import numpy as np
+
+    from enn.enn import EpistemicNearestNeighbors
+    from enn.enn.enn_params import ENNParams
+
+    rng = np.random.default_rng(0)
+    n = 50
+    d = 4
+    train_x = rng.standard_normal((n, d))
+    train_y = train_x.sum(axis=1, keepdims=True)
+    train_yvar = 0.1 * np.ones_like(train_y)
+
+    feature_scale = np.array([100.0, 0.1, 3.0, 1.0], dtype=float).reshape(1, -1)
+    train_x_scaled = train_x * feature_scale
+
+    x_test = rng.standard_normal((10, d))
+    x_test_scaled = x_test * feature_scale
+
+    params = ENNParams(k=7, epi_var_scale=1.0, ale_homoscedastic_scale=0.0)
+    model = EpistemicNearestNeighbors(train_x, train_y, train_yvar, scale_x=True)
+    model_scaled = EpistemicNearestNeighbors(
+        train_x_scaled, train_y, train_yvar, scale_x=True
+    )
+    post = model.posterior(x_test, params=params)
+    post_scaled = model_scaled.posterior(x_test_scaled, params=params)
+    assert np.allclose(post.mu, post_scaled.mu, rtol=1e-6, atol=1e-8)
+    assert np.allclose(post.se, post_scaled.se, rtol=1e-6, atol=1e-8)

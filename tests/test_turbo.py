@@ -45,6 +45,35 @@ def test_turbo_zero_ask_tell_and_shape():
     assert x1.shape == (4, 2)
 
 
+def test_turbo_optimizer_accepts_list_bounds():
+    import numpy as np
+
+    from enn import Turbo
+
+    bounds = [[0.0, 1.0], [0.0, 1.0]]
+    rng = np.random.default_rng(0)
+    opt = Turbo(bounds=bounds, mode=TurboMode.TURBO_ZERO, rng=rng)
+    x0 = opt.ask(num_arms=2)
+    assert x0.shape == (2, 2)
+
+
+def test_turbo_optimizer_requires_mode_specific_config():
+    import numpy as np
+
+    from enn.turbo.turbo_config import TurboConfig
+    from enn.turbo.turbo_optimizer import TurboOptimizer
+
+    bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
+    rng = np.random.default_rng(0)
+    with pytest.raises(ValueError, match="requires TurboENNConfig"):
+        TurboOptimizer(
+            bounds=bounds,
+            mode=TurboMode.TURBO_ENN,
+            rng=rng,
+            config=TurboConfig(),
+        )
+
+
 def test_turbo_one_improves_on_sphere():
     best = _run_bo(TurboMode.TURBO_ONE, num_steps=12)
     assert best > -0.5
@@ -92,13 +121,13 @@ def test_turbo_enn_with_k_none_fits_hyperparameters():
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(42)
-    from enn.turbo.turbo_config import TurboConfig
+    from enn.turbo.turbo_config import TurboENNConfig
 
     opt = TurboOptimizer(
         bounds=bounds,
         mode=TurboMode.TURBO_ENN,
         rng=rng,
-        config=TurboConfig(k=None),
+        config=TurboENNConfig(k=None),
     )
     x0 = opt.ask(num_arms=4)
     assert x0.shape == (4, 2)
@@ -110,6 +139,28 @@ def test_turbo_enn_with_k_none_fits_hyperparameters():
     assert np.all(x1 >= 0.0) and np.all(x1 <= 1.0)
 
 
+def test_turbo_enn_config_scale_x_flag_runs():
+    import numpy as np
+
+    from enn.turbo.turbo_config import TurboENNConfig
+    from enn.turbo.turbo_mode import TurboMode
+    from enn.turbo.turbo_optimizer import TurboOptimizer
+
+    bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
+    rng = np.random.default_rng(0)
+    opt = TurboOptimizer(
+        bounds=bounds,
+        mode=TurboMode.TURBO_ENN,
+        rng=rng,
+        config=TurboENNConfig(scale_x=True),
+    )
+    x0 = opt.ask(num_arms=3)
+    y0 = -np.sum(x0**2, axis=1)
+    opt.tell(x0, y0)
+    x1 = opt.ask(num_arms=3)
+    assert x1.shape == (3, 2)
+
+
 def test_turbo_optimizer_with_trailing_obs():
     import numpy as np
 
@@ -119,14 +170,17 @@ def test_turbo_optimizer_with_trailing_obs():
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(42)
 
-    from enn.turbo.turbo_config import TurboConfig
+    from enn.turbo.turbo_config import TurboENNConfig, TurboOneConfig
 
-    for mode in [TurboMode.TURBO_ONE, TurboMode.TURBO_ENN]:
+    for mode, cfg in [
+        (TurboMode.TURBO_ONE, TurboOneConfig(trailing_obs=5)),
+        (TurboMode.TURBO_ENN, TurboENNConfig(trailing_obs=5)),
+    ]:
         opt = TurboOptimizer(
             bounds=bounds,
             mode=mode,
             rng=rng,
-            config=TurboConfig(trailing_obs=5),
+            config=cfg,
         )
         for i in range(10):
             x = opt.ask(num_arms=2)
@@ -148,14 +202,17 @@ def test_trailing_obs_includes_incumbent():
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(123)
 
-    from enn.turbo.turbo_config import TurboConfig
+    from enn.turbo.turbo_config import TurboENNConfig, TurboOneConfig
 
-    for mode in [TurboMode.TURBO_ONE, TurboMode.TURBO_ENN]:
+    for mode, cfg in [
+        (TurboMode.TURBO_ONE, TurboOneConfig(trailing_obs=5)),
+        (TurboMode.TURBO_ENN, TurboENNConfig(trailing_obs=5)),
+    ]:
         opt = TurboOptimizer(
             bounds=bounds,
             mode=mode,
             rng=rng,
-            config=TurboConfig(trailing_obs=5),
+            config=cfg,
         )
         for i in range(15):
             x = opt.ask(num_arms=2)
@@ -166,7 +223,6 @@ def test_trailing_obs_includes_incumbent():
             opt.tell(x, y)
 
         assert opt.tr_obs_count <= 5
-        assert opt.best_tr_value == 10.0
 
         x_new = opt.ask(num_arms=2)
         assert x_new.shape == (2, 2)
@@ -668,7 +724,7 @@ def test_fit_gp_returns_model_with_valid_data():
     assert y_std > 0.0
 
 
-def test_fit_gp_returns_none_with_insufficient_data():
+def test_fit_gp_returns_none_with_empty_data_and_returns_model_with_single_obs():
     import numpy as np
 
     from enn.turbo.turbo_utils import fit_gp
@@ -685,11 +741,12 @@ def test_fit_gp_returns_none_with_insufficient_data():
     x_single = np.random.default_rng(0).random((1, num_dim))
     y_single = [1.0]
     model_single, likelihood_single, mean_single, std_single = fit_gp(
-        x_single.tolist(), y_single, num_dim, num_steps=10
+        x_single.tolist(), y_single, num_dim, num_steps=0
     )
-    assert model_single is None
-    assert likelihood_single is None
+    assert model_single is not None
+    assert likelihood_single is not None
     assert isinstance(mean_single, float)
+    assert mean_single == 1.0
     assert std_single == 1.0
 
 
@@ -735,13 +792,35 @@ def test_fit_gp_with_y_var_list_asserts_length():
         fit_gp(x_obs, y_obs, num_dim, yvar_obs_list=y_var_wrong_length, num_steps=5)
 
 
+def _make_turbo_gp_noisy(
+    *,
+    train_x,
+    train_y,
+    train_y_var,
+    ard_dims: int,
+    learn_additional_noise: bool = False,
+):
+    from gpytorch.constraints import Interval
+
+    from enn.turbo.turbo_gp_noisy import TurboGPNoisy
+
+    lengthscale_constraint = Interval(0.005, 2.0)
+    outputscale_constraint = Interval(0.05, 20.0)
+    return TurboGPNoisy(
+        train_x=train_x,
+        train_y=train_y,
+        train_y_var=train_y_var,
+        lengthscale_constraint=lengthscale_constraint,
+        outputscale_constraint=outputscale_constraint,
+        ard_dims=ard_dims,
+        learn_additional_noise=learn_additional_noise,
+    )
+
+
 def test_turbo_gp_noisy_accepts_train_y_var():
     import numpy as np
     import torch
-    from gpytorch.constraints import Interval
     from gpytorch.likelihoods import FixedNoiseGaussianLikelihood
-
-    from enn.turbo.turbo_gp_noisy import TurboGPNoisy
 
     num_obs = 10
     num_dim = 2
@@ -754,16 +833,10 @@ def test_turbo_gp_noisy_accepts_train_y_var():
     train_y_var = torch.as_tensor(
         rng.uniform(0.01, 0.1, size=num_obs), dtype=torch.float64
     )
-
-    lengthscale_constraint = Interval(0.005, 2.0)
-    outputscale_constraint = Interval(0.05, 20.0)
-
-    model = TurboGPNoisy(
+    model = _make_turbo_gp_noisy(
         train_x=train_x,
         train_y=train_y,
         train_y_var=train_y_var,
-        lengthscale_constraint=lengthscale_constraint,
-        outputscale_constraint=outputscale_constraint,
         ard_dims=num_dim,
     )
 
@@ -776,10 +849,7 @@ def test_turbo_gp_noisy_accepts_train_y_var():
 def test_turbo_gp_noisy_forward_and_posterior():
     import numpy as np
     import torch
-    from gpytorch.constraints import Interval
     from gpytorch.distributions import MultivariateNormal
-
-    from enn.turbo.turbo_gp_noisy import TurboGPNoisy
 
     num_obs = 15
     num_dim = 3
@@ -791,15 +861,10 @@ def test_turbo_gp_noisy_forward_and_posterior():
     )
     train_y_var = torch.full((num_obs,), 0.01, dtype=torch.float64)
 
-    lengthscale_constraint = Interval(0.005, 2.0)
-    outputscale_constraint = Interval(0.05, 20.0)
-
-    model = TurboGPNoisy(
+    model = _make_turbo_gp_noisy(
         train_x=train_x,
         train_y=train_y,
         train_y_var=train_y_var,
-        lengthscale_constraint=lengthscale_constraint,
-        outputscale_constraint=outputscale_constraint,
         ard_dims=num_dim,
     )
 
@@ -820,10 +885,7 @@ def test_turbo_gp_noisy_forward_and_posterior():
 def test_turbo_gp_noisy_trains_successfully():
     import numpy as np
     import torch
-    from gpytorch.constraints import Interval
     from gpytorch.mlls import ExactMarginalLogLikelihood
-
-    from enn.turbo.turbo_gp_noisy import TurboGPNoisy
 
     num_obs = 20
     num_dim = 2
@@ -836,16 +898,10 @@ def test_turbo_gp_noisy_trains_successfully():
     train_y_var = torch.as_tensor(
         rng.uniform(0.005, 0.05, size=num_obs), dtype=torch.float64
     )
-
-    lengthscale_constraint = Interval(0.005, 2.0)
-    outputscale_constraint = Interval(0.05, 20.0)
-
-    model = TurboGPNoisy(
+    model = _make_turbo_gp_noisy(
         train_x=train_x,
         train_y=train_y,
         train_y_var=train_y_var,
-        lengthscale_constraint=lengthscale_constraint,
-        outputscale_constraint=outputscale_constraint,
         ard_dims=num_dim,
     )
 
@@ -872,9 +928,7 @@ def test_turbo_gp_noisy_trains_successfully():
 def test_turbo_gp_noisy_with_zero_variance():
     import numpy as np
     import torch
-    from gpytorch.constraints import Interval
-
-    from enn.turbo.turbo_gp_noisy import TurboGPNoisy
+    import warnings
 
     num_obs = 10
     num_dim = 2
@@ -883,18 +937,21 @@ def test_turbo_gp_noisy_with_zero_variance():
     train_y = torch.as_tensor(train_x.sum(dim=1).numpy(), dtype=torch.float64)
     train_y_var = torch.zeros(num_obs, dtype=torch.float64)
 
-    lengthscale_constraint = Interval(0.005, 2.0)
-    outputscale_constraint = Interval(0.05, 20.0)
+    from gpytorch.utils.warnings import NumericalWarning
 
-    model = TurboGPNoisy(
-        train_x=train_x,
-        train_y=train_y,
-        train_y_var=train_y_var,
-        lengthscale_constraint=lengthscale_constraint,
-        outputscale_constraint=outputscale_constraint,
-        ard_dims=num_dim,
-        learn_additional_noise=True,
-    )
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"Very small noise values detected\..*",
+            category=NumericalWarning,
+        )
+        model = _make_turbo_gp_noisy(
+            train_x=train_x,
+            train_y=train_y,
+            train_y_var=train_y_var,
+            ard_dims=num_dim,
+            learn_additional_noise=True,
+        )
 
     model.eval()
     model.likelihood.eval()
@@ -909,13 +966,13 @@ def test_turbo_gp_noisy_with_zero_variance():
 def test_lhd_only_runs_after_initial_observations():
     import numpy as np
 
-    from enn.turbo.turbo_config import TurboConfig
+    from enn.turbo.turbo_config import LHDOnlyConfig
     from enn.turbo.turbo_mode import TurboMode
     from enn.turbo.turbo_optimizer import TurboOptimizer
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(42)
-    config = TurboConfig(num_init=4)
+    config = LHDOnlyConfig(num_init=4)
     opt = TurboOptimizer(bounds=bounds, mode=TurboMode.LHD_ONLY, rng=rng, config=config)
 
     for _ in range(3):
@@ -930,11 +987,11 @@ def test_lhd_only_runs_after_initial_observations():
 def test_turbo_enn_impl_get_x_center():
     import numpy as np
 
-    from enn.turbo.turbo_config import TurboConfig
+    from enn.turbo.turbo_config import TurboENNConfig
     from enn.turbo.turbo_enn_impl import TurboENNImpl
 
     rng = np.random.default_rng(42)
-    config = TurboConfig(k=5)
+    config = TurboENNConfig(k=5)
     impl = TurboENNImpl(config)
 
     result = impl.get_x_center([], [], rng)
@@ -955,6 +1012,55 @@ def test_turbo_enn_impl_get_x_center():
     x_top_5 = x_array[top_5_indices]
     is_from_top_k = any(np.allclose(result_after_fit, x_top_5[i]) for i in range(5))
     assert is_from_top_k
+
+
+def test_turbo_one_impl_get_x_center_requires_fit_for_n_ge_2():
+    import numpy as np
+    import pytest
+
+    from enn.turbo.turbo_config import TurboOneConfig
+    from enn.turbo.turbo_one_impl import TurboOneImpl
+
+    rng = np.random.default_rng(0)
+    impl = TurboOneImpl(TurboOneConfig())
+
+    x1 = rng.random((1, 3)).tolist()
+    y1 = [1.0]
+    center1 = impl.get_x_center(x1, y1, rng)
+    assert center1 is not None
+    assert np.allclose(center1, np.asarray(x1, dtype=float)[0])
+
+    x2 = rng.random((2, 3)).tolist()
+    y2 = [0.0, 1.0]
+    with pytest.raises(RuntimeError, match="prepare_ask"):
+        impl.get_x_center(x2, y2, rng)
+
+    impl.prepare_ask(x2, y2, [], num_dim=3, gp_num_steps=5, rng=rng)
+    center2 = impl.get_x_center(x2, y2, rng)
+    assert center2 is not None
+    x2_array = np.asarray(x2, dtype=float)
+    assert np.allclose(center2, x2_array[0]) or np.allclose(center2, x2_array[1])
+
+
+def test_turbo_config_num_metrics_validation():
+    import pytest
+
+    from enn.turbo.turbo_config import TurboConfig
+
+    TurboConfig(tr_type="turbo", num_metrics=None)
+    TurboConfig(tr_type="turbo", num_metrics=1)
+    with pytest.raises(ValueError, match="num_metrics must be 1 for tr_type='turbo'"):
+        TurboConfig(tr_type="turbo", num_metrics=2)
+
+    TurboConfig(tr_type="none", num_metrics=None)
+    TurboConfig(tr_type="none", num_metrics=1)
+    with pytest.raises(ValueError, match="num_metrics must be 1 for tr_type='none'"):
+        TurboConfig(tr_type="none", num_metrics=2)
+
+    TurboConfig(tr_type="morbo", num_metrics=None)
+    TurboConfig(tr_type="morbo", num_metrics=2)
+    with pytest.raises(ValueError, match="num_metrics must be >= 1"):
+        TurboConfig(tr_type="morbo", num_metrics=0)
 
 
 def test_turbo_optimizer_tell_without_yvar():
@@ -978,3 +1084,254 @@ def test_turbo_optimizer_tell_without_yvar():
     x2 = opt.ask(num_arms=4)
     assert x2.shape == (4, 2)
     assert np.all(x2 >= 0.0) and np.all(x2 <= 1.0)
+
+
+def test_turbo_optimizer_yvar_policy_enforced():
+    import numpy as np
+
+    from enn.turbo.turbo_mode import TurboMode
+    from enn.turbo.turbo_optimizer import TurboOptimizer
+
+    rng = np.random.default_rng(0)
+    bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
+
+    opt = TurboOptimizer(bounds=bounds, mode=TurboMode.TURBO_ONE, rng=rng)
+    x0 = opt.ask(num_arms=2)
+    y0 = -np.sum(x0**2, axis=1)
+    yvar0 = 0.1 * np.ones_like(y0)
+    opt.tell(x0, y0, yvar0)
+
+    x1 = opt.ask(num_arms=2)
+    y1 = -np.sum(x1**2, axis=1)
+    with pytest.raises(ValueError, match="y_var must be provided"):
+        opt.tell(x1, y1)
+
+    rng = np.random.default_rng(0)
+    opt2 = TurboOptimizer(bounds=bounds, mode=TurboMode.TURBO_ONE, rng=rng)
+    x0 = opt2.ask(num_arms=2)
+    y0 = -np.sum(x0**2, axis=1)
+    opt2.tell(x0, y0)
+
+    x1 = opt2.ask(num_arms=2)
+    y1 = -np.sum(x1**2, axis=1)
+    yvar1 = 0.1 * np.ones_like(y1)
+    with pytest.raises(ValueError, match="y_var must be omitted"):
+        opt2.tell(x1, y1, yvar1)
+
+
+def test_turbo_one_trust_region_update_is_noise_robust_to_spikes():
+    import numpy as np
+
+    from enn.turbo.turbo_config import TurboOneConfig
+    from enn.turbo.turbo_optimizer import TurboOptimizer
+
+    rng = np.random.default_rng(0)
+    bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
+    opt = TurboOptimizer(
+        bounds=bounds,
+        mode=TurboMode.TURBO_ONE,
+        rng=rng,
+        config=TurboOneConfig(num_init=1, num_candidates=16),
+    )
+
+    opt.ask(num_arms=1)
+    x0 = np.zeros((1, 2), dtype=float)
+    opt.tell(x0, np.array([0.0], dtype=float), y_var=np.array([1e6], dtype=float))
+
+    opt.ask(num_arms=1)
+    x1 = np.ones((1, 2), dtype=float)
+    opt.tell(x1, np.array([100.0], dtype=float), y_var=np.array([1e6], dtype=float))
+
+    assert opt._tr_state.best_value < 100.0
+    assert opt._tr_state.best_value == max(opt._y_tr_list)
+
+
+def test_turbo_enn_tr_values_use_posterior_mean_over_all_obs():
+    import numpy as np
+
+    from enn.turbo.turbo_config import TurboENNConfig
+    from enn.turbo.turbo_mode import TurboMode
+    from enn.turbo.turbo_optimizer import TurboOptimizer
+
+    rng = np.random.default_rng(0)
+    bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
+    opt = TurboOptimizer(
+        bounds=bounds,
+        mode=TurboMode.TURBO_ENN,
+        rng=rng,
+        config=TurboENNConfig(num_init=1, num_candidates=16, acq_type="pareto", k=3),
+    )
+
+    opt.ask(num_arms=1)
+    x0 = np.zeros((1, 2), dtype=float)
+    y0 = np.array([0.0], dtype=float)
+    opt.tell(x0, y0, y_var=np.array([1e6], dtype=float))
+
+    opt.ask(num_arms=1)
+    x1 = np.ones((1, 2), dtype=float)
+    y1 = np.array([100.0], dtype=float)
+    opt.tell(x1, y1, y_var=np.array([1e6], dtype=float))
+
+    # With huge observation noise, the ENN posterior mean at observed points should
+    # be strongly smoothed and not match raw y.
+    tr_vals = np.asarray(opt._y_tr_list, dtype=float)
+    assert tr_vals.shape == (2,)
+    assert not np.allclose(tr_vals, np.array([0.0, 100.0], dtype=float))
+    assert np.all(tr_vals > 1.0) and np.all(tr_vals < 99.0)
+
+
+def test_turbo_optimizer_no_trust_region_bounds_are_full_box():
+    import numpy as np
+
+    from enn.turbo.turbo_config import TurboZeroConfig
+    from enn.turbo.turbo_mode import TurboMode
+    from enn.turbo.turbo_optimizer import TurboOptimizer
+
+    rng = np.random.default_rng(0)
+    bounds = np.array([[-2.0, 2.0], [-1.0, 1.0], [0.0, 3.0]], dtype=float)
+    opt = TurboOptimizer(
+        bounds=bounds,
+        mode=TurboMode.TURBO_ZERO,
+        rng=rng,
+        config=TurboZeroConfig(tr_type="none", num_init=1, num_candidates=16),
+    )
+    x0 = opt.ask(num_arms=1)
+    opt.tell(x0, np.array([1.0]))
+    x_center = np.array([0.25, 0.5, 0.75], dtype=float)
+    lb, ub = opt._tr_state.compute_bounds_1d(x_center)
+    assert np.allclose(lb, 0.0)
+    assert np.allclose(ub, 1.0)
+
+
+def test_morbo_chebyshev_trust_region_weights_and_scaling():
+    import numpy as np
+    from scipy.stats import qmc
+
+    from enn.turbo.morbo_trust_region import MorboTrustRegion
+
+    rng1 = np.random.default_rng(0)
+    rng2 = np.random.default_rng(0)
+    tr1 = MorboTrustRegion(num_dim=3, num_arms=1, num_metrics=2, rng=rng1)
+    tr2 = MorboTrustRegion(num_dim=3, num_arms=1, num_metrics=2, rng=rng2)
+    assert np.allclose(tr1.weights, tr2.weights)
+    assert tr1.weights.shape == (2,)
+    assert np.all(tr1.weights > 0.0)
+    assert np.isclose(tr1.weights.sum(), 1.0)
+
+    x_obs = np.array([[0.1, 0.2, 0.3], [0.2, 0.2, 0.2]], dtype=float)
+    y_obs = np.array([[1.0, 1.0], [1.0, 1.0]], dtype=float)
+    tr1.update_xy(x_obs, y_obs)
+    scores = tr1.scalarize(y_obs, clip=True)
+    assert scores.shape == (2,)
+    assert np.all(np.isfinite(scores))
+    t = 0.5 * tr1.weights.reshape(1, -1)
+    expected = np.min(t, axis=1) + 0.05 * np.sum(t, axis=1)
+    assert np.allclose(scores[:1], expected)
+
+    sobol_engine = qmc.Sobol(d=3, scramble=True, seed=0)
+    x_center = np.array([0.5, 0.5, 0.5], dtype=float)
+    x_cand = tr1.generate_candidates(
+        x_center=x_center,
+        lengthscales=None,
+        num_candidates=64,
+        rng=np.random.default_rng(1),
+        sobol_engine=sobol_engine,
+    )
+    assert x_cand.shape == (64, 3)
+    assert np.all(x_cand >= 0.0) and np.all(x_cand <= 1.0)
+
+
+def test_turbo_optimizer_morbo_multi_objective():
+    import numpy as np
+
+    from enn.turbo.turbo_config import TurboENNConfig
+    from enn.turbo.turbo_mode import TurboMode
+    from enn.turbo.turbo_optimizer import TurboOptimizer
+
+    num_dim = 3
+    num_metrics = 2
+    bounds = np.array([[0.0, 1.0]] * num_dim, dtype=float)
+    rng = np.random.default_rng(42)
+
+    config = TurboENNConfig(tr_type="morbo", num_metrics=num_metrics, num_init=4)
+    optimizer = TurboOptimizer(
+        bounds=bounds, mode=TurboMode.TURBO_ENN, rng=rng, config=config
+    )
+
+    # Initial ask/tell loop
+    for _ in range(3):
+        x = optimizer.ask(num_arms=2)
+        assert x.shape == (2, num_dim)
+        # 2D y with shape (n, num_metrics)
+        y = rng.uniform(0.0, 1.0, size=(2, num_metrics))
+        y_est = optimizer.tell(x, y)
+        # y_est should be 2D with shape (n, num_metrics)
+        assert y_est.shape == (2, num_metrics)
+
+    # After init: should use normal ask with trust region
+    x = optimizer.ask(num_arms=2)
+    assert x.shape == (2, num_dim)
+    y = rng.uniform(0.0, 1.0, size=(2, num_metrics))
+    y_est = optimizer.tell(x, y)
+    # After ENN is fit, y_est is still 2D with shape (n, num_metrics)
+    assert y_est.shape == (2, num_metrics)
+
+    # Verify trust region length is set
+    tr_len = optimizer.tr_length
+    assert tr_len is not None
+    assert 0.0 < tr_len <= 1.0
+
+
+def test_fit_gp_multi_output_can_trigger_non_scalar_backward_error():
+    import numpy as np
+    import pytest
+    from gpytorch.mlls import ExactMarginalLogLikelihood
+
+    from enn.turbo.turbo_utils import fit_gp
+
+    rng = np.random.default_rng(0)
+    num_dim = 3
+    num_metrics = 2
+    n = 8
+
+    x = rng.uniform(0.0, 1.0, size=(n, num_dim))
+    y = rng.normal(size=(n, num_metrics))
+    model, likelihood, _gp_y_mean, _gp_y_std = fit_gp(
+        x.tolist(), y.tolist(), num_dim, num_steps=0
+    )
+    assert model is not None
+    assert likelihood is not None
+
+    model.train()
+    likelihood.train()
+    train_x = model.train_inputs[0]
+    train_y = model.train_targets
+    output = model(train_x)
+    mll = ExactMarginalLogLikelihood(likelihood, model)
+    loss = -mll(output, train_y)
+    assert tuple(loss.shape) == (num_metrics,)
+    with pytest.raises(
+        RuntimeError, match="grad can be implicitly created only for scalar outputs"
+    ):
+        loss.backward()
+
+
+def test_fit_gp_multi_output_trains_without_scalar_backward_error():
+    import numpy as np
+
+    from enn.turbo.turbo_utils import fit_gp
+
+    rng = np.random.default_rng(0)
+    num_dim = 3
+    num_metrics = 2
+    n = 8
+
+    x = rng.uniform(0.0, 1.0, size=(n, num_dim))
+    y = rng.normal(size=(n, num_metrics))
+    model, likelihood, gp_y_mean, gp_y_std = fit_gp(
+        x.tolist(), y.tolist(), num_dim, num_steps=2
+    )
+    assert model is not None
+    assert likelihood is not None
+    assert gp_y_mean.shape == (num_metrics,)
+    assert gp_y_std.shape == (num_metrics,)

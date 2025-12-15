@@ -24,15 +24,23 @@ def _next_power_of_2(n: int) -> int:
 
 
 @contextlib.contextmanager
-def torch_rng_context(generator: torch.Generator | Any) -> Iterator[None]:
+def torch_seed_context(
+    seed: int, device: torch.device | Any | None = None
+) -> Iterator[None]:
     import torch
 
-    old_state = torch.get_rng_state()
-    try:
-        torch.set_rng_state(generator.get_state())
+    devices: list[int] | None = None
+    if device is not None and getattr(device, "type", None) == "cuda":
+        idx = 0 if getattr(device, "index", None) is None else int(device.index)
+        devices = [idx]
+    with torch.random.fork_rng(devices=devices, enabled=True):
+        torch.manual_seed(int(seed))
+        if device is not None and getattr(device, "type", None) == "cuda":
+            torch.cuda.manual_seed_all(int(seed))
+        if device is not None and getattr(device, "type", None) == "mps":
+            if hasattr(torch, "mps") and hasattr(torch.mps, "manual_seed"):
+                torch.mps.manual_seed(int(seed))
         yield
-    finally:
-        torch.set_rng_state(old_state)
 
 
 def fit_gp(
@@ -45,8 +53,8 @@ def fit_gp(
 ) -> tuple[
     "TurboGP | TurboGPNoisy | None",
     "GaussianLikelihood | None",
-    float,
-    float,
+    float | np.ndarray,
+    float | np.ndarray,
 ]:
     import numpy as np
     import torch
@@ -60,22 +68,40 @@ def fit_gp(
     x = np.asarray(x_obs_list, dtype=float)
     y = np.asarray(y_obs_list, dtype=float)
     n = x.shape[0]
+    if y.ndim not in (1, 2):
+        raise ValueError(y.shape)
+    is_multi_output = y.ndim == 2 and y.shape[1] > 1
     if yvar_obs_list is not None:
         if len(yvar_obs_list) != len(y_obs_list):
             raise ValueError(
                 f"yvar_obs_list length {len(yvar_obs_list)} != y_obs_list length {len(y_obs_list)}"
             )
+        if is_multi_output:
+            raise ValueError("yvar_obs_list not supported for multi-output GP")
     if n == 0:
+        if is_multi_output:
+            num_outputs = int(y.shape[1])
+            return None, None, np.zeros(num_outputs), np.ones(num_outputs)
         return None, None, 0.0, 1.0
-    if n == 1:
-        gp_y_mean = float(y[0])
-        gp_y_std = 1.0
+    if n == 1 and is_multi_output:
+        gp_y_mean = y[0].copy()
+        gp_y_std = np.ones(int(y.shape[1]), dtype=float)
         return None, None, gp_y_mean, gp_y_std
-    gp_y_mean, gp_y_std = standardize_y(y)
-    y_centered = y - gp_y_mean
-    z = y_centered / gp_y_std
+
+    if is_multi_output:
+        gp_y_mean = y.mean(axis=0)
+        gp_y_std = y.std(axis=0)
+        gp_y_std = np.where(gp_y_std < 1e-6, 1.0, gp_y_std)
+        z = (y - gp_y_mean) / gp_y_std
+    else:
+        gp_y_mean, gp_y_std = standardize_y(y)
+        y_centered = y - gp_y_mean
+        z = y_centered / gp_y_std
     train_x = torch.as_tensor(x, dtype=torch.float64)
-    train_y = torch.as_tensor(z, dtype=torch.float64)
+    if is_multi_output:
+        train_y = torch.as_tensor(z.T, dtype=torch.float64)
+    else:
+        train_y = torch.as_tensor(z, dtype=torch.float64)
     lengthscale_constraint = Interval(0.005, 2.0)
     outputscale_constraint = Interval(0.05, 20.0)
     if yvar_obs_list is not None:
@@ -92,9 +118,16 @@ def fit_gp(
         likelihood = model.likelihood
     else:
         noise_constraint = Interval(5e-4, 0.2)
-        likelihood = GaussianLikelihood(noise_constraint=noise_constraint).to(
-            dtype=train_y.dtype
-        )
+        if is_multi_output:
+            num_outputs = int(y.shape[1])
+            likelihood = GaussianLikelihood(
+                noise_constraint=noise_constraint,
+                batch_shape=torch.Size([num_outputs]),
+            ).to(dtype=train_y.dtype)
+        else:
+            likelihood = GaussianLikelihood(noise_constraint=noise_constraint).to(
+                dtype=train_y.dtype
+            )
         model = TurboGP(
             train_x=train_x,
             train_y=train_y,
@@ -103,11 +136,23 @@ def fit_gp(
             outputscale_constraint=outputscale_constraint,
             ard_dims=num_dim,
         ).to(dtype=train_x.dtype)
-        likelihood.noise = torch.tensor(0.005, dtype=train_y.dtype)
-    model.covar_module.outputscale = torch.tensor(1.0, dtype=train_x.dtype)
-    model.covar_module.base_kernel.lengthscale = torch.full(
-        (num_dim,), 0.5, dtype=train_x.dtype
-    )
+        if is_multi_output:
+            likelihood.noise = torch.full(
+                (int(y.shape[1]),), 0.005, dtype=train_y.dtype
+            )
+        else:
+            likelihood.noise = torch.tensor(0.005, dtype=train_y.dtype)
+    if is_multi_output:
+        num_outputs = int(y.shape[1])
+        model.covar_module.outputscale = torch.ones(num_outputs, dtype=train_x.dtype)
+        model.covar_module.base_kernel.lengthscale = torch.full(
+            (num_outputs, 1, num_dim), 0.5, dtype=train_x.dtype
+        )
+    else:
+        model.covar_module.outputscale = torch.tensor(1.0, dtype=train_x.dtype)
+        model.covar_module.base_kernel.lengthscale = torch.full(
+            (num_dim,), 0.5, dtype=train_x.dtype
+        )
     model.train()
     likelihood.train()
     mll = ExactMarginalLogLikelihood(likelihood, model)
@@ -116,6 +161,8 @@ def fit_gp(
         optimizer.zero_grad()
         output = model(train_x)
         loss = -mll(output, train_y)
+        if loss.ndim != 0:
+            loss = loss.sum()
         loss.backward()
         optimizer.step()
     model.eval()
@@ -197,6 +244,49 @@ def raasp(
     )
 
 
+def generate_raasp_candidates(
+    center: np.ndarray | Any,
+    lb: np.ndarray | list[float] | Any,
+    ub: np.ndarray | list[float] | Any,
+    num_candidates: int,
+    *,
+    rng: Generator | Any,
+    sobol_engine: QMCEngine | Any,
+    num_pert: int = 20,
+) -> np.ndarray:
+    if num_candidates <= 0:
+        raise ValueError(num_candidates)
+    return raasp(
+        center,
+        lb,
+        ub,
+        num_candidates,
+        num_pert=num_pert,
+        rng=rng,
+        sobol_engine=sobol_engine,
+    )
+
+
+def generate_trust_region_candidates(
+    x_center: np.ndarray | Any,
+    lengthscales: np.ndarray | None,
+    num_candidates: int,
+    *,
+    compute_bounds_1d: Any,
+    rng: Generator | Any,
+    sobol_engine: QMCEngine | Any,
+) -> np.ndarray:
+    """
+    Small DRY helper for trust-region candidate generation.
+
+    `compute_bounds_1d` is typically a TR object's bound computation method.
+    """
+    lb, ub = compute_bounds_1d(x_center, lengthscales)
+    return generate_raasp_candidates(
+        x_center, lb, ub, num_candidates, rng=rng, sobol_engine=sobol_engine
+    )
+
+
 def to_unit(x: np.ndarray | Any, bounds: np.ndarray | Any) -> np.ndarray:
     import numpy as np
 
@@ -229,15 +319,15 @@ def gp_thompson_sample(
 
     x_torch = torch.as_tensor(x_cand, dtype=torch.float64)
     seed = int(rng.integers(2**31 - 1))
-    gen = torch.Generator(device=x_torch.device)
-    gen.manual_seed(seed)
     with (
         torch.no_grad(),
         gpytorch.settings.fast_pred_var(),
-        torch_rng_context(gen),
+        torch_seed_context(seed, device=x_torch.device),
     ):
         posterior = model.posterior(x_torch)
         samples = posterior.sample(sample_shape=torch.Size([1]))
+    if samples.ndim != 2:
+        raise ValueError(samples.shape)
     ts = samples[0].reshape(-1)
     scores = ts.detach().cpu().numpy().reshape(-1)
     scores = gp_y_mean + gp_y_std * scores
