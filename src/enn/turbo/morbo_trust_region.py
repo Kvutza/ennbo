@@ -7,8 +7,6 @@ if TYPE_CHECKING:
     from numpy.random import Generator
     from scipy.stats._qmc import QMCEngine
 
-from .turbo_trust_region import TurboTrustRegion
-
 
 class MorboTrustRegion:
     def __init__(
@@ -20,6 +18,8 @@ class MorboTrustRegion:
         rng: Generator,
     ) -> None:
         import numpy as np
+
+        from .turbo_trust_region import TurboTrustRegion
 
         self._tr = TurboTrustRegion(num_dim=num_dim, num_arms=num_arms)
         self._num_dim = int(num_dim)
@@ -55,56 +55,47 @@ class MorboTrustRegion:
     def length(self) -> float:
         return float(self._tr.length)
 
+    def _update_ranges(self, y_obs, prev_n):
+        y_min_all, y_max_all = y_obs.min(axis=0), y_obs.max(axis=0)
+        y_min_prev = y_obs[:prev_n].min(axis=0) if prev_n > 0 else y_min_all
+        y_max_prev = y_obs[:prev_n].max(axis=0) if prev_n > 0 else y_max_all
+        self._y_min, self._y_max = y_min_all, y_max_all
+        return y_min_prev, y_max_prev
+
     def update(self, y_obs: np.ndarray | Any) -> None:
         import numpy as np
 
         y_obs = np.asarray(y_obs, dtype=float)
-
         if y_obs.ndim != 2 or y_obs.shape[1] != self._num_metrics:
             raise ValueError((y_obs.shape, self._num_metrics))
-
         n = int(y_obs.shape[0])
         if n == 0:
-            self._y_min = None
-            self._y_max = None
+            self._y_min, self._y_max = None, None
             self._tr.restart()
             return
-
         prev_n = int(self._tr.prev_num_obs)
         if n < prev_n:
             raise ValueError((n, prev_n))
-
-        y_min_all = y_obs.min(axis=0)
-        y_max_all = y_obs.max(axis=0)
-        y_min_prev = y_obs[:prev_n].min(axis=0) if prev_n > 0 else y_min_all
-        y_max_prev = y_obs[:prev_n].max(axis=0) if prev_n > 0 else y_max_all
-
-        self._y_min = y_min_all
-        self._y_max = y_max_all
-
+        y_min_prev, y_max_prev = self._update_ranges(y_obs, prev_n)
         if prev_n == 0:
             values = np.asarray(self.scalarize(y_obs, clip=True), dtype=float)
             if values.shape != (n,):
                 raise RuntimeError((values.shape, n))
             self._tr.update(values)
             return
-
         if not np.isfinite(self._tr.best_value):
             raise RuntimeError(self._tr.best_value)
-
-        values_old = self._scalarize_with_ranges(
-            y_obs, y_min=y_min_prev, y_max=y_max_prev, clip=True
+        values_old = np.asarray(
+            self._scalarize_with_ranges(
+                y_obs, y_min=y_min_prev, y_max=y_max_prev, clip=True
+            ),
+            dtype=float,
         )
-        values_old = np.asarray(values_old, dtype=float)
         if values_old.shape != (n,):
             raise RuntimeError((values_old.shape, n))
-
-        incumbent_old = float(np.max(values_old[:prev_n]))
-        self._tr.best_value = incumbent_old
-        if prev_n == n:
-            return
-
-        self._tr.update(values_old)
+        self._tr.best_value = float(np.max(values_old[:prev_n]))
+        if prev_n < n:
+            self._tr.update(values_old)
 
     def scalarize(self, y: np.ndarray | Any, *, clip: bool) -> np.ndarray:
         import numpy as np
@@ -172,8 +163,15 @@ class MorboTrustRegion:
         rng: Generator,
         sobol_engine: QMCEngine,
     ) -> np.ndarray:
-        return self._tr.generate_candidates(
-            x_center, lengthscales, num_candidates, rng, sobol_engine
+        from .tr_helpers import generate_tr_candidates
+
+        return generate_tr_candidates(
+            self._tr.compute_bounds_1d,
+            x_center,
+            lengthscales,
+            num_candidates,
+            rng=rng,
+            sobol_engine=sobol_engine,
         )
 
     def get_incumbent_indices(

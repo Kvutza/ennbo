@@ -6,16 +6,19 @@ if TYPE_CHECKING:
     import numpy as np
     from numpy.random import Generator
 
-from .base_turbo_impl import BaseTurboImpl
 from .turbo_config import TurboENNConfig
 
 
-class TurboENNImpl(BaseTurboImpl):
+class TurboENNImpl:
     def __init__(self, config: TurboENNConfig) -> None:
-        super().__init__(config)
+        self._config = config
         self._enn: Any | None = None
         self._fitted_params: Any | None = None
         self._fitted_n_obs: int = 0
+
+    @property
+    def always_clears_on_restart(self) -> bool:
+        return True
 
     def get_x_center(
         self,
@@ -26,12 +29,15 @@ class TurboENNImpl(BaseTurboImpl):
     ) -> np.ndarray | None:
         import numpy as np
 
+        from .impl_helpers import get_x_center_fallback
         from .turbo_utils import argmax_random_tie
 
         if len(y_obs_list) == 0:
             return None
         if self._enn is None or self._fitted_params is None:
-            return super().get_x_center(x_obs_list, y_obs_list, rng, tr_state)
+            return get_x_center_fallback(
+                self._config, x_obs_list, y_obs_list, rng, tr_state
+            )
         if self._fitted_n_obs != len(x_obs_list):
             raise RuntimeError(
                 f"ENN fitted on {self._fitted_n_obs} obs but get_x_center called with {len(x_obs_list)}"
@@ -77,18 +83,14 @@ class TurboENNImpl(BaseTurboImpl):
     def needs_tr_list(self) -> bool:
         return True
 
-    def handle_restart(
+    def try_early_ask(
         self,
+        num_arms: int,
         x_obs_list: list,
-        y_obs_list: list,
-        yvar_obs_list: list,
-        init_idx: int,
-        num_init: int,
-    ) -> tuple[bool, int]:
-        x_obs_list.clear()
-        y_obs_list.clear()
-        yvar_obs_list.clear()
-        return True, 0
+        draw_initial_fn: Callable[[int], np.ndarray],
+        get_init_lhd_points_fn: Callable[[int], np.ndarray],
+    ) -> np.ndarray | None:
+        return None
 
     def prepare_ask(
         self,
@@ -105,8 +107,8 @@ class TurboENNImpl(BaseTurboImpl):
         self._enn, self._fitted_params = mk_enn(
             x_obs_list,
             y_obs_list,
-            yvar_obs_list=yvar_obs_list,
-            k=k,
+            k,
+            yvar_obs_list,
             num_fit_samples=self._config.num_fit_samples,
             num_fit_candidates=self._config.num_fit_candidates,
             scale_x=self._config.scale_x,
@@ -160,15 +162,15 @@ class TurboENNImpl(BaseTurboImpl):
             idx = shuffled_indices[top_k_in_shuffled]
             x_arms = x_cand[idx]
         elif acq_type == "thompson":
-            samples = posterior.sample(num_samples=1, rng=rng)
-            scores = samples[:, 0, 0]
-            shuffled_indices = rng.permutation(len(scores))
-            shuffled_scores = scores[shuffled_indices]
-            top_k_in_shuffled = np.argpartition(-shuffled_scores, num_arms - 1)[
-                :num_arms
-            ]
-            idx = shuffled_indices[top_k_in_shuffled]
-            x_arms = x_cand[idx]
+            # One function sample per arm; each arm = argmax over all candidates
+            base_seed = rng.integers(0, 2**31)
+            function_seeds = np.arange(base_seed, base_seed + num_arms, dtype=np.int64)
+            f_samples = self._enn.posterior_function_draw(
+                x_cand, params, function_seeds=function_seeds
+            )
+            # f_samples: (num_arms, num_candidates, num_metrics)
+            arm_indices = np.argmax(f_samples[:, :, 0], axis=1)
+            x_arms = x_cand[arm_indices]
         else:
             raise ValueError(f"Unknown acq_type: {acq_type}")
 
