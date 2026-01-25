@@ -1,12 +1,10 @@
 from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import numpy as np
     from numpy.random import Generator
-
-    from .enn import EpistemicNearestNeighbors
+    from .enn_class import EpistemicNearestNeighbors
     from .enn_params import ENNParams
 
 
@@ -70,7 +68,6 @@ def subsample_loglik(
     x_sel, y_sel = x_array[indices], y_array[indices]
     if not np.isfinite(y_sel).all():
         return [0.0] * len(paramss)
-
     from .enn_params import PosteriorFlags
 
     post = model.batch_posterior(
@@ -82,10 +79,11 @@ def subsample_loglik(
     expected_shape = (num_params, P_actual, num_outputs)
     if post.mu.shape != expected_shape or post.se.shape != expected_shape:
         raise ValueError((post.mu.shape, post.se.shape, expected_shape))
-
     y_std = np.std(y_array, axis=0, keepdims=True).astype(float)
     y_std = np.where(np.isfinite(y_std) & (y_std > 0.0), y_std, 1.0)
-    y_scaled, mu_scaled, se_scaled = y_sel / y_std, post.mu / y_std, post.se / y_std
+    y_scaled = y_sel / y_std
+    mu_scaled = post.mu / y_std
+    se_scaled = post.se / y_std
     return [
         _compute_single_loglik(y_scaled, mu_scaled[i], se_scaled[i])
         for i in range(num_params)
@@ -115,22 +113,26 @@ def enn_fit(
     ale_homoscedastic_values = 10**ale_homoscedastic_log_values
     paramss = [
         ENNParams(
-            k=k,
-            epi_var_scale=float(epi_val),
-            ale_homoscedastic_scale=float(ale_val),
+            k_num_neighbors=k,
+            epistemic_variance_scale=float(epi_val),
+            aleatoric_variance_scale=float(ale_val),
         )
         for epi_val, ale_val in zip(epi_var_scale_values, ale_homoscedastic_values)
     ]
     if params_warm_start is not None:
         paramss.append(
             ENNParams(
-                k=k,
-                epi_var_scale=params_warm_start.epi_var_scale,
-                ale_homoscedastic_scale=params_warm_start.ale_homoscedastic_scale,
+                k_num_neighbors=k,
+                epistemic_variance_scale=params_warm_start.epistemic_variance_scale,
+                aleatoric_variance_scale=params_warm_start.aleatoric_variance_scale,
             )
         )
     if len(paramss) == 0:
-        return ENNParams(k=k, epi_var_scale=1.0, ale_homoscedastic_scale=0.0)
+        return ENNParams(
+            k_num_neighbors=k,
+            epistemic_variance_scale=1.0,
+            aleatoric_variance_scale=0.0,
+        )
     import numpy as np
 
     logliks = subsample_loglik(

@@ -1,7 +1,6 @@
 def test_subsample_loglik_and_enn_fit_improve_hyperparameters():
     import numpy as np
-
-    from enn.enn import EpistemicNearestNeighbors
+    from enn.enn.enn_class import EpistemicNearestNeighbors
     from enn.enn.enn_fit import enn_fit, subsample_loglik
     from enn.enn.enn_params import ENNParams
 
@@ -9,7 +8,6 @@ def test_subsample_loglik_and_enn_fit_improve_hyperparameters():
     x = rng.standard_normal((40, 2))
     y = (x @ np.array([1.5, -0.5]) + 0.1 * rng.standard_normal(40)).reshape(-1, 1)
     model = EpistemicNearestNeighbors(x, y, 0.01 * np.ones_like(y))
-
     result = enn_fit(
         model,
         k=10,
@@ -18,9 +16,10 @@ def test_subsample_loglik_and_enn_fit_improve_hyperparameters():
         rng=np.random.default_rng(1),
     )
     assert (
-        isinstance(result, ENNParams) and result.k == 10 and result.epi_var_scale > 0.0
+        isinstance(result, ENNParams)
+        and result.k_num_neighbors == 10
+        and result.epistemic_variance_scale > 0.0
     )
-
     tuned_ll = subsample_loglik(
         model, x, y[:, 0], paramss=[result], P=20, rng=np.random.default_rng(2)
     )[0]
@@ -46,8 +45,7 @@ def _make_linear_1d_regression_data(
 
 def test_enn_fit_with_yvar_none():
     import numpy as np
-
-    from enn.enn import EpistemicNearestNeighbors
+    from enn.enn.enn_class import EpistemicNearestNeighbors
     from enn.enn.enn_fit import enn_fit
     from enn.enn.enn_params import ENNParams
 
@@ -57,9 +55,7 @@ def test_enn_fit_with_yvar_none():
     x, y, yvar = _make_linear_1d_regression_data(
         rng=rng, n=n, d=d, noise_std=0.1, yvar=None
     )
-
     model = EpistemicNearestNeighbors(x, y, train_yvar=yvar)
-
     result = enn_fit(
         model,
         k=5,
@@ -67,17 +63,15 @@ def test_enn_fit_with_yvar_none():
         num_fit_samples=10,
         rng=rng,
     )
-
     assert isinstance(result, ENNParams)
-    assert result.k == 5
-    assert result.epi_var_scale > 0.0
-    assert result.ale_homoscedastic_scale >= 0.0
+    assert result.k_num_neighbors == 5
+    assert result.epistemic_variance_scale > 0.0
+    assert result.aleatoric_variance_scale >= 0.0
 
 
 def test_enn_fit_with_warm_start():
     import numpy as np
-
-    from enn.enn import EpistemicNearestNeighbors
+    from enn.enn.enn_class import EpistemicNearestNeighbors
     from enn.enn.enn_fit import enn_fit
     from enn.enn.enn_params import ENNParams
 
@@ -87,10 +81,7 @@ def test_enn_fit_with_warm_start():
     x, y, yvar = _make_linear_1d_regression_data(
         rng=rng, n=n, d=d, noise_std=0.1, yvar=0.01
     )
-
     model = EpistemicNearestNeighbors(x, y, yvar)
-
-    # First fit
     result1 = enn_fit(
         model,
         k=5,
@@ -98,8 +89,6 @@ def test_enn_fit_with_warm_start():
         num_fit_samples=10,
         rng=rng,
     )
-
-    # Second fit with warm start from first result
     result2 = enn_fit(
         model,
         k=5,
@@ -108,17 +97,15 @@ def test_enn_fit_with_warm_start():
         rng=rng,
         params_warm_start=result1,
     )
-
     assert isinstance(result2, ENNParams)
-    assert result2.k == 5
-    assert result2.epi_var_scale > 0.0
-    assert result2.ale_homoscedastic_scale >= 0.0
+    assert result2.k_num_neighbors == 5
+    assert result2.epistemic_variance_scale > 0.0
+    assert result2.aleatoric_variance_scale >= 0.0
 
 
 def test_enn_fit_supports_multioutput_y():
     import numpy as np
-
-    from enn.enn import EpistemicNearestNeighbors
+    from enn.enn.enn_class import EpistemicNearestNeighbors
     from enn.enn.enn_fit import enn_fit, subsample_loglik
     from enn.enn.enn_params import ENNParams
 
@@ -128,7 +115,6 @@ def test_enn_fit_supports_multioutput_y():
     y2 = np.sin(x @ [-0.5, 0.25, 1.25]) + 0.3 * rng.standard_normal(60)
     y = np.column_stack([y1, y2]).astype(float)
     model = EpistemicNearestNeighbors(x, y, np.ones_like(y) * [[0.01, 0.09]])
-
     params = enn_fit(
         model,
         k=12,
@@ -136,8 +122,7 @@ def test_enn_fit_supports_multioutput_y():
         num_fit_samples=25,
         rng=np.random.default_rng(456),
     )
-    assert isinstance(params, ENNParams) and params.k == 12
-
+    assert isinstance(params, ENNParams) and params.k_num_neighbors == 12
     lls = subsample_loglik(
         model, x, y, paramss=[params], P=25, rng=np.random.default_rng(789)
     )

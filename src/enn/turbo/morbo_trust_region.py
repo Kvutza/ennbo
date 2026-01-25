@@ -2,46 +2,59 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from .tr_helpers import ScalarIncumbentMixin
+
 if TYPE_CHECKING:
     import numpy as np
     from numpy.random import Generator
     from scipy.stats._qmc import QMCEngine
 
+    from .config.morbo_tr_config import MorboTRConfig
+    from .config.rescalarize import Rescalarize
 
-class MorboTrustRegion:
+from .config.enums import CandidateRV, RAASPDriver
+
+
+class MorboTrustRegion(ScalarIncumbentMixin):
     def __init__(
         self,
+        config: MorboTRConfig,
         num_dim: int,
-        num_arms: int,
-        num_metrics: int,
         *,
         rng: Generator,
+        candidate_rv: CandidateRV = CandidateRV.SOBOL,
     ) -> None:
-        import numpy as np
-
+        from .components.incumbent_selector import ChebyshevIncumbentSelector
+        from .config.turbo_tr_config import TurboTRConfig
         from .turbo_trust_region import TurboTrustRegion
 
-        self._tr = TurboTrustRegion(num_dim=num_dim, num_arms=num_arms)
+        self._config = config
+        self._candidate_rv = candidate_rv
+        inner_config = TurboTRConfig(length=config.length)
+        self._tr = TurboTrustRegion(
+            config=inner_config,
+            num_dim=num_dim,
+        )
         self._num_dim = int(num_dim)
-        self._num_arms = int(num_arms)
-        self._num_metrics = int(num_metrics)
+        self._num_metrics = int(config.num_metrics)
         if self._num_metrics <= 0:
             raise ValueError(self._num_metrics)
-
-        alpha = np.ones(self._num_metrics, dtype=float)
-        self._weights = np.asarray(rng.dirichlet(alpha), dtype=float)
-        self._alpha = 0.05
-
+        self._alpha = float(config.alpha)
+        self._rescalarize = config.rescalarize
+        self.incumbent_selector = ChebyshevIncumbentSelector(
+            num_metrics=self._num_metrics,
+            alpha=self._alpha,
+            noise_aware=config.noise_aware,
+        )
+        self.incumbent_selector.reset(rng)
+        self._weights = self.incumbent_selector.weights
         self._y_min: np.ndarray | Any | None = None
         self._y_max: np.ndarray | Any | None = None
+        self._incumbent_y_raw: np.ndarray | None = None
 
     @property
     def num_dim(self) -> int:
         return self._num_dim
-
-    @property
-    def num_arms(self) -> int:
-        return self._num_arms
 
     @property
     def num_metrics(self) -> int:
@@ -55,14 +68,18 @@ class MorboTrustRegion:
     def length(self) -> float:
         return float(self._tr.length)
 
-    def _update_ranges(self, y_obs, prev_n):
-        y_min_all, y_max_all = y_obs.min(axis=0), y_obs.max(axis=0)
-        y_min_prev = y_obs[:prev_n].min(axis=0) if prev_n > 0 else y_min_all
-        y_max_prev = y_obs[:prev_n].max(axis=0) if prev_n > 0 else y_max_all
-        self._y_min, self._y_max = y_min_all, y_max_all
-        return y_min_prev, y_max_prev
+    @property
+    def rescalarize(self) -> Rescalarize:
+        return self._rescalarize
 
-    def update(self, y_obs: np.ndarray | Any) -> None:
+    def resample_weights(self, rng: Generator) -> None:
+        self.incumbent_selector.reset(rng)
+        self._weights = self.incumbent_selector.weights
+
+    def _update_ranges(self, y_obs):
+        self._y_min, self._y_max = y_obs.min(axis=0), y_obs.max(axis=0)
+
+    def update(self, y_obs: np.ndarray | Any, y_incumbent: np.ndarray | Any) -> None:
         import numpy as np
 
         y_obs = np.asarray(y_obs, dtype=float)
@@ -71,31 +88,42 @@ class MorboTrustRegion:
         n = int(y_obs.shape[0])
         if n == 0:
             self._y_min, self._y_max = None, None
+            self._incumbent_y_raw = None
             self._tr.restart()
             return
         prev_n = int(self._tr.prev_num_obs)
         if n < prev_n:
             raise ValueError((n, prev_n))
-        y_min_prev, y_max_prev = self._update_ranges(y_obs, prev_n)
+        self._y_min, self._y_max = y_obs.min(axis=0), y_obs.max(axis=0)
+        y_incumbent = np.asarray(y_incumbent, dtype=float).reshape(1, -1)
+        if y_incumbent.shape != (1, self._num_metrics):
+            raise ValueError(
+                f"y_incumbent must have shape (1, {self._num_metrics}), got {y_incumbent.shape}"
+            )
         if prev_n == 0:
-            values = np.asarray(self.scalarize(y_obs, clip=True), dtype=float)
-            if values.shape != (n,):
-                raise RuntimeError((values.shape, n))
-            self._tr.update(values)
+            self._handle_initial_update(y_incumbent, n)
             return
-        if not np.isfinite(self._tr.best_value):
-            raise RuntimeError(self._tr.best_value)
-        values_old = np.asarray(
-            self._scalarize_with_ranges(
-                y_obs, y_min=y_min_prev, y_max=y_max_prev, clip=True
-            ),
-            dtype=float,
+        if self._incumbent_y_raw is None:
+            self._handle_initial_update(y_incumbent, n)
+            return
+        scores = self.scalarize(
+            np.vstack([self._incumbent_y_raw, y_incumbent]), clip=True
         )
-        if values_old.shape != (n,):
-            raise RuntimeError((values_old.shape, n))
-        self._tr.best_value = float(np.max(values_old[:prev_n]))
-        if prev_n < n:
-            self._tr.update(values_old)
+        old_score = float(scores[0])
+        new_score = float(scores[1])
+        self._tr.best_value = old_score
+        dummy_y_obs = np.zeros((n, 1))
+        self._tr.update(dummy_y_obs, np.array([new_score]))
+        if new_score > old_score:
+            self._incumbent_y_raw = y_incumbent.copy()
+
+    def _handle_initial_update(self, y_incumbent: np.ndarray, n: int) -> None:
+        import numpy as np
+
+        self._incumbent_y_raw = y_incumbent.copy()
+        score = self.scalarize(y_incumbent, clip=True)
+        dummy_y_obs = np.zeros((n, 1))
+        self._tr.update(dummy_y_obs, score)
 
     def scalarize(self, y: np.ndarray | Any, *, clip: bool) -> np.ndarray:
         import numpy as np
@@ -105,7 +133,6 @@ class MorboTrustRegion:
             raise ValueError(y.shape)
         if self._y_min is None or self._y_max is None:
             raise RuntimeError("scalarize called before any observations")
-
         return self._scalarize_with_ranges(
             y, y_min=self._y_min, y_max=self._y_max, clip=clip
         )
@@ -127,7 +154,6 @@ class MorboTrustRegion:
         y_max = np.asarray(y_max, dtype=float).reshape(-1)
         if y_min.shape != (self._num_metrics,) or y_max.shape != (self._num_metrics,):
             raise ValueError((y_min.shape, y_max.shape, self._num_metrics))
-
         denom = y_max - y_min
         is_deg = denom <= 0.0
         denom_safe = np.where(is_deg, 1.0, denom)
@@ -142,10 +168,15 @@ class MorboTrustRegion:
     def needs_restart(self) -> bool:
         return self._tr.needs_restart()
 
-    def restart(self) -> None:
+    def restart(self, rng: Generator | None = None) -> None:
+        from .config.rescalarize import Rescalarize
+
         self._y_min = None
         self._y_max = None
+        self._incumbent_y_raw = None
         self._tr.restart()
+        if rng is not None and self._rescalarize == Rescalarize.ON_RESTART:
+            self.resample_weights(rng)
 
     def validate_request(self, num_arms: int, *, is_fallback: bool = False) -> None:
         return self._tr.validate_request(num_arms, is_fallback=is_fallback)
@@ -162,6 +193,8 @@ class MorboTrustRegion:
         num_candidates: int,
         rng: Generator,
         sobol_engine: QMCEngine,
+        raasp_driver: RAASPDriver = RAASPDriver.ORIG,
+        num_pert: int = 20,
     ) -> np.ndarray:
         from .tr_helpers import generate_tr_candidates
 
@@ -171,13 +204,16 @@ class MorboTrustRegion:
             lengthscales,
             num_candidates,
             rng=rng,
+            candidate_rv=self._candidate_rv,
             sobol_engine=sobol_engine,
+            raasp_driver=raasp_driver,
+            num_pert=num_pert,
         )
 
     def get_incumbent_indices(
         self,
         y: np.ndarray | Any,
-        rng: Generator,  # noqa: ARG002
+        rng: Generator,
     ) -> np.ndarray:
         import numpy as np
 
@@ -187,20 +223,28 @@ class MorboTrustRegion:
         n = y.shape[0]
         if n == 0:
             return np.array([], dtype=int)
+        from nds import ndomsort
 
-        if y.shape[1] == 2:
-            from enn.enn.enn_util import pareto_front_2d_maximize
+        idx_front = np.array(ndomsort.non_domin_sort(-y, only_front_indices=True))
+        return np.where(idx_front == 0)[0]
 
-            return pareto_front_2d_maximize(y[:, 0], y[:, 1])
+    def get_incumbent_value(
+        self,
+        y_obs: np.ndarray | Any,
+        rng: Generator,
+        mu_obs: np.ndarray | None = None,
+    ) -> np.ndarray:
+        import numpy as np
 
-        dominated = np.zeros(n, dtype=bool)
-        for i in range(n):
-            if dominated[i]:
-                continue
-            for j in range(n):
-                if i == j or dominated[j]:
-                    continue
-                if np.all(y[j] >= y[i]) and np.any(y[j] > y[i]):
-                    dominated[i] = True
-                    break
-        return np.where(~dominated)[0]
+        y_obs = np.asarray(y_obs, dtype=float)
+        if y_obs.ndim != 2 or y_obs.shape[1] != self._num_metrics:
+            raise ValueError((y_obs.shape, self._num_metrics))
+        n = int(y_obs.shape[0])
+        if n == 0:
+            return np.array([], dtype=float)
+        idx = self.get_incumbent_index(y_obs, rng, mu=mu_obs)
+        use_mu = bool(getattr(self.incumbent_selector, "noise_aware", False))
+        values = np.asarray(mu_obs if use_mu else y_obs, dtype=float)
+        if values.ndim != 2 or values.shape[1] != self._num_metrics:
+            raise ValueError((values.shape, self._num_metrics))
+        return values[idx : idx + 1].copy()
