@@ -29,7 +29,7 @@ class ENNSurrogate:
         rng: Generator | None = None,
     ) -> SurrogateResult:
         from ..proposal import mk_enn
-        from ..config.enums import ENNIndexDriver
+        from ..config.enn_index_driver import ENNIndexDriver
 
         k = self._config.k if self._config.k is not None else 10
         if (
@@ -57,10 +57,10 @@ class ENNSurrogate:
                 )
         else:
             self._enn, self._params = mk_enn(
-                list(x_obs),
-                list(y_obs),
+                x_obs,
+                y_obs,
                 k,
-                list(y_var) if y_var is not None else [],
+                y_var if y_var is not None else np.array([], dtype=float),
                 num_fit_samples=self._config.num_fit_samples,
                 num_fit_candidates=self._config.num_fit_candidates,
                 scale_x=self._config.scale_x,

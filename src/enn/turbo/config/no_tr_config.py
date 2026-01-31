@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from numpy.random import Generator
 
     from ..components.protocols import TrustRegion
-    from .enums import CandidateRV
+    from .candidate_rv import CandidateRV
 
 
 @dataclass(frozen=True)
@@ -21,11 +21,6 @@ class NoTRConfig:
         rng: Generator,
         candidate_rv: CandidateRV | None = None,
     ) -> TrustRegion:
-        from ..components.incumbent_selector import ScalarIncumbentSelector
-        from ..no_trust_region import NoTrustRegion
+        from ..components.builder import build_trust_region
 
-        return NoTrustRegion(
-            config=self,
-            num_dim=num_dim,
-            incumbent_selector=ScalarIncumbentSelector(noise_aware=self.noise_aware),
-        )
+        return build_trust_region(self, num_dim, rng, candidate_rv)

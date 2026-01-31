@@ -5,33 +5,13 @@ from typing import TYPE_CHECKING
 
 from .rescalarize import Rescalarize
 from .turbo_tr_config import TRLengthConfig
+from .candidate_rv import CandidateRV
+from .multi_objective_config import MultiObjectiveConfig
+from .rescale_policy_config import RescalePolicyConfig
 
 if TYPE_CHECKING:
     from numpy.random import Generator
-
     from ..components.protocols import TrustRegion
-    from .enums import CandidateRV
-
-from .enums import CandidateRV
-
-
-@dataclass(frozen=True)
-class MultiObjectiveConfig:
-    num_metrics: int
-    alpha: float = 0.05
-
-    def __post_init__(self) -> None:
-        if self.num_metrics < 2:
-            raise ValueError(
-                f"num_metrics must be >= 2 for MORBO, got {self.num_metrics}"
-            )
-        if self.alpha <= 0:
-            raise ValueError(f"alpha must be > 0, got {self.alpha}")
-
-
-@dataclass(frozen=True)
-class RescalePolicyConfig:
-    rescalarize: Rescalarize = Rescalarize.ON_PROPOSE
 
 
 @dataclass(frozen=True)
@@ -72,11 +52,6 @@ class MorboTRConfig:
         rng: Generator,
         candidate_rv: CandidateRV = CandidateRV.SOBOL,
     ) -> TrustRegion:
-        from ..morbo_trust_region import MorboTrustRegion
+        from ..components.builder import build_trust_region
 
-        return MorboTrustRegion(
-            config=self,
-            num_dim=num_dim,
-            rng=rng,
-            candidate_rv=candidate_rv,
-        )
+        return build_trust_region(self, num_dim, rng, candidate_rv)

@@ -13,11 +13,27 @@ from .base import (
     CandidateGenConfig,
     InitConfig,
 )
-from .enums import (
-    AcqType,
-    CandidateRV,
+from .acq_type import AcqType
+from .enn_index_driver import ENNIndexDriver
+from .rescalarize import Rescalarize
+from .candidate_rv import CandidateRV
+from .raasp_driver import RAASPDriver
+from .num_candidates_fn import (
+    NumCandidatesFn,
+    const_num_candidates,
+    default_num_candidates,
 )
-from .init_strategies import HybridInit, InitStrategy, LHDOnlyInit
+
+__all__ = [
+    "AcqType",
+    "ENNIndexDriver",
+    "Rescalarize",
+    "CandidateRV",
+    "RAASPDriver",
+]
+from .trust_region import InitStrategy
+from .init_strategies.hybrid_init import HybridInit
+from .init_strategies.lhd_only_init import LHDOnlyInit
 from .optimizer_config import OptimizerConfig
 from .surrogate import (
     ENNFitConfig,
@@ -56,14 +72,20 @@ __all__ = [
     "AcquisitionConfig",
     "CandidateGenConfig",
     "CandidateRV",
+    "const_num_candidates",
+    "default_num_candidates",
+    "NumCandidatesFn",
+    "ENNIndexDriver",
+    "RAASPDriver",
+    "Rescalarize",
     "DrawAcquisitionConfig",
     "ENNFitConfig",
     "ENNSurrogateConfig",
     "GPSurrogateConfig",
     "HnROptimizerConfig",
     "InitConfig",
-    "InitStrategy",
     "HybridInit",
+    "InitStrategy",
     "LHDOnlyInit",
     "lhd_only_config",
     "MorboTRConfig",

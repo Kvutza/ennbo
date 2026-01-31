@@ -3,7 +3,7 @@ import conftest
 import numpy as np
 import pytest
 from enn.turbo.optimizer import create_optimizer
-from enn.turbo.optimizer_config import (
+from enn.turbo.config import (
     AcqType,
     CandidateRV,
     CandidateGenConfig,
@@ -166,7 +166,7 @@ def test_turbo_enn_config_scale_x_flag_runs():
 
 
 def test_find_x_center_uses_top_k_for_mu_single_objective():
-    from enn.turbo.components.posterior_result import PosteriorResult
+    from enn.turbo.components import PosteriorResult
     from enn.turbo.optimizer_config import ENNSurrogateConfig, TurboTRConfig
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
@@ -199,7 +199,7 @@ def test_find_x_center_uses_top_k_for_mu_single_objective():
 
 
 def test_find_x_center_uses_top_k_union_for_multiobjective():
-    from enn.turbo.components.posterior_result import PosteriorResult
+    from enn.turbo.components import PosteriorResult
     from enn.turbo.optimizer_config import ENNSurrogateConfig, MorboTRConfig
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
@@ -331,7 +331,7 @@ def test_turbo_one_trust_region_update_is_noise_robust_to_spikes():
 
 def test_turbo_enn_tr_values_do_not_require_full_history_denoising():
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
-    from enn.turbo.optimizer_config import (
+    from enn.turbo.config import (
         AcqType,
         CandidateGenConfig,
         ENNSurrogateConfig,

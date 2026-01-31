@@ -1,11 +1,11 @@
 from __future__ import annotations
 import pytest
-from enn.turbo.config.candidate_gen_config import (
+from enn.turbo.config import (
     default_num_candidates,
     const_num_candidates,
     CandidateGenConfig,
 )
-from enn.turbo.config.candidate_rv import CandidateRV
+from enn.turbo.config import CandidateRV
 
 
 def test_default_num_candidates():
