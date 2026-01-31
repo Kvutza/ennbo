@@ -7,9 +7,15 @@ import numpy as np
 
 from . import turbo_optimizer_utils, turbo_utils
 from .components import AcquisitionOptimizer, Surrogate
-from .config.enums import CandidateRV
+from .components.builder import (
+    build_acquisition_optimizer,
+    build_surrogate,
+    build_trust_region,
+)
+from .config.candidate_rv import CandidateRV
 from .strategies import OptimizationStrategy
 from .types.appendable_array import AppendableArray
+from .types.telemetry import Telemetry
 
 if TYPE_CHECKING:
     from numpy.random import Generator
@@ -44,7 +50,8 @@ class Optimizer:
                 bounds=self._bounds, rng=self._rng, num_init=config.init.num_init
             )
         )
-        self._tr_state = config.trust_region.build(
+        self._tr_state = build_trust_region(
+            config.trust_region,
             num_dim=self._num_dim,
             rng=rng,
             candidate_rv=config.candidate_rv,
@@ -78,8 +85,8 @@ class Optimizer:
     def tr_length(self) -> float:
         return float(self._tr_state.length)
 
-    def telemetry(self) -> turbo_utils.Telemetry:
-        return turbo_utils.Telemetry(
+    def telemetry(self) -> Telemetry:
+        return Telemetry(
             dt_fit=self._dt_fit,
             dt_gen=self._dt_gen,
             dt_sel=self._dt_sel,
@@ -137,8 +144,6 @@ class Optimizer:
         *,
         num_arms: int,
     ) -> np.ndarray:
-        from . import tr_helpers
-
         if lengthscales is not None:
             lengthscales = np.asarray(lengthscales, dtype=float).reshape(-1)
             if not np.all(np.isfinite(lengthscales)):
@@ -173,7 +178,7 @@ class Optimizer:
                 raasp_driver=self._config.raasp_driver,
                 num_pert=20,
             )
-        return tr_helpers.generate_tr_candidates(
+        return turbo_utils.generate_tr_candidates(
             self._tr_state.compute_bounds_1d,
             x_center,
             lengthscales,
@@ -204,35 +209,37 @@ class Optimizer:
 
     def _update_incumbent(self) -> None:
         if len(self._y_obs) == 0:
-            self._incumbent_idx = None
-            self._incumbent_x_unit = None
-            self._incumbent_y_scalar = None
+            self._incumbent_idx, self._incumbent_x_unit, self._incumbent_y_scalar = (
+                None,
+                None,
+                None,
+            )
             return
-        x_obs = self._x_obs.view()
-        y_obs = self._y_obs.view()
+        x_obs, y_obs = self._x_obs.view(), self._y_obs.view()
         candidate_indices = self._surrogate.get_incumbent_candidate_indices(y_obs)
-        x_cand = x_obs[candidate_indices]
-        y_cand = y_obs[candidate_indices]
-        mu_cand = None
-        noise_aware = False
+        x_cand, y_cand = x_obs[candidate_indices], y_obs[candidate_indices]
+        mu_cand, noise_aware = None, False
         if hasattr(self._tr_state, "incumbent_selector"):
             noise_aware = getattr(
                 self._tr_state.incumbent_selector, "noise_aware", False
             )
         elif hasattr(self._tr_state, "config"):
             noise_aware = getattr(self._tr_state.config, "noise_aware", False)
+
         if noise_aware:
             try:
                 mu_cand = self._surrogate.predict(x_cand).mu
             except RuntimeError:
                 mu_cand = None
+
         idx_in_cand = self._tr_state.get_incumbent_index(y_cand, self._rng, mu=mu_cand)
         self._incumbent_idx = int(candidate_indices[idx_in_cand])
         self._incumbent_x_unit = x_obs[self._incumbent_idx]
-        if noise_aware and mu_cand is not None:
-            self._incumbent_y_scalar = mu_cand[idx_in_cand : idx_in_cand + 1].copy()
-        else:
-            self._incumbent_y_scalar = y_cand[idx_in_cand : idx_in_cand + 1].copy()
+        self._incumbent_y_scalar = (
+            mu_cand[idx_in_cand : idx_in_cand + 1]
+            if noise_aware and mu_cand is not None
+            else y_cand[idx_in_cand : idx_in_cand + 1]
+        ).copy()
 
     def _trim_trailing_obs(self) -> None:
         incumbent_indices = np.array([self._incumbent_idx], dtype=int)
@@ -287,10 +294,26 @@ def create_optimizer(
     config: OptimizerConfig,
     rng: Generator,
 ) -> Optimizer:
-    from .components.builder import build_acquisition_optimizer, build_surrogate
+    surrogate = build_surrogate(config.surrogate)
+    base_acq_optimizer = build_acquisition_optimizer(config.acquisition)
 
-    surrogate = build_surrogate(config)
-    acq_optimizer = build_acquisition_optimizer(config)
+    from .components.acquisition import (
+        HnRAcqOptimizer,
+        ThompsonAcqOptimizer,
+        UCBAcqOptimizer,
+    )
+    from .config.acquisition import HnROptimizerConfig
+
+    if isinstance(config.acq_optimizer, HnROptimizerConfig):
+        if isinstance(base_acq_optimizer, (ThompsonAcqOptimizer, UCBAcqOptimizer)):
+            acq_optimizer = HnRAcqOptimizer(base_acq_optimizer)
+        else:
+            raise ValueError(
+                f"HnR not supported with {type(base_acq_optimizer).__name__}"
+            )
+    else:
+        acq_optimizer = base_acq_optimizer
+
     return Optimizer(
         bounds=bounds,
         config=config,

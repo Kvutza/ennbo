@@ -1,6 +1,5 @@
 from __future__ import annotations
 import contextlib
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Iterator
 import numpy as np
 
@@ -8,17 +7,8 @@ if TYPE_CHECKING:
     import torch
     from numpy.random import Generator
     from scipy.stats._qmc import QMCEngine
-__all__ = [
-    "Telemetry",
-]
-
-
-@dataclass(frozen=True)
-class Telemetry:
-    dt_fit: float
-    dt_sel: float
-    dt_gen: float = 0.0
-    dt_tell: float = 0.0
+    from .config.candidate_rv import CandidateRV
+from .config.raasp_driver import RAASPDriver
 
 
 @contextlib.contextmanager
@@ -30,12 +20,6 @@ def record_duration(set_dt: Callable[[float], None]) -> Iterator[None]:
         yield
     finally:
         set_dt(time.perf_counter() - t0)
-
-
-def _next_power_of_2(n: int) -> int:
-    if n <= 0:
-        return 1
-    return 1 << (n - 1).bit_length()
 
 
 @contextlib.contextmanager
@@ -79,12 +63,10 @@ def get_gp_posterior_suppress_warning(model: Any, x_torch: Any) -> Any:
 def latin_hypercube(
     num_points: int, num_dim: int, *, rng: Generator | Any
 ) -> np.ndarray:
-    x = np.zeros((num_points, num_dim))
-    centers = (1.0 + 2.0 * np.arange(0.0, num_points)) / float(2 * num_points)
-    for j in range(num_dim):
-        x[:, j] = centers[rng.permutation(num_points)]
-    pert = rng.uniform(-1.0, 1.0, size=(num_points, num_dim)) / float(2 * num_points)
-    x += pert
+    x = (1.0 + 2.0 * np.arange(0.0, num_points)) / float(2 * num_points)
+    x = np.stack([x[rng.permutation(num_points)] for _ in range(num_dim)], axis=1)
+    x += rng.uniform(-1.0, 1.0, size=(num_points, num_dim)) / float(2 * num_points)
+    assert x.shape == (num_points, num_dim)
     return x
 
 
@@ -110,7 +92,8 @@ def sobol_perturb_np(
     *,
     sobol_engine: QMCEngine | Any,
 ) -> np.ndarray:
-    n_sobol = _next_power_of_2(num_candidates)
+    n = num_candidates
+    n_sobol = 1 if n <= 0 else 1 << (n - 1).bit_length()
     sobol_samples = sobol_engine.random(n_sobol)[:num_candidates]
     lb_array = np.asarray(lb)
     ub_array = np.asarray(ub)
@@ -141,53 +124,34 @@ def uniform_perturb_np(
     return candidates
 
 
-def _raasp_mask(
-    *,
+def raasp_perturb(
+    x_center: np.ndarray | Any,
+    lb: np.ndarray | list[float] | Any,
+    ub: np.ndarray | list[float] | Any,
     num_candidates: int,
-    num_dim: int,
-    num_pert: int,
+    *,
+    num_pert: int = 20,
     rng: Generator | Any,
+    candidate_rv: CandidateRV,
+    sobol_engine: QMCEngine | Any | None = None,
 ) -> np.ndarray:
+    num_dim = x_center.shape[-1]
     prob_perturb = min(num_pert / num_dim, 1.0)
-    mask = rng.random((num_candidates, num_dim)) <= prob_perturb
-    ind = np.nonzero(~mask.any(axis=1))[0]
-    if len(ind) > 0:
-        mask[ind, rng.integers(0, num_dim, size=len(ind))] = True
-    return mask
+    # Use binomial to determine how many dimensions to perturb for each candidate
+    ks = np.maximum(rng.binomial(num_dim, prob_perturb, size=num_candidates), 1)
+    mask = np.zeros((num_candidates, num_dim), dtype=bool)
+    for i in range(num_candidates):
+        idx = rng.choice(num_dim, size=ks[i], replace=False)
+        mask[i, idx] = True
 
+    from .config.candidate_rv import CandidateRV
 
-def raasp(
-    x_center: np.ndarray | Any,
-    lb: np.ndarray | list[float] | Any,
-    ub: np.ndarray | list[float] | Any,
-    num_candidates: int,
-    *,
-    num_pert: int = 20,
-    rng: Generator | Any,
-    sobol_engine: QMCEngine | Any,
-) -> np.ndarray:
-    num_dim = x_center.shape[-1]
-    mask = _raasp_mask(
-        num_candidates=num_candidates, num_dim=num_dim, num_pert=num_pert, rng=rng
-    )
-    return sobol_perturb_np(
-        x_center, lb, ub, num_candidates, mask, sobol_engine=sobol_engine
-    )
-
-
-def raasp_uniform(
-    x_center: np.ndarray | Any,
-    lb: np.ndarray | list[float] | Any,
-    ub: np.ndarray | list[float] | Any,
-    num_candidates: int,
-    *,
-    num_pert: int = 20,
-    rng: Generator | Any,
-) -> np.ndarray:
-    num_dim = x_center.shape[-1]
-    mask = _raasp_mask(
-        num_candidates=num_candidates, num_dim=num_dim, num_pert=num_pert, rng=rng
-    )
+    if candidate_rv == CandidateRV.SOBOL:
+        if sobol_engine is None:
+            raise ValueError("sobol_engine required for CandidateRV.SOBOL")
+        return sobol_perturb_np(
+            x_center, lb, ub, num_candidates, mask, sobol_engine=sobol_engine
+        )
     return uniform_perturb_np(x_center, lb, ub, num_candidates, mask, rng=rng)
 
 
@@ -198,18 +162,20 @@ def generate_raasp_candidates(
     num_candidates: int,
     *,
     rng: Generator | Any,
-    sobol_engine: QMCEngine | Any,
+    candidate_rv: CandidateRV,
+    sobol_engine: QMCEngine | Any | None = None,
     num_pert: int = 20,
 ) -> np.ndarray:
     if num_candidates <= 0:
         raise ValueError(num_candidates)
-    return raasp(
+    return raasp_perturb(
         center,
         lb,
         ub,
         num_candidates,
         num_pert=num_pert,
         rng=rng,
+        candidate_rv=candidate_rv,
         sobol_engine=sobol_engine,
     )
 
@@ -223,9 +189,17 @@ def generate_raasp_candidates_uniform(
     rng: Generator | Any,
     num_pert: int = 20,
 ) -> np.ndarray:
-    if num_candidates <= 0:
-        raise ValueError(num_candidates)
-    return raasp_uniform(center, lb, ub, num_candidates, num_pert=num_pert, rng=rng)
+    from .config.candidate_rv import CandidateRV
+
+    return generate_raasp_candidates(
+        center,
+        lb,
+        ub,
+        num_candidates,
+        rng=rng,
+        candidate_rv=CandidateRV.UNIFORM,
+        num_pert=num_pert,
+    )
 
 
 def to_unit(x: np.ndarray | Any, bounds: np.ndarray | Any) -> np.ndarray:
@@ -273,3 +247,188 @@ def gp_thompson_sample(
     top_k_in_shuffled = np.argpartition(-shuffled_scores, num_arms - 1)[:num_arms]
     idx = shuffled_indices[top_k_in_shuffled]
     return idx
+
+
+def compute_full_box_bounds_1d(
+    x_center: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    lb = np.zeros_like(x_center, dtype=float)
+    ub = np.ones_like(x_center, dtype=float)
+    return lb, ub
+
+
+def get_single_incumbent_index(
+    selector: Any,
+    y: np.ndarray,
+    rng: Generator,
+    mu: np.ndarray | None = None,
+) -> np.ndarray:
+    y = np.asarray(y, dtype=float)
+    if y.size == 0:
+        return np.array([], dtype=int)
+    best_idx = selector.select(y, mu, rng)
+    return np.array([best_idx])
+
+
+def get_incumbent_index(
+    selector: Any,
+    y: np.ndarray,
+    rng: Generator,
+    mu: np.ndarray | None = None,
+) -> int:
+    y = np.asarray(y, dtype=float)
+    if y.size == 0:
+        raise ValueError("y is empty")
+    return int(selector.select(y, mu, rng))
+
+
+def get_scalar_incumbent_value(
+    selector: Any,
+    y_obs: np.ndarray,
+    rng: Generator,
+    *,
+    mu_obs: np.ndarray | None = None,
+) -> np.ndarray:
+    y = np.asarray(y_obs, dtype=float)
+    if y.size == 0:
+        return np.array([], dtype=float)
+    idx = get_incumbent_index(selector, y, rng, mu=mu_obs)
+    use_mu = bool(getattr(selector, "noise_aware", False))
+    values = mu_obs if use_mu else y
+    if values is None:
+        raise ValueError("noise_aware incumbent selection requires mu_obs")
+    v = np.asarray(values, dtype=float)
+    if v.ndim == 2:
+        value = float(v[idx, 0])
+    elif v.ndim == 1:
+        value = float(v[idx])
+    else:
+        raise ValueError(v.shape)
+    return np.array([value], dtype=float)
+
+
+class ScalarIncumbentMixin:
+    incumbent_selector: Any
+
+    def get_incumbent_index(
+        self,
+        y: np.ndarray | Any,
+        rng: Generator,
+        mu: np.ndarray | None = None,
+    ) -> int:
+        return get_incumbent_index(self.incumbent_selector, y, rng, mu=mu)
+
+    def get_incumbent_value(
+        self,
+        y_obs: np.ndarray | Any,
+        rng: Generator,
+        mu_obs: np.ndarray | None = None,
+    ) -> np.ndarray:
+        return get_scalar_incumbent_value(
+            self.incumbent_selector, y_obs, rng, mu_obs=mu_obs
+        )
+
+
+def generate_tr_candidates_orig(
+    compute_bounds_1d: Any,
+    x_center: np.ndarray,
+    lengthscales: np.ndarray | None,
+    num_candidates: int,
+    *,
+    rng: Generator,
+    candidate_rv: CandidateRV,
+    sobol_engine: QMCEngine | None = None,
+    num_pert: int = 20,
+) -> np.ndarray:
+    from .config.candidate_rv import CandidateRV
+
+    lb, ub = compute_bounds_1d(x_center, lengthscales)
+    if candidate_rv == CandidateRV.SOBOL:
+        if sobol_engine is None:
+            raise ValueError(
+                "sobol_engine is required when candidate_rv=CandidateRV.SOBOL"
+            )
+        return generate_raasp_candidates(
+            x_center,
+            lb,
+            ub,
+            num_candidates,
+            rng=rng,
+            candidate_rv=candidate_rv,
+            sobol_engine=sobol_engine,
+            num_pert=num_pert,
+        )
+    if candidate_rv == CandidateRV.UNIFORM:
+        return generate_raasp_candidates_uniform(
+            x_center, lb, ub, num_candidates, rng=rng, num_pert=num_pert
+        )
+    raise ValueError(candidate_rv)
+
+
+def generate_tr_candidates_fast(
+    compute_bounds_1d: Any,
+    x_center: np.ndarray,
+    lengthscales: np.ndarray | None,
+    num_candidates: int,
+    *,
+    rng: Generator,
+    candidate_rv: CandidateRV,
+    num_pert: int,
+) -> np.ndarray:
+    from scipy.stats import qmc
+    from .config.candidate_rv import CandidateRV
+
+    lb, ub = compute_bounds_1d(x_center, lengthscales)
+    num_dim = x_center.shape[-1]
+    candidates = np.tile(x_center, (num_candidates, 1))
+    prob_perturb = min(num_pert / num_dim, 1.0)
+    ks = np.maximum(rng.binomial(num_dim, prob_perturb, size=num_candidates), 1)
+    max_k = int(np.max(ks))
+    samples = (
+        qmc.Sobol(d=max_k, scramble=True, seed=int(rng.integers(0, 2**31))).random(
+            num_candidates
+        )
+        if candidate_rv == CandidateRV.SOBOL
+        else rng.random((num_candidates, max_k))
+    )
+    for i in range(num_candidates):
+        idx = rng.choice(num_dim, size=ks[i], replace=False)
+        candidates[i, idx] = lb[idx] + (ub[idx] - lb[idx]) * samples[i, : ks[i]]
+    assert candidates.shape == (num_candidates, num_dim)
+    return candidates
+
+
+def generate_tr_candidates(
+    compute_bounds_1d: Any,
+    x_center: np.ndarray,
+    lengthscales: np.ndarray | None,
+    num_candidates: int,
+    *,
+    rng: Generator,
+    candidate_rv: CandidateRV,
+    sobol_engine: QMCEngine | None,
+    raasp_driver: RAASPDriver,
+    num_pert: int,
+) -> np.ndarray:
+    from .config.raasp_driver import RAASPDriver
+
+    if raasp_driver == RAASPDriver.FAST:
+        return generate_tr_candidates_fast(
+            compute_bounds_1d,
+            x_center,
+            lengthscales,
+            num_candidates,
+            rng=rng,
+            candidate_rv=candidate_rv,
+            num_pert=num_pert,
+        )
+    return generate_tr_candidates_orig(
+        compute_bounds_1d,
+        x_center,
+        lengthscales,
+        num_candidates,
+        rng=rng,
+        candidate_rv=candidate_rv,
+        sobol_engine=sobol_engine,
+        num_pert=num_pert,
+    )

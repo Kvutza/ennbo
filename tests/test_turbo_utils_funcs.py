@@ -4,15 +4,13 @@ import numpy as np
 import pytest
 from scipy.stats import qmc
 from enn.turbo.turbo_utils import (
-    _next_power_of_2,
     argmax_random_tie,
     from_unit,
     generate_raasp_candidates,
     generate_raasp_candidates_uniform,
     gp_thompson_sample,
     latin_hypercube,
-    raasp,
-    raasp_uniform,
+    raasp_perturb,
     record_duration,
     sobol_perturb_np,
     to_unit,
@@ -69,21 +67,24 @@ def test_sobol_perturb_np_shape_and_bounds():
 
 def test_sobol_perturb_np_mask_application():
     num_candidates, num_dim = 5, 3
-    x_center = np.full(num_dim, 0.5)
-    lb, ub = np.zeros(num_dim), np.ones(num_dim)
+    x_center, lb, ub = np.full(num_dim, 0.5), np.zeros(num_dim), np.ones(num_dim)
     mask = np.zeros((num_candidates, num_dim), dtype=bool)
-    mask[:, 0] = True
-    mask[0, 1] = True
-    sobol_engine = qmc.Sobol(d=num_dim, scramble=True, seed=0)
+    mask[:, 0], mask[0, 1] = True, True
     candidates = sobol_perturb_np(
-        x_center, lb, ub, num_candidates, mask, sobol_engine=sobol_engine
+        x_center,
+        lb,
+        ub,
+        num_candidates,
+        mask,
+        sobol_engine=qmc.Sobol(d=num_dim, scramble=True, seed=0),
     )
     for i in range(num_candidates):
         for j in range(num_dim):
-            if mask[i, j]:
-                assert candidates[i, j] != x_center[j]
-            else:
-                assert candidates[i, j] == x_center[j]
+            assert (
+                (candidates[i, j] != x_center[j])
+                if mask[i, j]
+                else (candidates[i, j] == x_center[j])
+            )
 
 
 def test_sobol_perturb_np_deterministic():
@@ -98,61 +99,82 @@ def test_sobol_perturb_np_deterministic():
     assert np.allclose(c1, c2)
 
 
-def test_raasp_shape_and_bounds():
-    num_candidates, num_dim = 10, 3
-    x_center = np.full(num_dim, 0.5)
-    lb, ub = np.zeros(num_dim), np.ones(num_dim)
-    rng = np.random.default_rng(0)
-    sobol_engine = qmc.Sobol(d=num_dim, scramble=True, seed=0)
-    candidates = raasp(
+def _raasp_perturb_test(rng, candidate_rv, num_dim=3, sobol_engine=None):
+    num_candidates = 10
+    x_center, lb, ub = np.full(num_dim, 0.5), np.zeros(num_dim), np.ones(num_dim)
+    candidates = raasp_perturb(
         x_center,
         lb,
         ub,
         num_candidates,
         num_pert=20,
         rng=rng,
+        candidate_rv=candidate_rv,
         sobol_engine=sobol_engine,
     )
-    assert candidates.shape == (num_candidates, num_dim)
-    assert np.all(candidates >= lb) and np.all(candidates <= ub)
+    _check_candidate_shape_and_bounds(candidates, num_candidates, num_dim, lb, ub)
+    return candidates, x_center
+
+
+def test_raasp_shape_and_bounds():
+    from enn.turbo.config import CandidateRV
+
+    _raasp_perturb_test(
+        np.random.default_rng(0),
+        CandidateRV.SOBOL,
+        num_dim=3,
+        sobol_engine=qmc.Sobol(d=3, scramble=True, seed=0),
+    )
 
 
 def test_raasp_at_least_one_dimension_perturbed():
-    num_candidates, num_dim = 20, 5
-    x_center = np.full(num_dim, 0.5)
-    lb, ub = np.zeros(num_dim), np.ones(num_dim)
-    rng = np.random.default_rng(0)
-    sobol_engine = qmc.Sobol(d=num_dim, scramble=True, seed=0)
-    candidates = raasp(
-        x_center,
-        lb,
-        ub,
-        num_candidates,
-        num_pert=20,
-        rng=rng,
-        sobol_engine=sobol_engine,
+    from enn.turbo.config import CandidateRV
+
+    candidates, x_center = _raasp_perturb_test(
+        np.random.default_rng(0),
+        CandidateRV.SOBOL,
+        num_dim=5,
+        sobol_engine=qmc.Sobol(d=5, scramble=True, seed=0),
     )
-    for i in range(num_candidates):
+    for i in range(len(candidates)):
         assert np.any(np.abs(candidates[i] - x_center) > 1e-10)
 
 
 def test_raasp_deterministic():
+    from enn.turbo.config import CandidateRV
+
     num_candidates, num_dim = 8, 2
     x_center = np.full(num_dim, 0.5)
     lb, ub = np.zeros(num_dim), np.ones(num_dim)
     rng1, rng2 = np.random.default_rng(42), np.random.default_rng(42)
     sobol1 = qmc.Sobol(d=num_dim, scramble=True, seed=0)
     sobol2 = qmc.Sobol(d=num_dim, scramble=True, seed=0)
-    c1 = raasp(
-        x_center, lb, ub, num_candidates, num_pert=20, rng=rng1, sobol_engine=sobol1
+    c1 = raasp_perturb(
+        x_center,
+        lb,
+        ub,
+        num_candidates,
+        num_pert=20,
+        rng=rng1,
+        candidate_rv=CandidateRV.SOBOL,
+        sobol_engine=sobol1,
     )
-    c2 = raasp(
-        x_center, lb, ub, num_candidates, num_pert=20, rng=rng2, sobol_engine=sobol2
+    c2 = raasp_perturb(
+        x_center,
+        lb,
+        ub,
+        num_candidates,
+        num_pert=20,
+        rng=rng2,
+        candidate_rv=CandidateRV.SOBOL,
+        sobol_engine=sobol2,
     )
     assert np.allclose(c1, c2)
 
 
 def test_raasp_probability_scaling():
+    from enn.turbo.config import CandidateRV
+
     num_candidates = 100
     num_dim_low, num_dim_high = 5, 100
     x_low, x_high = np.full(num_dim_low, 0.5), np.full(num_dim_high, 0.5)
@@ -161,23 +183,25 @@ def test_raasp_probability_scaling():
     rng = np.random.default_rng(0)
     sobol_low = qmc.Sobol(d=num_dim_low, scramble=True, seed=0)
     sobol_high = qmc.Sobol(d=num_dim_high, scramble=True, seed=0)
-    c_low = raasp(
+    c_low = raasp_perturb(
         x_low,
         lb_low,
         ub_low,
         num_candidates,
         num_pert=20,
         rng=rng,
+        candidate_rv=CandidateRV.SOBOL,
         sobol_engine=sobol_low,
     )
     rng = np.random.default_rng(0)
-    c_high = raasp(
+    c_high = raasp_perturb(
         x_high,
         lb_high,
         ub_high,
         num_candidates,
         num_pert=20,
         rng=rng,
+        candidate_rv=CandidateRV.SOBOL,
         sobol_engine=sobol_high,
     )
     diff_low = np.sum(np.abs(c_low - x_low) > 1e-10, axis=1)
@@ -303,17 +327,15 @@ def test_uniform_perturb_np_shape_and_bounds():
 
 def test_uniform_perturb_np_mask_application():
     num_candidates, num_dim = 5, 3
-    x_center = np.full(num_dim, 0.5)
-    lb, ub = np.zeros(num_dim), np.ones(num_dim)
+    x_center, lb, ub = np.full(num_dim, 0.5), np.zeros(num_dim), np.ones(num_dim)
     mask = np.zeros((num_candidates, num_dim), dtype=bool)
     mask[:, 0] = True
-    rng = np.random.default_rng(0)
-    candidates = uniform_perturb_np(x_center, lb, ub, num_candidates, mask, rng=rng)
+    candidates = uniform_perturb_np(
+        x_center, lb, ub, num_candidates, mask, rng=np.random.default_rng(0)
+    )
     for i in range(num_candidates):
         for j in range(num_dim):
-            if mask[i, j]:
-                pass
-            else:
+            if not mask[i, j]:
                 assert candidates[i, j] == x_center[j]
 
 
@@ -323,31 +345,36 @@ def _check_candidate_shape_and_bounds(candidates, num_candidates, num_dim, lb, u
 
 
 def test_raasp_uniform_shape_and_bounds():
-    num_candidates, num_dim = 10, 3
-    x_center = np.full(num_dim, 0.5)
-    lb, ub = np.zeros(num_dim), np.ones(num_dim)
-    rng = np.random.default_rng(0)
-    candidates = raasp_uniform(x_center, lb, ub, num_candidates, num_pert=20, rng=rng)
-    _check_candidate_shape_and_bounds(candidates, num_candidates, num_dim, lb, ub)
+    from enn.turbo.config import CandidateRV
+
+    _raasp_perturb_test(np.random.default_rng(0), CandidateRV.UNIFORM)
 
 
 def test_raasp_uniform_at_least_one_dimension_perturbed():
-    num_candidates, num_dim = 20, 5
-    x_center = np.full(num_dim, 0.5)
-    lb, ub = np.zeros(num_dim), np.ones(num_dim)
-    rng = np.random.default_rng(0)
-    candidates = raasp_uniform(x_center, lb, ub, num_candidates, num_pert=20, rng=rng)
-    for i in range(num_candidates):
+    from enn.turbo.config import CandidateRV
+
+    candidates, x_center = _raasp_perturb_test(
+        np.random.default_rng(0), CandidateRV.UNIFORM, num_dim=5
+    )
+    for i in range(len(candidates)):
         assert np.any(np.abs(candidates[i] - x_center) > 1e-10)
 
 
 def test_generate_raasp_candidates_shape_and_bounds():
+    from enn.turbo.config import CandidateRV
+
     num_candidates, num_dim = 10, 3
     x_center, lb, ub = np.full(num_dim, 0.5), np.zeros(num_dim), np.ones(num_dim)
     rng = np.random.default_rng(42)
     sobol = qmc.Sobol(d=num_dim, scramble=True, seed=42)
     candidates = generate_raasp_candidates(
-        x_center, lb, ub, num_candidates, rng=rng, sobol_engine=sobol
+        x_center,
+        lb,
+        ub,
+        num_candidates,
+        rng=rng,
+        candidate_rv=CandidateRV.SOBOL,
+        sobol_engine=sobol,
     )
     _check_candidate_shape_and_bounds(candidates, num_candidates, num_dim, lb, ub)
 
@@ -418,22 +445,19 @@ def test_gp_thompson_sample_returns_valid_indices():
     assert all(0 <= i < len(x_cand) for i in indices)
 
 
-@pytest.mark.parametrize(
-    "n,expected",
-    [
-        (0, 1),
-        (1, 1),
-        (2, 2),
-        (3, 4),
-        (4, 4),
-        (5, 8),
-        (7, 8),
-        (8, 8),
-        (9, 16),
-        (15, 16),
-        (16, 16),
-        (17, 32),
-    ],
-)
-def test_next_power_of_2(n, expected):
-    assert _next_power_of_2(n) == expected
+def test_next_power_of_2():
+    def next_power_of_2(n):
+        return 1 if n <= 0 else 1 << (n - 1).bit_length()
+
+    assert next_power_of_2(0) == 1
+    assert next_power_of_2(1) == 1
+    assert next_power_of_2(2) == 2
+    assert next_power_of_2(3) == 4
+    assert next_power_of_2(4) == 4
+    assert next_power_of_2(5) == 8
+    assert next_power_of_2(7) == 8
+    assert next_power_of_2(8) == 8
+    assert next_power_of_2(9) == 16
+    assert next_power_of_2(15) == 16
+    assert next_power_of_2(16) == 16
+    assert next_power_of_2(17) == 32
