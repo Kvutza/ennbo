@@ -54,6 +54,9 @@ class ENNSurrogate:
                     num_fit_samples=self._config.num_fit_samples,
                     rng=rng,
                     params_warm_start=self._params,
+                    infer_aleatoric_variance_scale=(
+                        self._config.fit.infer_aleatoric_variance_scale
+                    ),
                 )
         else:
             self._enn, self._params = mk_enn(
@@ -61,8 +64,7 @@ class ENNSurrogate:
                 y_obs,
                 k,
                 y_var if y_var is not None else np.array([], dtype=float),
-                num_fit_samples=self._config.num_fit_samples,
-                num_fit_candidates=self._config.num_fit_candidates,
+                fit=self._config.fit,
                 scale_x=self._config.scale_x,
                 index_driver=self._config.index_driver,
                 rng=rng,
@@ -105,7 +107,7 @@ class ENNSurrogate:
         num_metrics = self._enn.num_outputs
         base_seed = rng.integers(0, 2**31)
         function_seeds = np.arange(base_seed, base_seed + num_samples, dtype=np.int64)
-        samples = self._enn.posterior_function_draw(
+        samples, _ = self._enn.posterior_function_draw(
             x, self._params, function_seeds=function_seeds
         )
         assert samples.shape == (num_samples, num_candidates, num_metrics), (
