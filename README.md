@@ -26,7 +26,7 @@ The optimizer has an `ask()/tell()` interface. All `turbo_*()` methods follow Tu
 ## Installation
 `pip install ennbo[with-deps]`
 or
-`cargo install ennbo`
+`cargo add ennbo`
 
 ## Demonstration
 [`demo_enn.ipynb`](https://github.com/yubo-research/enn/tree/main/examples/demo_enn.ipynb) - Shows how to use [`EpistemicNearestNeighbors`](https://github.com/yubo-research/enn/blob/main/src/enn/enn/enn.py) to build and query an ENN model.
