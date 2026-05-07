@@ -1,7 +1,7 @@
 from __future__ import annotations
+
 import numpy as np
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers (reduce duplication across config/trust-region tests)
@@ -23,8 +23,8 @@ def _morbo_trust_region():
 
 
 def _turbo_trust_region():
-    from enn.turbo.turbo_trust_region import TurboTrustRegion
     from enn.turbo.config import TurboTRConfig
+    from enn.turbo.turbo_trust_region import TurboTrustRegion
 
     tr = TurboTrustRegion(config=TurboTRConfig(), num_dim=5)
     tr.validate_request(4)
@@ -40,8 +40,8 @@ def _enn_model():
 
 
 def _optimizer():
-    from enn.turbo.optimizer import create_optimizer
     from enn.turbo.config import turbo_zero_config
+    from enn.turbo.optimizer import create_optimizer
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]])
     return create_optimizer(
@@ -56,10 +56,10 @@ def _optimizer():
 
 def test_morbo_tr_config_rescalarize():
     from enn.turbo.config import (
-        RescalePolicyConfig,
-        Rescalarize,
         MorboTRConfig,
         MultiObjectiveConfig,
+        Rescalarize,
+        RescalePolicyConfig,
     )
 
     mo = MultiObjectiveConfig(num_metrics=2, alpha=0.05)
@@ -90,7 +90,7 @@ def test_turbo_tr_config_properties():
 
 
 def test_enn_surrogate_config_properties():
-    from enn.turbo.config import ENNSurrogateConfig, ENNFitConfig
+    from enn.turbo.config import ENNFitConfig, ENNSurrogateConfig
 
     cfg = ENNSurrogateConfig(
         fit=ENNFitConfig(num_fit_samples=50, num_fit_candidates=30)
@@ -108,9 +108,11 @@ def test_observation_history_config_trailing_obs():
 
 
 def test_trust_region_config_protocol():
-    from enn.turbo.config.trust_region import TrustRegionConfig, InitStrategy
+    from typing import get_args
 
-    assert hasattr(TrustRegionConfig, "build")
+    from enn.turbo.config.trust_region import InitStrategy, TrustRegionConfig
+
+    assert get_args(TrustRegionConfig)
     assert hasattr(InitStrategy, "create_runtime_strategy")
 
 
@@ -127,7 +129,7 @@ def test_num_candidates_fn_protocol():
 
 
 def test_optimizer_config_properties():
-    from enn.turbo.config import OptimizerConfig, MorboTRConfig, MultiObjectiveConfig
+    from enn.turbo.config import MorboTRConfig, MultiObjectiveConfig, OptimizerConfig
 
     cfg = OptimizerConfig()
     # num_metrics
@@ -168,8 +170,8 @@ def test_turbo_trust_region_properties():
 
 
 def test_no_trust_region_num_metrics():
-    from enn.turbo.no_trust_region import NoTrustRegion
     from enn.turbo.config import NoTRConfig
+    from enn.turbo.no_trust_region import NoTrustRegion
 
     tr = NoTrustRegion(config=NoTRConfig(), num_dim=3)
     assert tr.num_metrics == 1
@@ -246,20 +248,18 @@ def test_enn_class_add():
     assert len(enn) == 3
 
 
-def test_enn_index_add():
-    from enn.enn.enn_index import ENNIndex
+def test_enn_neighbor_distances_add_and_search():
+    from enn.enn.enn_class_support import enn_neighbor_distances_and_indices
 
-    x = np.array([[0.1, 0.2], [0.3, 0.4]], dtype=float)
-    idx = ENNIndex(x, num_dim=2, x_scale=np.ones(2), scale_x=False)
-    idx.add(np.array([[0.5, 0.6]], dtype=float))
-    d2, nn = idx.search(np.array([[0.5, 0.6]]), search_k=3, exclude_nearest=False)
+    enn = _enn_model()
+    enn.add(np.array([[0.5, 0.6]], dtype=float), np.array([[3.0]], dtype=float))
+    _d2, nn = enn_neighbor_distances_and_indices(
+        enn.rust_backend,
+        np.array([[0.5, 0.6]], dtype=float),
+        search_k=3,
+        exclude_nearest=False,
+    )
     assert nn.shape[1] == 3
-
-
-def test_enn_like_protocol():
-    from enn.enn.enn_like_protocol import ENNLike
-
-    assert hasattr(ENNLike, "__len__")
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +319,7 @@ def test_turbo_hybrid_strategy():
 
 def test_build_trust_region():
     from enn.turbo.components.builder import build_trust_region
-    from enn.turbo.config import TurboTRConfig, NoTRConfig
+    from enn.turbo.config import NoTRConfig, TurboTRConfig
 
     rng = np.random.default_rng(0)
     tr = build_trust_region(TurboTRConfig(), num_dim=3, rng=rng)
@@ -432,7 +432,7 @@ def test_profile_config():
 
 
 def test_run_profile():
-    from scripts.profile_turbo_enn import run_profile, ProfileConfig
+    from scripts.profile_turbo_enn import ProfileConfig, run_profile
 
     cfg = ProfileConfig(
         num_dim=2,
@@ -447,7 +447,7 @@ def test_run_profile():
 
 
 def test_run_sweep():
-    from scripts.profile_turbo_enn import run_sweep, ProfileConfig
+    from scripts.profile_turbo_enn import ProfileConfig, run_sweep
 
     cfg = ProfileConfig(
         num_dim=2,

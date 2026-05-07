@@ -1,215 +1,44 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from enn._rust import EpistemicNearestNeighbors as _RustENN
 from enn.turbo.config.enn_index_driver import ENNIndexDriver
 
-from .draw_internals import DrawInternals
-from .neighbor_data import NeighborData
-from .weighted_stats import WeightedStats
+from .enn_class_support import _rust_index_driver_name, _to_rust_seeds
 
 if TYPE_CHECKING:
     from .enn_normal import ENNNormal
     from .enn_params import ENNParams, PosteriorFlags
 
 
-def _to_rust_seeds(function_seeds: np.ndarray | list[int]) -> list[int]:
-    """Convert function_seeds to Rust list[int] format."""
-    if hasattr(function_seeds, "__iter__"):
-        return np.asarray(function_seeds, dtype=np.int64).tolist()
-    return list(function_seeds)
+def _posterior_flags_coerced(flags):
+    from .enn_params import PosteriorFlags
+
+    return flags if flags is not None else PosteriorFlags()
 
 
-def _rust_index_driver_name(index_driver: ENNIndexDriver) -> str:
-    from enn.turbo.config.enn_index_driver import ENN_INDEX_DRIVER_TO_RUST
-
-    if index_driver not in ENN_INDEX_DRIVER_TO_RUST:
-        raise ValueError(f"Unsupported index driver: {index_driver}")
-    return ENN_INDEX_DRIVER_TO_RUST[index_driver]
-
-
-def _compute_conditional_y_scale(
-    model: EpistemicNearestNeighbors, y_whatif: np.ndarray
-):
-    y_whatif = np.asarray(y_whatif, dtype=float)
-    return model._compute_scale(
-        np.concatenate([model.train_y, y_whatif], axis=0),
-        0.0,
-    )
+def _rust_function_draw_kwargs(params, flags, seeds: list[int]) -> dict[str, Any]:
+    return {
+        "k_num_neighbors": params.k_num_neighbors,
+        "epistemic_variance_scale": params.epistemic_variance_scale,
+        "aleatoric_variance_scale": params.aleatoric_variance_scale,
+        "function_seeds": seeds,
+        "exclude_nearest": flags.exclude_nearest,
+        "observation_noise": flags.observation_noise,
+    }
 
 
-def _draw_from_internals(
-    model: EpistemicNearestNeighbors,
-    internals: DrawInternals,
-    *,
-    function_seeds: np.ndarray | list[int],
-) -> np.ndarray:
-    from .enn_hash import normal_hash_batch_multi_seed_fast
-
-    function_seeds = np.asarray(function_seeds, dtype=np.int64)
-    n, k, m = internals.idx.shape[0], internals.idx.shape[1], model.num_outputs
-    if k == 0:
-        return np.broadcast_to(internals.mu, (len(function_seeds), n, m)).copy()
-    u = normal_hash_batch_multi_seed_fast(function_seeds, internals.idx, m)
-    weighted_u = np.sum(internals.w_normalized[np.newaxis, :, :, :] * u, axis=2)
-    l2_safe = np.maximum(internals.l2, 1e-12)
-    return (
-        internals.mu[np.newaxis, :, :]
-        + internals.se[np.newaxis, :, :] * weighted_u / l2_safe[np.newaxis, :, :]
-    )
+def _finalize_function_draw(
+    x: np.ndarray, draws: np.ndarray, idx: list | None
+) -> tuple[np.ndarray, np.ndarray]:
+    idx_arr = np.array(idx, dtype=int) if idx else np.zeros((x.shape[0], 0), dtype=int)
+    return draws, idx_arr
 
 
-class _RustDispatchMixin:
-    """Mixin providing Rust/Python dispatch helpers.
-
-    This mixin must come FIRST in the inheritance list to ensure
-    proper MRO when combined with other mixins.
-    """
-
-    def _if_rust_else(
-        self,
-        rust_fn: callable,
-        python_fn: callable,
-        *,
-        check_rust: bool = True,
-    ):
-        """Execute rust_fn if Rust backend is available, otherwise python_fn.
-
-        Args:
-            rust_fn: Function to call with signature (rust_model) -> result
-            python_fn: Function to call with signature () -> result
-            check_rust: If False, always use Python path (for testing parity)
-
-        Returns:
-            Result from either rust_fn or python_fn
-        """
-        if check_rust and self._rust_model is not None:
-            return rust_fn(self._rust_model)
-        return python_fn()
-
-
-class _PosteriorMixin:
-    """Mixin for posterior computation helpers."""
-
-    def _empty_posterior_internals(self, batch_size: int) -> DrawInternals:
-        m = self._num_metrics
-        return DrawInternals(
-            idx=np.zeros((batch_size, 0), dtype=int),
-            w_normalized=np.zeros((batch_size, 0, m), dtype=float),
-            l2=np.ones((batch_size, m), dtype=float),
-            mu=np.zeros((batch_size, m), dtype=float),
-            se=np.ones((batch_size, m), dtype=float),
-        )
-
-    def _get_neighbor_data(
-        self, x: np.ndarray, params, exclude_nearest: bool
-    ) -> NeighborData | None:
-        if exclude_nearest:
-            if len(self) <= 1:
-                raise ValueError(len(self))
-            search_k = int(min(params.k_num_neighbors + 1, len(self)))
-        else:
-            search_k = int(min(params.k_num_neighbors, len(self)))
-        dist2s_full, idx_full = self._enn_index.search(
-            x, search_k=search_k, exclude_nearest=exclude_nearest
-        )
-        available_k = search_k - 1 if exclude_nearest else search_k
-        k = min(params.k_num_neighbors, available_k)
-        if k > dist2s_full.shape[1]:
-            raise RuntimeError(
-                f"k={k} exceeds available columns={dist2s_full.shape[1]}"
-            )
-        if k == 0:
-            return None
-        return NeighborData(
-            dist2s=dist2s_full[:, :k],
-            idx=idx_full[:, :k],
-            y_neighbors=self._train_y[idx_full[:, :k]],
-            k=k,
-        )
-
-    def _compute_weighted_posterior(
-        self,
-        dist2s: np.ndarray,
-        idx: np.ndarray,
-        y_neighbors: np.ndarray,
-        params,
-        observation_noise: bool,
-    ) -> DrawInternals:
-        yvar_neighbors = None
-        if self._train_yvar is not None:
-            yvar_neighbors = self._train_yvar[idx]
-        stats = self._compute_weighted_stats(
-            dist2s,
-            y_neighbors,
-            yvar_neighbors=yvar_neighbors,
-            params=params,
-            observation_noise=observation_noise,
-        )
-        return DrawInternals(
-            idx=idx,
-            w_normalized=stats.w_normalized,
-            l2=stats.l2,
-            mu=stats.mu,
-            se=stats.se,
-        )
-
-    def _compute_weighted_stats(
-        self,
-        dist2s: np.ndarray,
-        y_neighbors: np.ndarray,
-        *,
-        yvar_neighbors: np.ndarray | None,
-        params,
-        observation_noise: bool,
-        y_scale: np.ndarray | None = None,
-    ) -> WeightedStats:
-        if y_scale is None:
-            y_scale = self._y_scale
-        dist2s_expanded = dist2s[..., np.newaxis]
-        var_epi = params.epistemic_variance_scale * dist2s_expanded
-        var_ale = params.aleatoric_variance_scale
-        if yvar_neighbors is not None:
-            var_ale = var_ale + yvar_neighbors / y_scale**2
-        w = 1.0 / (self._EPS_VAR + var_epi + var_ale)
-        norm = np.sum(w, axis=1, keepdims=True)
-        w_normalized = w / norm
-        l2 = np.sqrt(np.sum(w_normalized**2, axis=1))
-        mu = np.sum(w_normalized * y_neighbors, axis=1)
-        epistemic_var = 1.0 / norm.squeeze(axis=1)
-        if observation_noise:
-            if np.isscalar(var_ale):
-                aleatoric_var = np.full_like(epistemic_var, var_ale)
-            else:
-                aleatoric_var = np.sum(w_normalized * var_ale, axis=1)
-        else:
-            aleatoric_var = 0.0
-        se = np.sqrt(np.maximum(epistemic_var + aleatoric_var, self._EPS_VAR)) * y_scale
-        return WeightedStats(w_normalized=w_normalized, l2=l2, mu=mu, se=se)
-
-    def _compute_posterior_internals(self, x, params, flags) -> DrawInternals:
-        x = np.asarray(x, dtype=float)
-        if x.ndim != 2 or x.shape[1] != self._num_dim:
-            raise ValueError(x.shape)
-        batch_size = x.shape[0]
-        if len(self) == 0:
-            return self._empty_posterior_internals(batch_size)
-        neighbor_data = self._get_neighbor_data(x, params, flags.exclude_nearest)
-        if neighbor_data is None:
-            return self._empty_posterior_internals(batch_size)
-        return self._compute_weighted_posterior(
-            neighbor_data.dist2s,
-            neighbor_data.idx,
-            neighbor_data.y_neighbors,
-            params,
-            flags.observation_noise,
-        )
-
-
-class EpistemicNearestNeighbors(_RustDispatchMixin, _PosteriorMixin):
+class EpistemicNearestNeighbors:
     _EPS_VAR = 1e-9
 
     @staticmethod
@@ -230,13 +59,6 @@ class EpistemicNearestNeighbors(_RustDispatchMixin, _PosteriorMixin):
                 raise ValueError((train_y.shape, train_yvar.shape))
         return train_x, train_y, train_yvar
 
-    @staticmethod
-    def _compute_scale(data, min_val=0.0):
-        if len(data) < 2:
-            return np.ones((1, data.shape[1]), dtype=float)
-        scale = np.std(data, axis=0, keepdims=True).astype(float)
-        return np.where(np.isfinite(scale) & (scale > min_val), scale, 1.0)
-
     def __init__(
         self,
         train_x: np.ndarray,
@@ -246,35 +68,15 @@ class EpistemicNearestNeighbors(_RustDispatchMixin, _PosteriorMixin):
         scale_x: bool = False,
         index_driver: ENNIndexDriver = ENNIndexDriver.FLAT,
     ) -> None:
-        self._train_x, self._train_y, self._train_yvar = self._validate_inputs(
+        train_x, train_y, train_yvar = self._validate_inputs(
             train_x, train_y, train_yvar
         )
-        self._num_obs, self._num_dim = self._train_x.shape
-        _, self._num_metrics = self._train_y.shape
-        self._scale_x = bool(scale_x)
-        self._x_scale = (
-            self._compute_scale(self._train_x, 1e-12)
-            if scale_x
-            else np.ones((1, self._num_dim), dtype=float)
-        )
-        self._train_x_scaled = (
-            self._train_x / self._x_scale if scale_x else self._train_x
-        )
-        self._y_scale = self._compute_scale(self._train_y, 0.0)
-        from .enn_index import ENNIndex
-
-        self._enn_index = ENNIndex(
-            self._train_x_scaled,
-            self._num_dim,
-            self._x_scale,
-            self._scale_x,
-            driver=index_driver,
-        )
+        self._index_driver = index_driver
         idx_driver = _rust_index_driver_name(index_driver)
         self._rust_model = _RustENN(
-            self._train_x,
-            self._train_y,
-            train_yvar=self._train_yvar,
+            train_x,
+            train_y,
+            train_yvar=train_yvar,
             scale_x=scale_x,
             index_driver=idx_driver,
         )
@@ -286,47 +88,62 @@ class EpistemicNearestNeighbors(_RustDispatchMixin, _PosteriorMixin):
         yvar: np.ndarray | None = None,
     ) -> None:
         x, y, yvar = self._validate_inputs(x, y, yvar)
-        self._train_x = np.concatenate([self._train_x, x], axis=0)
-        self._train_y = np.concatenate([self._train_y, y], axis=0)
-        if yvar is not None:
-            if self._train_yvar is None:
-                self._train_yvar = yvar
-            else:
-                self._train_yvar = np.concatenate([self._train_yvar, yvar], axis=0)
-        elif self._train_yvar is not None:
-            # If we have some yvar but not for the new points, we need to handle it.
-            # For now, we'll just use zeros or raise if inconsistent.
-            # Following the existing pattern, we assume consistency.
-            raise ValueError("yvar must be provided if model has existing yvar")
-
-        self._num_obs = self._train_x.shape[0]
-        self._enn_index.add(x)
-        if self._rust_model is not None:
-            self._rust_model.add(x, y, yvar)
+        self._rust_model.add(x, y, yvar)
 
     @property
     def train_x(self) -> np.ndarray:
-        return self._train_x
+        return np.asarray(self._rust_model.train_x, dtype=float)
 
     @property
     def train_y(self) -> np.ndarray:
-        return self._train_y
+        return np.asarray(self._rust_model.train_y, dtype=float)
 
     @property
     def train_yvar(self) -> np.ndarray | None:
-        return self._train_yvar
+        tyv = self._rust_model.train_yvar
+        if tyv is None:
+            return None
+        return np.asarray(tyv, dtype=float)
 
     @property
     def num_outputs(self) -> int:
-        return self._num_metrics
+        return int(self._rust_model.num_outputs)
 
     @property
     def rust_backend(self):
-        """Return the Rust backend model if available, otherwise None."""
+        """Rust surrogate implementation (same lifetime as this wrapper)."""
         return self._rust_model
 
+    @property
+    def _num_dim(self) -> int:
+        return int(self._rust_model.num_dim)
+
+    @property
+    def _num_metrics(self) -> int:
+        return int(self._rust_model.num_outputs)
+
+    @property
+    def _x_scale(self) -> np.ndarray:
+        return np.asarray(self._rust_model.x_scale_row, dtype=float)
+
+    @property
+    def _y_scale(self) -> np.ndarray:
+        return np.asarray(self._rust_model.y_scale_row, dtype=float)
+
+    @property
+    def _scale_x(self) -> bool:
+        return bool(self._rust_model.scale_x)
+
+    @property
+    def _train_y(self) -> np.ndarray:
+        return self.train_y
+
+    @property
+    def _train_yvar(self) -> np.ndarray | None:
+        return self.train_yvar
+
     def __len__(self) -> int:
-        return self._num_obs
+        return len(self._rust_model)
 
     def posterior(
         self,
@@ -336,28 +153,19 @@ class EpistemicNearestNeighbors(_RustDispatchMixin, _PosteriorMixin):
         flags: PosteriorFlags | None = None,
     ) -> ENNNormal:
         from .enn_normal import ENNNormal
-        from .enn_params import PosteriorFlags
 
-        if flags is None:
-            flags = PosteriorFlags()
+        flags = _posterior_flags_coerced(flags)
 
-        def _rust_posterior(rust_model):
-            mu, se, idx = rust_model.posterior(
-                x,
-                k_num_neighbors=params.k_num_neighbors,
-                epistemic_variance_scale=params.epistemic_variance_scale,
-                aleatoric_variance_scale=params.aleatoric_variance_scale,
-                exclude_nearest=flags.exclude_nearest,
-                observation_noise=flags.observation_noise,
-            )
-            idx_arr = np.array(idx, dtype=int) if idx else None
-            return ENNNormal(mu, se, idx=idx_arr)
-
-        def _python_posterior():
-            internals = self._compute_posterior_internals(x, params, flags)
-            return ENNNormal(internals.mu, internals.se, idx=internals.idx)
-
-        return self._if_rust_else(_rust_posterior, _python_posterior)
+        mu, se, idx = self._rust_model.posterior(
+            x,
+            k_num_neighbors=params.k_num_neighbors,
+            epistemic_variance_scale=params.epistemic_variance_scale,
+            aleatoric_variance_scale=params.aleatoric_variance_scale,
+            exclude_nearest=flags.exclude_nearest,
+            observation_noise=flags.observation_noise,
+        )
+        idx_arr = np.array(idx, dtype=int) if idx else None
+        return ENNNormal(mu, se, idx=idx_arr)
 
     def conditional_posterior(
         self,
@@ -369,33 +177,20 @@ class EpistemicNearestNeighbors(_RustDispatchMixin, _PosteriorMixin):
         flags: PosteriorFlags | None = None,
     ) -> ENNNormal:
         from .enn_normal import ENNNormal
-        from .enn_params import PosteriorFlags
 
-        if flags is None:
-            flags = PosteriorFlags()
+        flags = _posterior_flags_coerced(flags)
 
-        def _rust_conditional(rust_model):
-            mu, se, _ = rust_model.conditional_posterior(
-                x_whatif,
-                y_whatif,
-                x,
-                k_num_neighbors=params.k_num_neighbors,
-                epistemic_variance_scale=params.epistemic_variance_scale,
-                aleatoric_variance_scale=params.aleatoric_variance_scale,
-                exclude_nearest=flags.exclude_nearest,
-                observation_noise=flags.observation_noise,
-            )
-            return ENNNormal(mu, se)
-
-        def _python_conditional():
-            from .enn_conditional import compute_conditional_posterior
-
-            y_scale = _compute_conditional_y_scale(self, y_whatif)
-            return compute_conditional_posterior(
-                self, x_whatif, y_whatif, x, params=params, flags=flags, y_scale=y_scale
-            )
-
-        return self._if_rust_else(_rust_conditional, _python_conditional)
+        mu, se, _ = self._rust_model.conditional_posterior(
+            x_whatif,
+            y_whatif,
+            x,
+            k_num_neighbors=params.k_num_neighbors,
+            epistemic_variance_scale=params.epistemic_variance_scale,
+            aleatoric_variance_scale=params.aleatoric_variance_scale,
+            exclude_nearest=flags.exclude_nearest,
+            observation_noise=flags.observation_noise,
+        )
+        return ENNNormal(mu, se)
 
     def batch_posterior(
         self,
@@ -405,57 +200,26 @@ class EpistemicNearestNeighbors(_RustDispatchMixin, _PosteriorMixin):
         flags: PosteriorFlags | None = None,
     ) -> ENNNormal:
         from .enn_normal import ENNNormal
-        from .enn_params import PosteriorFlags
 
-        if flags is None:
-            flags = PosteriorFlags()
+        flags = _posterior_flags_coerced(flags)
         x = np.asarray(x, dtype=float)
         if x.ndim != 2 or x.shape[1] != self._num_dim:
             raise ValueError(x.shape)
         if not paramss:
             raise ValueError("paramss must be non-empty")
 
-        def _rust_batch(rust_model):
-            k_values = [p.k_num_neighbors for p in paramss]
-            epistemic_scales = [p.epistemic_variance_scale for p in paramss]
-            aleatoric_scales = [p.aleatoric_variance_scale for p in paramss]
-            mu_all, se_all = rust_model.batch_posterior(
-                x,
-                k_values=k_values,
-                epistemic_scales=epistemic_scales,
-                aleatoric_scales=aleatoric_scales,
-                exclude_nearest=flags.exclude_nearest,
-                observation_noise=flags.observation_noise,
-            )
-            return ENNNormal(mu_all, se_all)
-
-        def _python_batch():
-            batch_size, num_params = x.shape[0], len(paramss)
-            mu_all = np.zeros((num_params, batch_size, self._num_metrics), dtype=float)
-            se_all = np.zeros((num_params, batch_size, self._num_metrics), dtype=float)
-            k_values = {p.k_num_neighbors for p in paramss}
-            if len(k_values) == 1 and len(self) > 0:
-                neighbor_data = self._get_neighbor_data(
-                    x, paramss[0], flags.exclude_nearest
-                )
-                if neighbor_data is None:
-                    return ENNNormal(mu_all, se_all)
-                for i, params in enumerate(paramss):
-                    internals = self._compute_weighted_posterior(
-                        neighbor_data.dist2s,
-                        neighbor_data.idx,
-                        neighbor_data.y_neighbors,
-                        params,
-                        flags.observation_noise,
-                    )
-                    mu_all[i], se_all[i] = internals.mu, internals.se
-            else:
-                for i, params in enumerate(paramss):
-                    internals = self._compute_posterior_internals(x, params, flags)
-                    mu_all[i], se_all[i] = internals.mu, internals.se
-            return ENNNormal(mu_all, se_all)
-
-        return self._if_rust_else(_rust_batch, _python_batch)
+        k_values = [p.k_num_neighbors for p in paramss]
+        epistemic_scales = [p.epistemic_variance_scale for p in paramss]
+        aleatoric_scales = [p.aleatoric_variance_scale for p in paramss]
+        mu_all, se_all = self._rust_model.batch_posterior(
+            x,
+            k_values=k_values,
+            epistemic_scales=epistemic_scales,
+            aleatoric_scales=aleatoric_scales,
+            exclude_nearest=flags.exclude_nearest,
+            observation_noise=flags.observation_noise,
+        )
+        return ENNNormal(mu_all, se_all)
 
     def neighbors(
         self, x: np.ndarray, k: int, *, exclude_nearest: bool = False
@@ -476,22 +240,9 @@ class EpistemicNearestNeighbors(_RustDispatchMixin, _PosteriorMixin):
                 f"exclude_nearest=True requires at least 2 observations, got {len(self)}"
             )
 
-        def _rust_neighbors(rust_model):
-            idx_2d = rust_model.neighbors(x, k, exclude_nearest=exclude_nearest)
-            idx = idx_2d[0, :] if idx_2d.size > 0 else np.array([], dtype=np.int64)
-            return idx.astype(np.int64, copy=False)
-
-        def _python_neighbors():
-            search_k = int(min(k + 1 if exclude_nearest else k, len(self)))
-            if search_k == 0:
-                return np.zeros((0,), dtype=np.int64)
-            _, idx_full = self._enn_index.search(
-                x, search_k=search_k, exclude_nearest=exclude_nearest
-            )
-            idx = idx_full[0, : min(k, idx_full.shape[1])]
-            return idx.astype(np.int64, copy=False)
-
-        return self._if_rust_else(_rust_neighbors, _python_neighbors)
+        idx_2d = self._rust_model.neighbors(x, k, exclude_nearest=exclude_nearest)
+        idx = idx_2d[0, :] if idx_2d.size > 0 else np.array([], dtype=np.int64)
+        return idx.astype(np.int64, copy=False)
 
     def posterior_function_draw(
         self,
@@ -501,33 +252,11 @@ class EpistemicNearestNeighbors(_RustDispatchMixin, _PosteriorMixin):
         function_seeds: np.ndarray | list[int],
         flags: PosteriorFlags | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
-        from .enn_params import PosteriorFlags
-
-        if flags is None:
-            flags = PosteriorFlags()
-
-        def _rust_draw(rust_model):
-            seeds = _to_rust_seeds(function_seeds)
-            draws, idx = rust_model.posterior_function_draw(
-                x,
-                k_num_neighbors=params.k_num_neighbors,
-                epistemic_variance_scale=params.epistemic_variance_scale,
-                aleatoric_variance_scale=params.aleatoric_variance_scale,
-                function_seeds=seeds,
-                exclude_nearest=flags.exclude_nearest,
-                observation_noise=flags.observation_noise,
-            )
-            idx_arr = np.array(idx, dtype=int) if idx else np.zeros((x.shape[0], 0))
-            return draws, idx_arr
-
-        def _python_draw():
-            internals = self._compute_posterior_internals(x, params, flags)
-            return (
-                _draw_from_internals(self, internals, function_seeds=function_seeds),
-                internals.idx,
-            )
-
-        return self._if_rust_else(_rust_draw, _python_draw)
+        flags = _posterior_flags_coerced(flags)
+        seeds = _to_rust_seeds(function_seeds)
+        kw = _rust_function_draw_kwargs(params, flags, seeds)
+        draws, idx = self._rust_model.posterior_function_draw(x, **kw)
+        return _finalize_function_draw(x, draws, idx)
 
     def conditional_posterior_function_draw(
         self,
@@ -539,10 +268,7 @@ class EpistemicNearestNeighbors(_RustDispatchMixin, _PosteriorMixin):
         function_seeds: np.ndarray | list[int],
         flags: PosteriorFlags | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
-        from .enn_params import PosteriorFlags
-
-        if flags is None:
-            flags = PosteriorFlags()
+        flags = _posterior_flags_coerced(flags)
         x_whatif = np.asarray(x_whatif, dtype=float)
         if x_whatif.ndim != 2 or x_whatif.shape[1] != self._num_dim:
             raise ValueError(x_whatif.shape)
@@ -554,40 +280,12 @@ class EpistemicNearestNeighbors(_RustDispatchMixin, _PosteriorMixin):
                 flags=flags,
             )
 
-        def _rust_conditional_draw(rust_model):
-            seeds = _to_rust_seeds(function_seeds)
-            draws, idx = rust_model.conditional_posterior_function_draw(
-                x_whatif,
-                y_whatif,
-                x,
-                k_num_neighbors=params.k_num_neighbors,
-                epistemic_variance_scale=params.epistemic_variance_scale,
-                aleatoric_variance_scale=params.aleatoric_variance_scale,
-                function_seeds=seeds,
-                exclude_nearest=flags.exclude_nearest,
-                observation_noise=flags.observation_noise,
-            )
-            idx_arr = np.array(idx, dtype=int) if idx else np.zeros((x.shape[0], 0))
-            return draws, idx_arr
-
-        def _python_conditional_draw():
-            from .enn_conditional import compute_conditional_posterior_draw_internals
-
-            y_scale = _compute_conditional_y_scale(self, y_whatif)
-            internals = compute_conditional_posterior_draw_internals(
-                self, x_whatif, y_whatif, x, params=params, flags=flags, y_scale=y_scale
-            )
-            draws = _draw_from_internals(
-                self,
-                DrawInternals(
-                    idx=internals.idx,
-                    w_normalized=internals.w_normalized,
-                    l2=internals.l2,
-                    mu=internals.mu,
-                    se=internals.se,
-                ),
-                function_seeds=function_seeds,
-            )
-            return draws, internals.idx
-
-        return self._if_rust_else(_rust_conditional_draw, _python_conditional_draw)
+        seeds = _to_rust_seeds(function_seeds)
+        kw = _rust_function_draw_kwargs(params, flags, seeds)
+        draws, idx = self._rust_model.conditional_posterior_function_draw(
+            x_whatif,
+            y_whatif,
+            x,
+            **kw,
+        )
+        return _finalize_function_draw(x, draws, idx)

@@ -14,8 +14,11 @@ The optimizer has an `ask()/tell()` interface. All `turbo_*()` methods follow Tu
   - Generate candidates with RAASP [3] sampling.
   - Select a candidate with Thompson sampling (TuRBO-one), UCB (TuRBO-ENN), or randomly (TURBO-zero).
 
+- Overview of algorithms: [algos.pdf](docs/algos.pdf)
 
-[1] **Sweet, D., & Jadhav, S. A. (2025).** Taking the GP Out of the Loop. *arXiv preprint arXiv:2506.12818*.
+
+
+[1] **M. Bafna, Jadhav, S. a., & Sweet, D., (2025).** Taking the GP Out of the Loop. *arXiv preprint arXiv:2506.12818*.
    https://arxiv.org/abs/2506.12818
 [2] **Eriksson, D., Pearce, M., Gardner, J. R., Turner, R., & Poloczek, M. (2020).** Scalable Global Optimization via Local Bayesian Optimization. *Advances in Neural Information Processing Systems, 32*.
    https://arxiv.org/abs/1910.01739
@@ -27,6 +30,7 @@ The optimizer has an `ask()/tell()` interface. All `turbo_*()` methods follow Tu
 `pip install ennbo[with-deps]`
 or
 `cargo add ennbo`
+
 
 ## Demonstration
 [`demo_enn.ipynb`](https://github.com/yubo-research/enn/tree/main/examples/demo_enn.ipynb) - Shows how to use [`EpistemicNearestNeighbors`](https://github.com/yubo-research/enn/blob/main/src/enn/enn/enn.py) to build and query an ENN model.

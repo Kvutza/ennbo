@@ -1,0 +1,28 @@
+[package]
+name = "ennbo"
+version = "0.1.1"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Epistemic Nearest Neighbor Bayesian Optimization"
+readme = "README.md"
+
+[dependencies]
+faiss = { version = "0.13.0" }
+ndarray = { workspace = true }
+ndarray-linalg = { workspace = true }
+rand = "0.8"
+sobol = "1.0.2"
+thiserror = { workspace = true }
+
+# Modal/Linux images lack a linkable `libfaiss_c`; macOS dev builds use dynamic faiss (static needs OpenMP in cmake).
+[target.'cfg(target_os = "linux")'.dependencies]
+faiss = { version = "0.13.0", features = ["static"] }
+
+[dev-dependencies]
+approx = "0.5"
+numpy = "0.22"
+rand_chacha = "0.3"

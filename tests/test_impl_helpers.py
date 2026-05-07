@@ -1,5 +1,9 @@
 from __future__ import annotations
+
 import numpy as np
+
+from enn.turbo.components.builder import build_trust_region
+from enn.turbo.components.incumbent_selector import ScalarIncumbentSelector
 from enn.turbo.config import (
     MorboTRConfig,
     MultiObjectiveConfig,
@@ -8,16 +12,67 @@ from enn.turbo.config import (
     turbo_zero_config,
 )
 from enn.turbo.config.turbo_tr_config import TRLengthConfig
-from enn.turbo.impl_helpers import (
-    estimate_y_passthrough,
-    get_x_center_fallback,
-    handle_restart_check_multi_objective,
-    handle_restart_clear_always,
-)
+
+
+def get_x_center_fallback(
+    _config,
+    x_obs_list: list,
+    y_obs_list: list,
+    rng: np.random.Generator,
+    tr_state=None,
+) -> np.ndarray | None:
+    y_array = np.asarray(y_obs_list, dtype=float)
+    if y_array.size == 0:
+        return None
+    x_array = np.asarray(x_obs_list, dtype=float)
+    if tr_state is not None and hasattr(tr_state, "incumbent_selector"):
+        selector = tr_state.incumbent_selector
+    else:
+        selector = ScalarIncumbentSelector(noise_aware=False)
+    idx = selector.select(y_array, None, rng)
+    return x_array[idx]
+
+
+def handle_restart_clear_always(
+    x_obs_list: list,
+    y_obs_list: list,
+    yvar_obs_list: list,
+) -> tuple[bool, int]:
+    x_obs_list.clear()
+    y_obs_list.clear()
+    yvar_obs_list.clear()
+    return True, 0
+
+
+def handle_restart_check_multi_objective(
+    tr_state,
+    x_obs_list: list,
+    y_obs_list: list,
+    yvar_obs_list: list,
+    init_idx: int,
+) -> tuple[bool, int]:
+    is_multi = (
+        tr_state is not None
+        and hasattr(tr_state, "num_metrics")
+        and tr_state.num_metrics > 1
+    )
+    if is_multi:
+        x_obs_list.clear()
+        y_obs_list.clear()
+        yvar_obs_list.clear()
+        return True, 0
+    return False, init_idx
+
+
+def estimate_y_passthrough(y_observed: np.ndarray) -> np.ndarray:
+    y = np.asarray(y_observed, dtype=float)
+    if y.ndim == 1:
+        return y.reshape(-1, 1)
+    return y
 
 
 def _build_and_verify_tr(tr_config, rng, num_dim=3):
-    tr = tr_config.build(num_dim=num_dim, rng=rng)
+    tr = build_trust_region(tr_config, num_dim=num_dim, rng=rng)
     assert tr is not None
     assert hasattr(tr, "length")
     return tr
@@ -100,8 +155,8 @@ def test_handle_restart_check_multi_objective_single():
 
 
 def test_handle_restart_check_multi_objective_multi():
-    from enn.turbo.config.morbo_tr_config import RescalePolicyConfig
     from enn.turbo.config import Rescalarize
+    from enn.turbo.config.morbo_tr_config import RescalePolicyConfig
     from enn.turbo.morbo_trust_region import MorboTrustRegion
 
     rng = np.random.default_rng(42)

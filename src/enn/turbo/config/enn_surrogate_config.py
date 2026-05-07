@@ -1,11 +1,9 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
-from .enn_index_driver import ENNIndexDriver
-from .enn_fit_config import ENNFitConfig
 
-if TYPE_CHECKING:
-    from ..components.protocols import Surrogate
+from dataclasses import dataclass
+
+from .enn_fit_config import ENNFitConfig
+from .enn_index_driver import ENNIndexDriver
 
 
 @dataclass(frozen=True)
@@ -22,8 +20,3 @@ class ENNSurrogateConfig:
     @property
     def num_fit_candidates(self) -> int | None:
         return self.fit.num_fit_candidates
-
-    def build(self) -> Surrogate:
-        from ..components.builder import build_surrogate
-
-        return build_surrogate(self)
