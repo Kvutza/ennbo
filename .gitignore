@@ -9,3 +9,6 @@ enn.code-workspace
 plan.md
 review.md
 rust/target/
+# Maturin mixed-layout develop copies the extension next to `src/enn/`.
+src/enn/*.so
+src/enn/*.pyd

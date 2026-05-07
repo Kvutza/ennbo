@@ -13,9 +13,11 @@ except ImportError:
     pass
 
 try:
-    import enn_rust as _ext
+    from . import enn_rust as _ext
 except ImportError as exc:  # pragma: no cover - exercised when extension unavailable
-    raise ImportError("Rust extension module `enn_rust` is not available") from exc
+    raise ImportError(
+        "Rust extension submodule `enn.enn_rust` is not available"
+    ) from exc
 
 
 hypervolume_2d_max = _ext.hypervolume.hypervolume_2d_max

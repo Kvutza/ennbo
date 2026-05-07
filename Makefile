@@ -1,13 +1,13 @@
-.PHONY: all clean test install rust-test python-test lint
+.PHONY: all clean test install rust-test python-test lint pypi-build pypi-publish pypi-auth-check
 
 # Default target: build the Rust extension in release mode
 all:
-	cd rust/crates/enn-py && maturin build --release
+	maturin build --release
 
 # Install both the Rust extension and Python package
 install:
-	@echo "Building and installing Rust extension (rust/crates/enn-py)..."
-	cd rust/crates/enn-py && maturin develop --release
+	@echo "Building and installing Rust extension (see pyproject [tool.maturin])..."
+	maturin develop --release
 	@echo "Installing Python package (ennbo)..."
 	pip install -e .
 	@echo "Installation complete!"
@@ -28,6 +28,18 @@ lint:
 	cd rust && cargo clippy --all-targets --all-features -- -D warnings
 	ruff check
 	kiss check
+
+# --- PyPI (ennbo): token in MATURIN_PYPI_TOKEN, or credentials in ~/.pypirc ---
+pypi-build:
+	maturin build --release
+
+# Note: `maturin publish` builds again before upload (same as a clean "build then publish").
+pypi-publish:
+	maturin publish --non-interactive
+
+# Hits PyPI with your credentials but skips files already on the index (good auth smoke test).
+pypi-auth-check: pypi-build
+	maturin publish --non-interactive --skip-existing
 
 # Clean build artifacts
 clean:

@@ -68,8 +68,9 @@ fn optimizer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-/// Main module
+/// Main module (`import enn.enn_rust` when built with maturin `module-name = "enn.enn_rust"`).
 #[pymodule]
+#[pyo3(name = "enn_rust")]
 fn enn_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(hypervolume))?;
     m.add_wrapped(wrap_pymodule!(hash))?;

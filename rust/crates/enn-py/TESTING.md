@@ -15,8 +15,8 @@ From repo root:
 1. Install the extension into the active Python env:
 
 ```bash
-cd rust/crates/enn-py
-maturin develop
+cd /path/to/repo
+maturin develop --release
 ```
 
 2. Run Python parity/contract tests:
