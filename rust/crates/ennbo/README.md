@@ -16,7 +16,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ennbo = "0.1"
+ennbo = "0.2"
 ndarray = "0.16"
 ```
 
