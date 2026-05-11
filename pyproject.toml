@@ -55,6 +55,9 @@ python-source = "src"
 module-name = "enn.enn_rust"
 profile = "release"
 auditwheel = "skip"
+# Crate default features omit `modal` so bare `maturin build` links dynamic `libfaiss_c` on
+# macOS (Homebrew/conda). On Linux without a linkable Faiss, use `maturin build --features modal`
+# (static Faiss/OpenMP); the repo Makefile passes that automatically on Linux.
 # `.cargo/` is outside the Rust workspace; include it for any workspace-level Cargo config.
 include = [
     { path = ".cargo/**/*", format = "sdist" },

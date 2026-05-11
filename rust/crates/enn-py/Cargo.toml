@@ -16,7 +16,7 @@ name = "enn_rust"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["modal"]
+default = []
 modal = ["ennbo/modal"]
 
 [dependencies]

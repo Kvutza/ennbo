@@ -1,13 +1,17 @@
 .PHONY: all clean test install rust-test python-test lint pypi-build pypi-publish pypi-auth-check
 
+# Linux: default `enn-py` features omit `modal` so `maturin build` works on macOS without a
+# static Faiss/OpenMP toolchain; Make passes `--features modal` here to keep static Faiss.
+MATURIN_FAISS_FLAGS := $(shell test "$$(uname -s)" = Linux && echo --features modal)
+
 # Default target: build the Rust extension in release mode
 all:
-	maturin build --release
+	maturin build --release $(MATURIN_FAISS_FLAGS)
 
 # Install both the Rust extension and Python package
 install:
 	@echo "Building and installing Rust extension (see pyproject [tool.maturin])..."
-	maturin develop --release
+	maturin develop --release $(MATURIN_FAISS_FLAGS)
 	@echo "Installing Python package (ennbo)..."
 	pip install -e .
 	@echo "Installation complete!"
@@ -31,7 +35,7 @@ lint:
 
 # --- PyPI (ennbo): token in MATURIN_PYPI_TOKEN, or credentials in ~/.pypirc ---
 pypi-build:
-	maturin build --release
+	maturin build --release $(MATURIN_FAISS_FLAGS)
 
 # Note: `maturin publish` builds again before upload (same as a clean "build then publish").
 pypi-publish:
