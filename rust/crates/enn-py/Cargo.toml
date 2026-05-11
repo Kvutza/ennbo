@@ -25,3 +25,6 @@ ndarray = { workspace = true }
 numpy = { workspace = true }
 pyo3 = { workspace = true }
 rand = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ennbo = { path = "../ennbo", version = "0.2", features = ["modal"] }
