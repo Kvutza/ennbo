@@ -56,7 +56,10 @@ module-name = "enn.enn_rust"
 profile = "release"
 auditwheel = "skip"
 # `.cargo/` is outside the Rust workspace; include it for any workspace-level Cargo config.
-include = [{ path = ".cargo/**/*", format = "sdist" }]
+include = [
+    { path = ".cargo/**/*", format = "sdist" },
+    { path = "rust/.cargo/**/*", format = "sdist" },
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
