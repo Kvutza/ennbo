@@ -65,6 +65,8 @@ fn main() {
                 return;
             }
         }
-        emit_blas_lapack_link_search_linux();
+        if std::env::var("CARGO_FEATURE_MODAL").is_ok() {
+            emit_blas_lapack_link_search_linux();
+        }
     }
 }

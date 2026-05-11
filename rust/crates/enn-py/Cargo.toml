@@ -15,6 +15,10 @@ readme = "../../../README.md"
 name = "enn_rust"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["modal"]
+modal = ["ennbo/modal"]
+
 [dependencies]
 ennbo = { path = "../ennbo", version = "0.2" }
 ndarray = { workspace = true }

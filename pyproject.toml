@@ -41,6 +41,9 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.4",
     "nbmake>=1.5",
+    "nds>=0.4.3",
+    "pandas>=2.0",
+    "matplotlib>=3.8",
 ]
 
 # Maturin builds wheels + sdist; do not publish Hatchling-only `py3-none-any` wheels (they lack `enn.enn_rust`).
@@ -50,8 +53,9 @@ dev = [
 manifest-path = "rust/crates/enn-py/Cargo.toml"
 python-source = "src"
 module-name = "enn.enn_rust"
-# `.cargo/` is outside the Rust workspace; include it so `pip install` / sdist
-# builds pick up `CMAKE_TOOLCHAIN_FILE` for Faiss BLAS detection on Linux.
+profile = "release"
+auditwheel = "skip"
+# `.cargo/` is outside the Rust workspace; include it for any workspace-level Cargo config.
 include = [{ path = ".cargo/**/*", format = "sdist" }]
 
 [tool.pytest.ini_options]

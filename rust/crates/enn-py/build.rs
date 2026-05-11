@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
-fn has_blas_for_link(dir: &Path) -> bool {
-    dir.join("libblas.so").exists()
-        || dir.join("libopenblas.so").exists()
-        || dir.join("libopenblas.so.0").exists()
+fn blas_libs_present(dir: &Path) -> bool {
+    ["libblas.so", "libopenblas.so", "libopenblas.so.0"]
+        .iter()
+        .any(|name| dir.join(name).exists())
 }
 
 fn main() {
@@ -13,13 +13,13 @@ fn main() {
     }
     if let Ok(prefix) = std::env::var("CONDA_PREFIX") {
         let lib = PathBuf::from(prefix).join("lib");
-        if has_blas_for_link(&lib) {
+        if blas_libs_present(&lib) {
             let p = lib.to_string_lossy();
             println!("cargo:rustc-cdylib-link-arg=-Wl,-rpath,{}", p);
         }
     }
     for p in ["/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu"] {
-        if has_blas_for_link(Path::new(p)) {
+        if blas_libs_present(Path::new(p)) {
             println!("cargo:rustc-cdylib-link-arg=-Wl,-rpath,{p}");
         }
     }
