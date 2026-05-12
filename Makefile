@@ -1,15 +1,28 @@
-.PHONY: all clean test install rust-test python-test lint pypi-build pypi-publish pypi-auth-check
+.PHONY: all all-dynamic install install-dynamic clean test rust-test python-test lint \
+	pypi-build pypi-publish pypi-auth-check
 
-# Linux PyPI / minimal images: static Faiss (no system libfaiss_c). Local `make all` / `install` stay dynamic.
+# Linux: conda/env often has no linkable libfaiss_c — use static Faiss for default Make targets.
+# For dynamic Faiss (system libfaiss_c), use `make all-dynamic` / `install-dynamic` or plain maturin without --features.
 MATURIN_STATIC_FAISS := $(shell test "$$(uname -s)" = Linux && echo --features static-faiss)
 
-# Default target: build the Rust extension in release mode (dynamic Faiss when libfaiss_c is available)
+# Default: release extension (static Faiss on Linux so `make` works without libfaiss_c)
 all:
+	maturin build --release $(MATURIN_STATIC_FAISS)
+
+# Same as `all` but dynamic Faiss — requires libfaiss_c at link time (e.g. faiss-devel / conda libfaiss_c)
+all-dynamic:
 	maturin build --release
 
 # Install both the Rust extension and Python package
 install:
 	@echo "Building and installing Rust extension (see pyproject [tool.maturin])..."
+	maturin develop --release $(MATURIN_STATIC_FAISS)
+	@echo "Installing Python package (ennbo)..."
+	pip install -e .
+	@echo "Installation complete!"
+
+install-dynamic:
+	@echo "Building and installing Rust extension (dynamic Faiss; needs libfaiss_c)..."
 	maturin develop --release
 	@echo "Installing Python package (ennbo)..."
 	pip install -e .
