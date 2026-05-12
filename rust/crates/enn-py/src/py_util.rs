@@ -3,15 +3,12 @@
 use ndarray::Array1;
 use numpy::{IntoPyArray, PyArray1, PyArrayDyn, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
-use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 /// Python wrapper for standardize_y
 #[pyfunction(name = "standardize_y")]
-pub fn standardize_y_py<'py>(
-    py: Python<'py>,
-    y: PyReadonlyArray1<f64>,
-) -> PyResult<(f64, f64)> {
+pub fn standardize_y_py<'py>(py: Python<'py>, y: PyReadonlyArray1<f64>) -> PyResult<(f64, f64)> {
     let y_arr = y.as_array();
 
     // Release GIL for computation

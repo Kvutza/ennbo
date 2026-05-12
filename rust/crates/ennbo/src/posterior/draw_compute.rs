@@ -29,12 +29,7 @@ pub(crate) fn draw_from_internals(
         return Ok(draws);
     }
 
-    let idx_array: Vec<i64> = internals
-        .idx
-        .iter()
-        .flatten()
-        .map(|&i| i as i64)
-        .collect();
+    let idx_array: Vec<i64> = internals.idx.iter().flatten().map(|&i| i as i64).collect();
     let u = normal_hash_batch_multi_seed_fast(function_seeds, &idx_array, m as i64)
         .map_err(|e| ENNError::InvalidParameter(format!("Hash error: {}", e)))?;
 
@@ -48,7 +43,8 @@ pub(crate) fn draw_from_internals(
                     .map(|ki| internals.w_normalized[[i, ki, j]] * u[[s, i, ki, j]])
                     .sum();
                 let l2_safe = internals.l2[[i, j]].max(1e-12);
-                draws[[s, i, j]] = internals.mu[[i, j]] + internals.se[[i, j]] * weighted_u / l2_safe;
+                draws[[s, i, j]] =
+                    internals.mu[[i, j]] + internals.se[[i, j]] * weighted_u / l2_safe;
             }
         }
     }

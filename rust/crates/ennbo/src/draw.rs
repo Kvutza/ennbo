@@ -168,10 +168,7 @@ pub struct ConditionalPosteriorDrawInternals {
 
 impl ConditionalPosteriorDrawInternals {
     /// Create new ConditionalPosteriorDrawInternals.
-    pub fn new(
-        base_internals: DrawInternals,
-        whatif_candidates: Candidates,
-    ) -> Self {
+    pub fn new(base_internals: DrawInternals, whatif_candidates: Candidates) -> Self {
         Self {
             base_internals,
             whatif_candidates,
@@ -239,8 +236,8 @@ mod tests {
     fn test_conditional_posterior_internals() {
         let base = DrawInternals::new(
             vec![vec![0]],
-            array![[[1.0]]],      // 1 query, 1 neighbor, 1 metric
-            array![[1.0]],       // 1 query, 1 metric
+            array![[[1.0]]], // 1 query, 1 neighbor, 1 metric
+            array![[1.0]],   // 1 query, 1 metric
             array![[1.0]],
             array![[0.1]],
         );

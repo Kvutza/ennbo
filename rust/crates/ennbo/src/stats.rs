@@ -45,10 +45,18 @@ impl WeightedStats {
         se: Array2<f64>,
     ) -> Self {
         let n_query = l2.nrows();
-        assert_eq!(w_normalized.shape()[0], n_query, "w_normalized rows must match l2 rows");
+        assert_eq!(
+            w_normalized.shape()[0],
+            n_query,
+            "w_normalized rows must match l2 rows"
+        );
         assert_eq!(mu.nrows(), n_query, "mu rows must match l2 rows");
         assert_eq!(se.nrows(), n_query, "se rows must match l2 rows");
-        assert_eq!(w_normalized.shape()[2], l2.ncols(), "w_normalized last dim must match l2 cols");
+        assert_eq!(
+            w_normalized.shape()[2],
+            l2.ncols(),
+            "w_normalized last dim must match l2 cols"
+        );
         assert_eq!(mu.ncols(), l2.ncols(), "mu cols must match l2 cols");
         assert_eq!(se.ncols(), l2.ncols(), "se cols must match l2 cols");
 
@@ -105,7 +113,7 @@ mod tests {
     fn test_weighted_stats_multiple_queries() {
         let stats = WeightedStats::new(
             array![[[0.5, 0.5], [0.5, 0.5]], [[0.3, 0.3], [0.7, 0.7]]], // 2 queries, 2 neighbors, 2 metrics
-            array![[1.0, 1.0], [0.5, 0.5]],                            // 2 queries, 2 metrics
+            array![[1.0, 1.0], [0.5, 0.5]],                             // 2 queries, 2 metrics
             array![[0.0, 0.0], [1.0, 1.0]],
             array![[0.1, 0.1], [0.2, 0.2]],
         );

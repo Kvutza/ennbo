@@ -103,7 +103,11 @@ impl EpistemicNearestNeighbors {
         }
         Array1::from_iter((0..data.ncols()).map(|j| {
             let std = data.column(j).var(0.0).sqrt();
-            if std.is_finite() && std > min_val { std } else { 1.0 }
+            if std.is_finite() && std > min_val {
+                std
+            } else {
+                1.0
+            }
         }))
     }
 
@@ -199,9 +203,10 @@ impl EpistemicNearestNeighbors {
         }
 
         if k < 0 {
-            return Err(ENNError::InvalidParameter(
-                format!("k must be non-negative, got {}", k)
-            ));
+            return Err(ENNError::InvalidParameter(format!(
+                "k must be non-negative, got {}",
+                k
+            )));
         }
 
         if self.num_obs == 0 {
@@ -209,9 +214,10 @@ impl EpistemicNearestNeighbors {
         }
 
         if exclude_nearest && self.num_obs <= 1 {
-            return Err(ENNError::InvalidParameter(
-                format!("exclude_nearest=true requires at least 2 observations, got {}", self.num_obs)
-            ));
+            return Err(ENNError::InvalidParameter(format!(
+                "exclude_nearest=true requires at least 2 observations, got {}",
+                self.num_obs
+            )));
         }
 
         let search_k = if exclude_nearest {
@@ -306,14 +312,9 @@ mod tests {
         let train_x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
         let train_y = array![[0.0], [1.0], [1.0], [2.0]];
 
-        let model = EpistemicNearestNeighbors::new(
-            train_x,
-            train_y,
-            None,
-            false,
-            IndexDriver::Exact,
-        )
-        .unwrap();
+        let model =
+            EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact)
+                .unwrap();
 
         assert_eq!(model.len(), 4);
         assert_eq!(model.num_outputs(), 1);
@@ -324,14 +325,9 @@ mod tests {
         let train_x = array![[0.0, 0.0], [1.0, 0.0]];
         let train_y = array![[0.0], [1.0]];
 
-        let mut model = EpistemicNearestNeighbors::new(
-            train_x,
-            train_y,
-            None,
-            false,
-            IndexDriver::Exact,
-        )
-        .unwrap();
+        let mut model =
+            EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact)
+                .unwrap();
 
         let new_x = array![[0.0, 1.0]];
         let new_y = array![[1.0]];

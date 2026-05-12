@@ -4,7 +4,7 @@ use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 use rand::RngCore;
 
 use crate::acquisition::{ParetoAcquisition, RandomAcquisition, UCBAcquisition};
-use crate::candidates::{generate_lhd, generate_uniform, generate_candidates};
+use crate::candidates::{generate_candidates, generate_lhd, generate_uniform};
 use crate::config::{AcquisitionConfig, InitStrategy};
 use crate::error::ENNError;
 use crate::optimizer::{Optimizer, Telemetry};
@@ -77,9 +77,11 @@ impl Strategy {
         match self {
             Strategy::Init(state) => ask_init(state, optimizer, num_arms, rng),
             Strategy::Turbo(_) => ask_turbo(optimizer, num_arms, telemetry, rng),
-            Strategy::Hybrid { init, in_init: true, .. } => {
-                ask_init_hybrid(init, optimizer, num_arms, rng)
-            }
+            Strategy::Hybrid {
+                init,
+                in_init: true,
+                ..
+            } => ask_init_hybrid(init, optimizer, num_arms, rng),
             Strategy::Hybrid { .. } => ask_turbo(optimizer, num_arms, telemetry, rng),
         }
     }
@@ -96,7 +98,11 @@ impl Strategy {
         match self {
             Strategy::Init(state) => tell_init(state, optimizer, x, y, rng),
             Strategy::Turbo(_) => tell_turbo(optimizer, x, y, telemetry, rng),
-            Strategy::Hybrid { init, turbo: _, in_init } => {
+            Strategy::Hybrid {
+                init,
+                turbo: _,
+                in_init,
+            } => {
                 if *in_init {
                     tell_init(init, optimizer, x, y, rng)?;
                     // Check if init is complete
@@ -115,9 +121,11 @@ impl Strategy {
     pub fn init_progress(&self) -> Option<(usize, usize)> {
         match self {
             Strategy::Init(state) => Some((state.completed, state.num_init)),
-            Strategy::Hybrid { init, in_init: true, .. } => {
-                Some((init.completed, init.num_init))
-            }
+            Strategy::Hybrid {
+                init,
+                in_init: true,
+                ..
+            } => Some((init.completed, init.num_init)),
             _ => None,
         }
     }
@@ -142,9 +150,7 @@ fn ask_init(
             }
             generate_lhd(num_arms, num_dim, &unit_bounds.view(), rng)
         }
-        InitStrategy::Random => {
-            generate_uniform(&lower, &upper, num_arms, rng)?
-        }
+        InitStrategy::Random => generate_uniform(&lower, &upper, num_arms, rng)?,
     };
 
     Ok(candidates)
@@ -250,12 +256,7 @@ fn ask_turbo(
 
     // Select arms using acquisition function (with timing)
     let start = std::time::Instant::now();
-    let selected = select_arms(
-        optimizer,
-        &capped_candidates.view(),
-        num_arms,
-        rng,
-    )?;
+    let selected = select_arms(optimizer, &capped_candidates.view(), num_arms, rng)?;
     telemetry.dt_sel = start.elapsed().as_secs_f64();
 
     Ok(selected)
@@ -347,9 +348,7 @@ fn select_with_thompson(
 ) -> Result<Array2<f64>, ENNError> {
     let samples = surrogate.sample(x_cand, 1, rng)?;
     let n_candidates = x_cand.nrows();
-    let sample_values: Vec<f64> = (0..n_candidates)
-        .map(|i| samples[[0, i, 0]])
-        .collect();
+    let sample_values: Vec<f64> = (0..n_candidates).map(|i| samples[[0, i, 0]]).collect();
     let mut indices: Vec<usize> = (0..n_candidates).collect();
     indices.sort_by(|&a, &b| {
         sample_values[b]

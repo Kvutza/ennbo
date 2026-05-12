@@ -135,9 +135,8 @@ pub fn normal_hash_batch_multi_seed_fast(
             let unique_u64 = unique_idx as u64;
 
             // base = (seed * p + unique_idx) * p
-            let base = (seed_u64.wrapping_mul(SEED_PRIME)
-                .wrapping_add(unique_u64))
-            .wrapping_mul(SEED_PRIME);
+            let base = (seed_u64.wrapping_mul(SEED_PRIME).wrapping_add(unique_u64))
+                .wrapping_mul(SEED_PRIME);
 
             let mut metric_values = Vec::with_capacity(num_metrics);
 
@@ -214,7 +213,12 @@ mod tests {
         // u64_to_f53 should produce values in [0, 1)
         for x in [0u64, u64::MAX, 0x123456789ABCDEF0] {
             let f = u64_to_f53(x);
-            assert!((0.0..1.0).contains(&f), "u64_to_f53({}) = {} out of range", x, f);
+            assert!(
+                (0.0..1.0).contains(&f),
+                "u64_to_f53({}) = {} out of range",
+                x,
+                f
+            );
         }
     }
 

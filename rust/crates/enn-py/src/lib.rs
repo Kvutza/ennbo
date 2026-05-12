@@ -4,18 +4,18 @@
     clippy::pedantic,
     clippy::nursery,
     clippy::cargo,
-    clippy::useless_conversion,
+    clippy::useless_conversion
 )]
 
 use pyo3::prelude::*;
 use pyo3::wrap_pymodule;
 
-pub mod py_hypervolume;
-pub mod py_hash;
-pub mod py_util;
-pub mod py_model;
 pub mod py_fit;
+pub mod py_hash;
+pub mod py_hypervolume;
+pub mod py_model;
 pub mod py_optimizer;
+pub mod py_util;
 
 /// Hypervolume calculation module
 #[pymodule]
@@ -27,7 +27,10 @@ fn hypervolume(m: &Bound<'_, PyModule>) -> PyResult<()> {
 /// Hash-based RNG module
 #[pymodule]
 fn hash(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(py_hash::normal_hash_batch_multi_seed_fast_py, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        py_hash::normal_hash_batch_multi_seed_fast_py,
+        m
+    )?)?;
     Ok(())
 }
 

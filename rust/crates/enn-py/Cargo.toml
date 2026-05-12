@@ -15,14 +15,6 @@ readme = "../../../README.md"
 name = "enn_rust"
 crate-type = ["cdylib", "rlib"]
 
-[features]
-default = []
-# Static Faiss (ennbo `modal` → faiss/static). PEP 517 / pip:
-#   pip install ennbo --config-settings='build-args=--features static-faiss'
-# Local: maturin build --features static-faiss
-static-faiss = ["ennbo/modal"]
-modal = ["ennbo/modal"]
-
 [dependencies]
 ennbo = { path = "../ennbo", version = "0.2" }
 ndarray = { workspace = true }

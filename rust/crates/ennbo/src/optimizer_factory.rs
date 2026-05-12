@@ -4,8 +4,8 @@ use ndarray::Array2;
 use rand::RngCore;
 
 use crate::config::{
-    ConfigOverrides, InitStrategy, SurrogateConfig,
-    lhd_only_config, turbo_enn_config, turbo_zero_config,
+    lhd_only_config, turbo_enn_config, turbo_zero_config, ConfigOverrides, InitStrategy,
+    SurrogateConfig,
 };
 use crate::error::ENNError;
 use crate::optimizer::Optimizer;
@@ -92,8 +92,8 @@ pub fn create_optimizer_lhd_with_overrides(
 mod tests {
     use super::*;
     use ndarray::array;
-    use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rand::SeedableRng;
 
     #[test]
     fn create_optimizer_public_wrappers_smoke() {

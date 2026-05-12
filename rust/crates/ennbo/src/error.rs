@@ -9,7 +9,10 @@ use crate::index::IndexError;
 pub enum ENNError {
     /// Invalid input shape.
     #[error("Invalid shape: expected {expected:?}, got {got:?}")]
-    InvalidShape { expected: Vec<usize>, got: Vec<usize> },
+    InvalidShape {
+        expected: Vec<usize>,
+        got: Vec<usize>,
+    },
     /// Invalid parameter.
     #[error("Invalid parameter: {0}")]
     InvalidParameter(String),

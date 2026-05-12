@@ -1,9 +1,9 @@
 //! Candidate generation for trust region optimization.
 
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
+use rand::distributions::Uniform;
 use rand::Rng;
 use rand::RngCore;
-use rand::distributions::Uniform;
 use sobol::params::JoeKuoD6;
 use sobol::Sobol;
 
@@ -92,12 +92,16 @@ pub fn generate_candidates<R: Rng + ?Sized>(
                 generate_uniform(&lower_1d, &upper_1d, num_candidates, rng)
             }
         }
-        CandidateRV::Uniform => {
-            generate_uniform(&lower_1d, &upper_1d, num_candidates, rng)
-        }
-        CandidateRV::RAASP => {
-            generate_raasp(x_center, lengthscales, &lower_1d, &upper_1d, num_candidates, rng, num_pert)
-        }
+        CandidateRV::Uniform => generate_uniform(&lower_1d, &upper_1d, num_candidates, rng),
+        CandidateRV::RAASP => generate_raasp(
+            x_center,
+            lengthscales,
+            &lower_1d,
+            &upper_1d,
+            num_candidates,
+            rng,
+            num_pert,
+        ),
     }
 }
 
@@ -134,7 +138,9 @@ fn generate_raasp<R: Rng + ?Sized>(
     let num_dim = x_center.len();
     let num_pert = num_pert.max(1);
 
-    let lengthscales = lengthscales.map(|ls| ls.to_owned()).unwrap_or_else(|| Array1::ones(num_dim));
+    let lengthscales = lengthscales
+        .map(|ls| ls.to_owned())
+        .unwrap_or_else(|| Array1::ones(num_dim));
 
     // Normalize lengthscales
     let ls_sum: f64 = lengthscales.iter().sum();
@@ -190,9 +196,10 @@ impl SobolEngine {
     /// Create a new Sobol engine.
     pub fn new(dimension: usize) -> Result<Self, ENNError> {
         if dimension == 0 || dimension > 21201 {
-            return Err(ENNError::InvalidParameter(
-                format!("Sobol dimension must be in 1..=21201, got {}", dimension)
-            ));
+            return Err(ENNError::InvalidParameter(format!(
+                "Sobol dimension must be in 1..=21201, got {}",
+                dimension
+            )));
         }
         let params = JoeKuoD6::extended();
         let sequence = Sobol::<f64>::new(dimension, &params);
@@ -208,9 +215,10 @@ impl SobolEngine {
     ///
     /// If scrambled (via `scramble()`), applies random shift per dimension.
     pub fn sample<R: Rng + ?Sized>(&mut self, _rng: &mut R) -> Result<Vec<f64>, ENNError> {
-        let mut sample = self.sequence.next().ok_or_else(|| {
-            ENNError::InvalidParameter("Sobol sequence exhausted".to_string())
-        })?;
+        let mut sample = self
+            .sequence
+            .next()
+            .ok_or_else(|| ENNError::InvalidParameter("Sobol sequence exhausted".to_string()))?;
         if sample.len() != self.dimension {
             return Err(ENNError::InvalidParameter(format!(
                 "Sobol sample dimension mismatch: expected {}, got {}",
@@ -287,8 +295,8 @@ pub fn generate_lhd<R: Rng + ?Sized>(
 mod tests {
     use super::*;
     use ndarray::array;
-    use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rand::SeedableRng;
 
     #[test]
     fn test_to_from_unit() {
@@ -482,16 +490,7 @@ mod tests {
         let x_center = array![0.2, 0.4];
         let lower = array![0.0, 0.0];
         let upper = array![1.0, 1.0];
-        let raasp = generate_raasp(
-            &x_center.view(),
-            None,
-            &lower,
-            &upper,
-            4,
-            &mut rng,
-            1,
-        )
-        .unwrap();
+        let raasp = generate_raasp(&x_center.view(), None, &lower, &upper, 4, &mut rng, 1).unwrap();
         assert_eq!(raasp.shape(), &[4, 2]);
         let mut engine = SobolEngine::new(4).unwrap();
         let s0 = engine.sample(&mut rng).unwrap();

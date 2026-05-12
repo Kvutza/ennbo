@@ -57,11 +57,7 @@ impl PyEpistemicNearestNeighbors {
     ) -> PyResult<()> {
         let yvar_arr = yvar.as_ref().map(|v| v.as_array());
         self.inner
-            .add(
-                &x.as_array(),
-                &y.as_array(),
-                yvar_arr.as_ref(),
-            )
+            .add(&x.as_array(), &y.as_array(), yvar_arr.as_ref())
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
@@ -114,18 +110,15 @@ impl PyEpistemicNearestNeighbors {
         let n_params = k_values.len();
         if epistemic_scales.len() != n_params || aleatoric_scales.len() != n_params {
             return Err(PyValueError::new_err(
-                "k_values, epistemic_scales, and aleatoric_scales must have same length"
+                "k_values, epistemic_scales, and aleatoric_scales must have same length",
             ));
         }
 
         let mut paramss = Vec::with_capacity(n_params);
         for i in 0..n_params {
-            let params = ennbo::ENNParams::new(
-                k_values[i],
-                epistemic_scales[i],
-                aleatoric_scales[i],
-            )
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            let params =
+                ennbo::ENNParams::new(k_values[i], epistemic_scales[i], aleatoric_scales[i])
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
             paramss.push(params);
         }
 
@@ -137,10 +130,7 @@ impl PyEpistemicNearestNeighbors {
             .inner
             .batch_posterior(&x.as_array(), &paramss, &flags)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok((
-            out.mu.into_pyarray_bound(py),
-            out.se.into_pyarray_bound(py),
-        ))
+        Ok((out.mu.into_pyarray_bound(py), out.se.into_pyarray_bound(py)))
     }
 
     /// Posterior function draw - sample from posterior predictive.
@@ -277,10 +267,7 @@ impl PyEpistemicNearestNeighbors {
         x: PyReadonlyArray2<f64>,
         search_k: i32,
         exclude_nearest: bool,
-    ) -> PyResult<(
-        Bound<'py, PyArrayDyn<f64>>,
-        Bound<'py, PyArrayDyn<i64>>,
-    )> {
+    ) -> PyResult<(Bound<'py, PyArrayDyn<f64>>, Bound<'py, PyArrayDyn<i64>>)> {
         let (dist2s, idx) = self
             .inner
             .neighbor_distances_and_indices(&x.as_array(), search_k, exclude_nearest)
@@ -321,10 +308,7 @@ impl PyEpistemicNearestNeighbors {
     }
 
     #[getter]
-    fn train_yvar<'py>(
-        &self,
-        py: Python<'py>,
-    ) -> PyResult<Option<Bound<'py, PyArray2<f64>>>> {
+    fn train_yvar<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyArray2<f64>>>> {
         Ok(self
             .inner
             .train_yvar()

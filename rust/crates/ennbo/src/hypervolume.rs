@@ -173,13 +173,15 @@ mod tests {
         assert!(result.is_finite());
     }
 
-
     #[test]
     fn test_invalid_column_count() {
         let y = array![[1.0, 0.5, 0.3]]; // 3 columns instead of 2
         let ref_point = array![0.0, 0.0];
         let result = hypervolume_2d_max(&y.view(), &ref_point.view());
-        assert!(matches!(result, Err(HypervolumeError::InvalidColumnCount(_))));
+        assert!(matches!(
+            result,
+            Err(HypervolumeError::InvalidColumnCount(_))
+        ));
     }
 
     #[test]

@@ -24,8 +24,7 @@ fn pairwise_sq_l2(
     let xx: Array1<f64> = x_s.map_axis(Axis(1), |r| r.dot(&r));
     let yy: Array1<f64> = y_s.map_axis(Axis(1), |r| r.dot(&r));
     let xy = x_s.dot(&y_s.t());
-    let d2 = xx.view().insert_axis(Axis(1)).to_owned()
-        + yy.view().insert_axis(Axis(0)).to_owned()
+    let d2 = xx.view().insert_axis(Axis(1)).to_owned() + yy.view().insert_axis(Axis(0)).to_owned()
         - 2.0 * xy;
     d2.mapv(|v| v.max(0.0))
 }
@@ -65,7 +64,9 @@ pub(crate) fn get_neighbor_data(
         return Ok(None);
     }
 
-    let dist2s = dist2s_full.slice_axis(Axis(1), ndarray::Slice::from(..k)).to_owned();
+    let dist2s = dist2s_full
+        .slice_axis(Axis(1), ndarray::Slice::from(..k))
+        .to_owned();
     let idx: Vec<Vec<usize>> = idx_full
         .slice_axis(Axis(1), ndarray::Slice::from(..k))
         .rows()
@@ -107,9 +108,8 @@ pub(crate) fn get_conditional_neighbor_data(
         )));
     }
 
-    let search_k = (params.k_num_neighbors as usize
-        + if flags.exclude_nearest { 1 } else { 0 })
-        .min(total_n);
+    let search_k =
+        (params.k_num_neighbors as usize + if flags.exclude_nearest { 1 } else { 0 }).min(total_n);
 
     if search_k == 0 {
         return Ok(None);
@@ -130,12 +130,7 @@ pub(crate) fn get_conditional_neighbor_data(
     };
 
     let dist2_whatif = if n_whatif > 0 {
-        pairwise_sq_l2(
-            x,
-            x_whatif,
-            model.scale_x,
-            &model.x_scale.view(),
-        )
+        pairwise_sq_l2(x, x_whatif, model.scale_x, &model.x_scale.view())
     } else {
         Array2::zeros((batch_size, 0))
     };
@@ -145,9 +140,7 @@ pub(crate) fn get_conditional_neighbor_data(
         return Ok(None);
     }
 
-    if dist2_train.iter().any(|v| !v.is_finite())
-        || dist2_whatif.iter().any(|v| !v.is_finite())
-    {
+    if dist2_train.iter().any(|v| !v.is_finite()) || dist2_whatif.iter().any(|v| !v.is_finite()) {
         return Err(ENNError::InvalidParameter(
             "NaN or Inf in distance computation (check x, x_whatif for invalid values)".to_string(),
         ));
@@ -215,14 +208,16 @@ pub(crate) fn get_conditional_neighbor_data(
         }
     }
 
-    let dist2s = dist2_all.slice_axis(Axis(1), ndarray::Slice::from(..k_out)).to_owned();
+    let dist2s = dist2_all
+        .slice_axis(Axis(1), ndarray::Slice::from(..k_out))
+        .to_owned();
     Ok(Some(NeighborData::new(dist2s, ids_all, y_neighbors, k_out)))
 }
 
 #[cfg(test)]
 mod pairwise_tests {
-    use ndarray::{array, Array2};
     use super::pairwise_sq_l2;
+    use ndarray::{array, Array2};
 
     #[test]
     fn pairwise_sq_l2_scaled_and_unscaled() {

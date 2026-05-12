@@ -5,14 +5,14 @@ mod neighbor;
 
 use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, Axis};
 
+use self::draw_compute::draw_from_internals;
+use self::neighbor::{get_conditional_neighbor_data, get_neighbor_data};
 use crate::draw::DrawInternals;
 use crate::error::{ENNError, EPS_VAR};
 use crate::model::EpistemicNearestNeighbors;
-use crate::params::{ENNParams, ENNNormal, PosteriorFlags};
-use crate::traits::PosteriorComputation;
+use crate::params::{ENNNormal, ENNParams, PosteriorFlags};
 use crate::stats::WeightedStats;
-use self::draw_compute::draw_from_internals;
-use self::neighbor::{get_conditional_neighbor_data, get_neighbor_data};
+use crate::traits::PosteriorComputation;
 
 impl PosteriorComputation for EpistemicNearestNeighbors {
     fn posterior(
@@ -51,13 +51,9 @@ impl PosteriorComputation for EpistemicNearestNeighbors {
             paramss.iter().map(|p| p.k_num_neighbors).collect();
 
         if k_values.len() == 1 && self.num_obs() > 0 {
-            compute_batch_with_shared_neighbors(
-                self, x, paramss, flags, &mut mu_all, &mut se_all,
-            )?;
+            compute_batch_with_shared_neighbors(self, x, paramss, flags, &mut mu_all, &mut se_all)?;
         } else {
-            compute_batch_separate_neighbors(
-                self, x, paramss, flags, &mut mu_all, &mut se_all,
-            )?;
+            compute_batch_separate_neighbors(self, x, paramss, flags, &mut mu_all, &mut se_all)?;
         }
 
         Ok(ENNNormal::new(mu_all.into_dyn(), se_all.into_dyn(), None))
@@ -83,9 +79,8 @@ impl PosteriorComputation for EpistemicNearestNeighbors {
         params: &ENNParams,
         flags: &PosteriorFlags,
     ) -> Result<ENNNormal, ENNError> {
-        let internals = compute_conditional_posterior_internals(
-            self, x, x_whatif, y_whatif, params, flags,
-        )?;
+        let internals =
+            compute_conditional_posterior_internals(self, x, x_whatif, y_whatif, params, flags)?;
         Ok(ENNNormal::new(
             internals.mu.into_dyn(),
             internals.se.into_dyn(),
@@ -102,9 +97,8 @@ impl PosteriorComputation for EpistemicNearestNeighbors {
         function_seeds: &[i64],
         flags: &PosteriorFlags,
     ) -> Result<(Array3<f64>, Vec<Vec<usize>>), ENNError> {
-        let internals = compute_conditional_posterior_internals(
-            self, x, x_whatif, y_whatif, params, flags,
-        )?;
+        let internals =
+            compute_conditional_posterior_internals(self, x, x_whatif, y_whatif, params, flags)?;
         let draws = draw_from_internals(self, &internals, function_seeds)?;
         Ok((draws, internals.idx))
     }
@@ -161,9 +155,11 @@ fn assign_posterior_results(
     index: usize,
 ) {
     let slice = ndarray::Slice::from(index..index + 1);
-    mu_all.slice_axis_mut(Axis(0), slice)
+    mu_all
+        .slice_axis_mut(Axis(0), slice)
         .assign(&internals.mu.slice_axis(Axis(0), ndarray::Slice::from(..)));
-    se_all.slice_axis_mut(Axis(0), slice)
+    se_all
+        .slice_axis_mut(Axis(0), slice)
         .assign(&internals.se.slice_axis(Axis(0), ndarray::Slice::from(..)));
 }
 
@@ -177,7 +173,6 @@ pub struct WeightedPosteriorData<'a> {
     /// When set, use this instead of gathering from model (for conditional with whatif).
     pub yvar_neighbors_override: Option<&'a Array2<f64>>,
 }
-
 
 pub fn compute_weighted_posterior(
     model: &EpistemicNearestNeighbors,
@@ -193,7 +188,11 @@ pub fn compute_weighted_posterior(
     } else if let Some(yvar) = model.train_yvar() {
         let n_query = data.dist2s.nrows();
         // Handle empty query case (n_query == 0 or data.idx is empty)
-        let k = if data.idx.is_empty() { 0 } else { data.idx[0].len() };
+        let k = if data.idx.is_empty() {
+            0
+        } else {
+            data.idx[0].len()
+        };
         let n_train = model.num_obs();
         let mut yvar_neighbors = Array2::zeros((n_query * k, model.num_metrics()));
         for i in 0..n_query {
@@ -365,7 +364,6 @@ pub fn compute_posterior_internals(
     }
 }
 
-
 fn compute_scale_for_conditional(
     train_y: &ArrayView2<f64>,
     y_whatif: &ArrayView2<f64>,
@@ -374,12 +372,8 @@ fn compute_scale_for_conditional(
     let n2 = y_whatif.nrows();
     let m = train_y.ncols();
     let mut stacked = Array2::zeros((n1 + n2, m));
-    stacked
-        .slice_mut(ndarray::s![..n1, ..])
-        .assign(train_y);
-    stacked
-        .slice_mut(ndarray::s![n1.., ..])
-        .assign(y_whatif);
+    stacked.slice_mut(ndarray::s![..n1, ..]).assign(train_y);
+    stacked.slice_mut(ndarray::s![n1.., ..]).assign(y_whatif);
 
     if stacked.nrows() < 2 {
         return Array1::ones(stacked.ncols());
@@ -444,15 +438,10 @@ pub fn compute_conditional_posterior_internals(
     }
 
     let batch_size = x.nrows();
-    let neighbor_data = get_conditional_neighbor_data(
-        model, x, x_whatif, y_whatif, params, flags,
-    )?;
+    let neighbor_data = get_conditional_neighbor_data(model, x, x_whatif, y_whatif, params, flags)?;
 
     if let Some(data) = neighbor_data {
-        let y_scale_cond = compute_scale_for_conditional(
-            &model.train_y().view(),
-            y_whatif,
-        );
+        let y_scale_cond = compute_scale_for_conditional(&model.train_y().view(), y_whatif);
         let wp_data = WeightedPosteriorData {
             dist2s: &data.dist2s.view(),
             idx: &data.idx,
@@ -480,7 +469,6 @@ pub fn empty_posterior_internals(
     )
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -493,26 +481,37 @@ mod tests {
         let train_x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
         let train_y = array![[0.0], [1.0], [1.0], [2.0]];
 
-        EpistemicNearestNeighbors::new(
-            train_x,
-            train_y,
-            None,
-            false,
-            IndexDriver::Exact,
-        )
-        .unwrap()
+        EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap()
     }
 
-    fn assert_batch_neighbor_fill<F>(model: &EpistemicNearestNeighbors, paramss: Vec<ENNParams>, mut run: F)
-    where
-        F: FnMut(&EpistemicNearestNeighbors, &ArrayView2<f64>, &[ENNParams], &PosteriorFlags, &mut Array3<f64>, &mut Array3<f64>) -> Result<(), ENNError>,
+    fn assert_batch_neighbor_fill<F>(
+        model: &EpistemicNearestNeighbors,
+        paramss: Vec<ENNParams>,
+        mut run: F,
+    ) where
+        F: FnMut(
+            &EpistemicNearestNeighbors,
+            &ArrayView2<f64>,
+            &[ENNParams],
+            &PosteriorFlags,
+            &mut Array3<f64>,
+            &mut Array3<f64>,
+        ) -> Result<(), ENNError>,
     {
         let flags = PosteriorFlags::new();
         let query = array![[0.5, 0.5]];
         let (bs, np) = (query.nrows(), paramss.len());
         let mut mu_all = Array3::zeros((np, bs, model.num_metrics()));
         let mut se_all = Array3::zeros((np, bs, model.num_metrics()));
-        assert!(run(model, &query.view(), &paramss, &flags, &mut mu_all, &mut se_all).is_ok());
+        assert!(run(
+            model,
+            &query.view(),
+            &paramss,
+            &flags,
+            &mut mu_all,
+            &mut se_all
+        )
+        .is_ok());
         assert_eq!(mu_all.shape(), &[np, bs, 1]);
         assert_eq!(se_all.shape(), &[np, bs, 1]);
     }
@@ -595,14 +594,9 @@ mod tests {
     fn test_compute_posterior_internals_empty_model() {
         let train_x = array![[0.0, 0.0]];
         let train_y = array![[0.0]];
-        let model = EpistemicNearestNeighbors::new(
-            train_x,
-            train_y,
-            None,
-            false,
-            IndexDriver::Exact,
-        )
-        .unwrap();
+        let model =
+            EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact)
+                .unwrap();
 
         let params = ENNParams::new(2, 1.0, 0.1).unwrap();
         let flags = PosteriorFlags::new();
@@ -621,7 +615,10 @@ mod tests {
 
         let result = model.batch_posterior(&query.view(), &paramss, &flags);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("paramss must be non-empty"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("paramss must be non-empty"));
     }
 
     #[test]
@@ -677,7 +674,8 @@ mod tests {
         let flags = PosteriorFlags::new();
         let query = array![[0.5, 0.5]];
 
-        let internals = compute_posterior_internals(&model, &query.view(), &params, &flags).unwrap();
+        let internals =
+            compute_posterior_internals(&model, &query.view(), &params, &flags).unwrap();
         let seeds = vec![1i64, 2];
 
         let result = draw_from_internals(&model, &internals, &seeds);
@@ -769,7 +767,8 @@ mod tests {
         let flags = PosteriorFlags::new();
         let query = array![[0.5, 0.5]];
 
-        let internals = compute_posterior_internals(&model, &query.view(), &params, &flags).unwrap();
+        let internals =
+            compute_posterior_internals(&model, &query.view(), &params, &flags).unwrap();
 
         let mut mu_all = Array3::zeros((3, 1, 1));
         let mut se_all = Array3::zeros((3, 1, 1));
@@ -884,14 +883,9 @@ mod tests {
     fn test_conditional_posterior_scaled_model() {
         let train_x = array![[0.0, 0.0], [2.0, 2.0], [4.0, 4.0]];
         let train_y = array![[0.0], [1.0], [2.0]];
-        let model = EpistemicNearestNeighbors::new(
-            train_x,
-            train_y,
-            None,
-            true,
-            IndexDriver::Exact,
-        )
-        .unwrap();
+        let model =
+            EpistemicNearestNeighbors::new(train_x, train_y, None, true, IndexDriver::Exact)
+                .unwrap();
         let params = ENNParams::new(2, 1.0, 0.1).unwrap();
         let flags = PosteriorFlags::new();
         let query = array![[1.0, 1.0]];
@@ -914,14 +908,9 @@ mod tests {
     fn test_conditional_scale_single_row() {
         let train_x = array![[0.0, 0.0]];
         let train_y = array![[1.0]];
-        let model = EpistemicNearestNeighbors::new(
-            train_x,
-            train_y,
-            None,
-            false,
-            IndexDriver::Exact,
-        )
-        .unwrap();
+        let model =
+            EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact)
+                .unwrap();
         let params = ENNParams::new(1, 1.0, 0.1).unwrap();
         let flags = PosteriorFlags::new();
         let query = array![[0.0, 0.0]];
@@ -1039,7 +1028,10 @@ mod tests {
         let empty_query: Array2<f64> = Array2::zeros((0, 2));
 
         let result = model.posterior(&empty_query.view(), &params, &flags);
-        assert!(result.is_ok(), "Empty query posterior with yvar should not panic");
+        assert!(
+            result.is_ok(),
+            "Empty query posterior with yvar should not panic"
+        );
 
         let posterior = result.unwrap();
         assert_eq!(posterior.mu.shape()[0], 0);
@@ -1064,7 +1056,10 @@ mod tests {
             &params,
             &flags,
         );
-        assert!(result.is_ok(), "Empty query conditional posterior should not panic");
+        assert!(
+            result.is_ok(),
+            "Empty query conditional posterior should not panic"
+        );
 
         let posterior = result.unwrap();
         assert_eq!(posterior.mu.shape()[0], 0);
@@ -1101,7 +1096,10 @@ mod tests {
             &params,
             &flags,
         );
-        assert!(result.is_ok(), "Empty query conditional posterior with yvar should not panic");
+        assert!(
+            result.is_ok(),
+            "Empty query conditional posterior with yvar should not panic"
+        );
 
         let posterior = result.unwrap();
         assert_eq!(posterior.mu.shape()[0], 0);
@@ -1128,7 +1126,10 @@ mod tests {
         };
 
         let result = compute_weighted_posterior(&model, data, None);
-        assert!(result.is_ok(), "compute_weighted_posterior with empty idx should not panic");
+        assert!(
+            result.is_ok(),
+            "compute_weighted_posterior with empty idx should not panic"
+        );
     }
 
     #[test]
@@ -1150,7 +1151,10 @@ mod tests {
             &params,
             &flags,
         );
-        assert!(result.is_ok(), "get_conditional_neighbor_data with empty batch should not panic");
+        assert!(
+            result.is_ok(),
+            "get_conditional_neighbor_data with empty batch should not panic"
+        );
         assert!(result.unwrap().is_none());
     }
 }

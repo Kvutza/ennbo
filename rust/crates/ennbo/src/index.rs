@@ -48,8 +48,8 @@ fn make_faiss(
     driver: IndexDriver,
     train_scaled: &ArrayView2<f64>,
 ) -> Result<IndexImpl, IndexError> {
-    let mut index = index_factory(num_dim as u32, faiss_spec(driver), MetricType::L2)
-        .map_err(faiss_map_err)?;
+    let mut index =
+        index_factory(num_dim as u32, faiss_spec(driver), MetricType::L2).map_err(faiss_map_err)?;
     if train_scaled.nrows() > 0 {
         let data = arr2_rows_to_f32(train_scaled);
         index.add(&data).map_err(faiss_map_err)?;
@@ -202,8 +202,12 @@ impl ENNIndex {
                 dist2s = Array2::zeros((n_query, nc.saturating_sub(1)));
                 indices = Array2::zeros((n_query, nc.saturating_sub(1)));
             } else {
-                dist2s = dist2s.slice_axis(Axis(1), ndarray::Slice::from(1..)).to_owned();
-                indices = indices.slice_axis(Axis(1), ndarray::Slice::from(1..)).to_owned();
+                dist2s = dist2s
+                    .slice_axis(Axis(1), ndarray::Slice::from(1..))
+                    .to_owned();
+                indices = indices
+                    .slice_axis(Axis(1), ndarray::Slice::from(1..))
+                    .to_owned();
             }
         }
 
@@ -301,7 +305,13 @@ mod tests {
         let query = array![[0.0, 0.0, 0.0]];
         let result = index.search(&query.view(), 1, false);
 
-        assert!(matches!(result, Err(IndexError::InvalidShape { expected: 2, got: 3 })));
+        assert!(matches!(
+            result,
+            Err(IndexError::InvalidShape {
+                expected: 2,
+                got: 3
+            })
+        ));
     }
 
     #[test]

@@ -3,14 +3,14 @@
 use numpy::{IntoPyArray, PyArrayDyn, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 pub fn parse_config_overrides_from_dict(
     dict: &Bound<'_, pyo3::types::PyDict>,
 ) -> PyResult<ennbo::ConfigOverrides> {
-    use ennbo::{AcquisitionConfig, CandidateRV, ConfigOverrides};
     use ennbo::index::IndexDriver;
+    use ennbo::{AcquisitionConfig, CandidateRV, ConfigOverrides};
 
     let mut overrides = ConfigOverrides::default();
 
@@ -19,7 +19,12 @@ pub fn parse_config_overrides_from_dict(
         overrides.index_driver = Some(match s.to_lowercase().as_str() {
             "exact" | "flat" => IndexDriver::Exact,
             "hnsw" => IndexDriver::HNSW,
-            _ => return Err(PyValueError::new_err(format!("Unknown index_driver: {}", s))),
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "Unknown index_driver: {}",
+                    s
+                )))
+            }
         });
     }
     if let Some(acq) = dict.get_item("acquisition")? {
@@ -45,7 +50,12 @@ pub fn parse_config_overrides_from_dict(
             "sobol" => CandidateRV::Sobol,
             "uniform" => CandidateRV::Uniform,
             "raasp" => CandidateRV::RAASP,
-            _ => return Err(PyValueError::new_err(format!("Unknown candidate_rv: {}", s))),
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "Unknown candidate_rv: {}",
+                    s
+                )))
+            }
         });
     }
     if let Some(v) = dict.get_item("num_candidates_factor")? {
@@ -147,22 +157,33 @@ impl PyOptimizer {
 
     /// Get observations x in unit space (if any).
     fn x_obs<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyArrayDyn<f64>>> {
-        self.inner.x_obs().map(|x| x.into_dyn().into_pyarray_bound(py))
+        self.inner
+            .x_obs()
+            .map(|x| x.into_dyn().into_pyarray_bound(py))
     }
 
     /// Get observation values y (if any).
     fn y_obs<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyArrayDyn<f64>>> {
-        self.inner.y_obs().map(|y| y.into_dyn().into_pyarray_bound(py))
+        self.inner
+            .y_obs()
+            .map(|y| y.into_dyn().into_pyarray_bound(py))
     }
 
     /// Get incumbent x in unit space (if any).
     fn incumbent_x_unit<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyArrayDyn<f64>>> {
-        self.inner.incumbent_x_unit().map(|x| x.view().to_owned().into_dyn().into_pyarray_bound(py))
+        self.inner
+            .incumbent_x_unit()
+            .map(|x| x.view().to_owned().into_dyn().into_pyarray_bound(py))
     }
 
     /// Get optimizer bounds.
     fn bounds<'py>(&self, py: Python<'py>) -> Bound<'py, PyArrayDyn<f64>> {
-        self.inner.bounds().view().to_owned().into_dyn().into_pyarray_bound(py)
+        self.inner
+            .bounds()
+            .view()
+            .to_owned()
+            .into_dyn()
+            .into_pyarray_bound(py)
     }
 }
 

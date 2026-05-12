@@ -19,20 +19,21 @@ pub mod optimizer;
 pub mod optimizer_factory;
 pub mod params;
 pub mod posterior;
-pub mod surrogate;
-pub mod strategy;
-pub mod traits;
 pub mod stats;
+pub mod strategy;
+pub mod surrogate;
+pub mod traits;
 pub mod trust_region;
 pub mod util;
 
 pub use acquisition::{
-    AcquisitionError, ParetoAcquisition, RandomAcquisition, ThompsonAcquisition,
-    UCBAcquisition,
+    AcquisitionError, ParetoAcquisition, RandomAcquisition, ThompsonAcquisition, UCBAcquisition,
 };
-pub use candidates::{CandidateRV, generate_candidates, generate_lhd, to_unit, from_unit};
-pub use config::{OptimizerConfig, CandidateConfig, AcquisitionConfig, SurrogateConfig,
-    ConfigOverrides, InitStrategy, turbo_enn_config, turbo_zero_config, lhd_only_config};
+pub use candidates::{from_unit, generate_candidates, generate_lhd, to_unit, CandidateRV};
+pub use config::{
+    lhd_only_config, turbo_enn_config, turbo_zero_config, AcquisitionConfig, CandidateConfig,
+    ConfigOverrides, InitStrategy, OptimizerConfig, SurrogateConfig,
+};
 pub use draw::{Candidates, ConditionalPosteriorDrawInternals, DrawInternals, NeighborData};
 pub use error::{ENNError, EPS_VAR};
 pub use fit::{enn_fit, subsample_loglik};
@@ -44,9 +45,9 @@ pub use optimizer::{Optimizer, Telemetry};
 pub use optimizer_factory::{create_optimizer_enn, create_optimizer_lhd, create_optimizer_zero};
 pub use params::{ENNNormal, ENNParams, ParamsError, PosteriorFlags};
 pub use posterior::{compute_posterior_internals, WeightedPosteriorData};
-pub use surrogate::{Surrogate, ENNSurrogate, ENNSurrogateConfig, SurrogatePrediction};
-pub use strategy::Strategy;
-pub use traits::PosteriorComputation;
 pub use stats::WeightedStats;
+pub use strategy::Strategy;
+pub use surrogate::{ENNSurrogate, ENNSurrogateConfig, Surrogate, SurrogatePrediction};
+pub use traits::PosteriorComputation;
 pub use trust_region::{NoTrustRegion, TRLengthConfig, TrustRegionError, TurboTrustRegion};
 pub use util::{calculate_sobol_indices, pareto_front_2d_maximize, standardize_y};

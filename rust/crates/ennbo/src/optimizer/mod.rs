@@ -1,11 +1,11 @@
 //! Optimizer state machine for ask/tell pattern.
 
-use std::cell::RefCell;
 use ndarray::{Array1, Array2, ArrayView2};
 use rand::RngCore;
+use std::cell::RefCell;
 
 use crate::candidates::SobolEngine;
-use crate::config::{OptimizerConfig, SurrogateConfig, InitStrategy};
+use crate::config::{InitStrategy, OptimizerConfig, SurrogateConfig};
 use crate::error::ENNError;
 use crate::strategy::Strategy;
 use crate::surrogate::{BoxedSurrogate, ENNSurrogate, Surrogate};
@@ -140,12 +140,7 @@ impl Optimizer {
         config: OptimizerConfig,
         rng: &mut dyn RngCore,
     ) -> Result<Self, ENNError> {
-        Self::new_with_strategy(
-            bounds,
-            config,
-            Strategy::hybrid(InitStrategy::LHD, 10),
-            rng,
-        )
+        Self::new_with_strategy(bounds, config, Strategy::hybrid(InitStrategy::LHD, 10), rng)
     }
 
     /// Create a new optimizer with an explicit strategy.
@@ -164,10 +159,7 @@ impl Optimizer {
         }
 
         // Initialize trust region
-        let tr_state = TurboTrustRegion::new(
-            num_dim,
-            config.trust_region,
-        );
+        let tr_state = TurboTrustRegion::new(num_dim, config.trust_region);
 
         // Initialize surrogate (None means no surrogate; NoSurrogate was wasteful/unclear)
         let surrogate: Option<BoxedSurrogate> = match &config.surrogate {
@@ -178,13 +170,14 @@ impl Optimizer {
         };
 
         // Initialize Sobol engine if needed (scramble for randomized quasi-random)
-        let sobol_engine = if config.candidates.candidate_rv == crate::candidates::CandidateRV::Sobol {
-            let mut eng = SobolEngine::new(num_dim)?;
-            eng.scramble(rng);
-            Some(eng)
-        } else {
-            None
-        };
+        let sobol_engine =
+            if config.candidates.candidate_rv == crate::candidates::CandidateRV::Sobol {
+                let mut eng = SobolEngine::new(num_dim)?;
+                eng.scramble(rng);
+                Some(eng)
+            } else {
+                None
+            };
 
         // Generate seed from RngCore
         let mut seed_bytes = [0u8; 8];
@@ -459,7 +452,6 @@ impl Optimizer {
     pub fn obs_count(&self) -> usize {
         self.obs_store.len()
     }
-
 }
 
 #[cfg(test)]

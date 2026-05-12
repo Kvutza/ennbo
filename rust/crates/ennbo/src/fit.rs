@@ -1,8 +1,8 @@
 //! Parameter fitting for ENN models via subsample log-likelihood.
 
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis};
-use rand::Rng;
 use rand::seq::SliceRandom;
+use rand::Rng;
 
 use crate::error::ENNError;
 use crate::model::EpistemicNearestNeighbors;
@@ -255,9 +255,7 @@ pub fn enn_fit<R: Rng>(
     let mut paramss: Vec<ENNParams> = epi_var_scale_values
         .iter()
         .zip(ale_homoscedastic_values.iter())
-        .filter_map(|(&epi_val, &ale_val)| {
-            ENNParams::new(k, epi_val, ale_val).ok()
-        })
+        .filter_map(|(&epi_val, &ale_val)| ENNParams::new(k, epi_val, ale_val).ok())
         .collect();
 
     // Add warm-start parameters if provided
@@ -276,8 +274,9 @@ pub fn enn_fit<R: Rng>(
     }
 
     if paramss.is_empty() {
-        return ENNParams::new(k, 1.0, 0.0)
-            .map_err(|e| ENNError::InvalidParameter(format!("Failed to create default params: {}", e)));
+        return ENNParams::new(k, 1.0, 0.0).map_err(|e| {
+            ENNError::InvalidParameter(format!("Failed to create default params: {}", e))
+        });
     }
 
     // Compute y_std for standardization
@@ -314,27 +313,14 @@ mod tests {
     use super::*;
     use crate::index::IndexDriver;
     use ndarray::array;
-    use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rand::SeedableRng;
 
     fn create_test_model() -> EpistemicNearestNeighbors {
-        let train_x = array![
-            [0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 1.0],
-            [0.5, 0.5]
-        ];
+        let train_x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.5, 0.5]];
         let train_y = array![[0.0], [1.0], [1.0], [2.0], [1.0]];
 
-        EpistemicNearestNeighbors::new(
-            train_x,
-            train_y,
-            None,
-            false,
-            IndexDriver::Exact,
-        )
-        .unwrap()
+        EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap()
     }
 
     #[test]
@@ -346,8 +332,8 @@ mod tests {
         let paramss = vec![params];
         let mut rng = StdRng::seed_from_u64(42);
 
-        let logliks = subsample_loglik(&model, &x.view(), &y.view(), &paramss, 2, &mut rng, None)
-            .unwrap();
+        let logliks =
+            subsample_loglik(&model, &x.view(), &y.view(), &paramss, 2, &mut rng, None).unwrap();
 
         assert_eq!(logliks.len(), 1);
         assert!(logliks[0].is_finite());
@@ -357,14 +343,9 @@ mod tests {
     fn test_subsample_loglik_empty_model() {
         let train_x = array![[0.0, 0.0]];
         let train_y = array![[0.0]];
-        let model = EpistemicNearestNeighbors::new(
-            train_x,
-            train_y,
-            None,
-            false,
-            IndexDriver::Exact,
-        )
-        .unwrap();
+        let model =
+            EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact)
+                .unwrap();
 
         let x = array![[0.5, 0.5]];
         let y = array![[1.0]];
@@ -372,8 +353,8 @@ mod tests {
         let paramss = vec![params];
         let mut rng = StdRng::seed_from_u64(42);
 
-        let logliks = subsample_loglik(&model, &x.view(), &y.view(), &paramss, 2, &mut rng, None)
-            .unwrap();
+        let logliks =
+            subsample_loglik(&model, &x.view(), &y.view(), &paramss, 2, &mut rng, None).unwrap();
 
         assert_eq!(logliks, vec![0.0]);
     }
@@ -383,16 +364,7 @@ mod tests {
         let model = create_test_model();
         let mut rng = StdRng::seed_from_u64(42);
 
-        let result = enn_fit(
-            &model,
-            2,
-            5,
-            3,
-            &mut rng,
-            None,
-            true,
-        )
-        .unwrap();
+        let result = enn_fit(&model, 2, 5, 3, &mut rng, None, true).unwrap();
 
         assert_eq!(result.k_num_neighbors, 2);
         assert!(result.epistemic_variance_scale > 0.0);
@@ -406,16 +378,7 @@ mod tests {
 
         let warm_start = ENNParams::new(2, 1.5, 0.2).unwrap();
 
-        let result = enn_fit(
-            &model,
-            2,
-            5,
-            3,
-            &mut rng,
-            Some(&warm_start),
-            true,
-        )
-        .unwrap();
+        let result = enn_fit(&model, 2, 5, 3, &mut rng, Some(&warm_start), true).unwrap();
 
         assert_eq!(result.k_num_neighbors, 2);
         assert!(result.epistemic_variance_scale > 0.0);
@@ -427,13 +390,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         let result = enn_fit(
-            &model,
-            2,
-            5,
-            3,
-            &mut rng,
-            None,
-            false, // disable aleatoric inference
+            &model, 2, 5, 3, &mut rng, None, false, // disable aleatoric inference
         )
         .unwrap();
 
@@ -444,41 +401,15 @@ mod tests {
 
     #[test]
     fn test_enn_fit_multioutput() {
-        let train_x = array![
-            [0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 1.0],
-            [0.5, 0.5]
-        ];
-        let train_y = array![
-            [0.0, 1.0],
-            [1.0, 2.0],
-            [1.0, 0.0],
-            [2.0, 1.0],
-            [1.0, 1.5]
-        ];
-        let model = EpistemicNearestNeighbors::new(
-            train_x,
-            train_y,
-            None,
-            false,
-            IndexDriver::Exact,
-        )
-        .unwrap();
+        let train_x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.5, 0.5]];
+        let train_y = array![[0.0, 1.0], [1.0, 2.0], [1.0, 0.0], [2.0, 1.0], [1.0, 1.5]];
+        let model =
+            EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact)
+                .unwrap();
 
         let mut rng = StdRng::seed_from_u64(42);
 
-        let result = enn_fit(
-            &model,
-            2,
-            5,
-            3,
-            &mut rng,
-            None,
-            true,
-        )
-        .unwrap();
+        let result = enn_fit(&model, 2, 5, 3, &mut rng, None, true).unwrap();
 
         assert_eq!(result.k_num_neighbors, 2);
         assert!(result.epistemic_variance_scale > 0.0);

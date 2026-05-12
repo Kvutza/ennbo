@@ -3,8 +3,8 @@
 use numpy::{PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 use crate::py_model::{PyENNParams, PyEpistemicNearestNeighbors};
 
@@ -60,18 +60,14 @@ pub fn subsample_loglik_py(
     let n_params = k_values.len();
     if epistemic_scales.len() != n_params || aleatoric_scales.len() != n_params {
         return Err(PyValueError::new_err(
-            "k_values, epistemic_scales, and aleatoric_scales must have same length"
+            "k_values, epistemic_scales, and aleatoric_scales must have same length",
         ));
     }
 
     let mut paramss = Vec::with_capacity(n_params);
     for i in 0..n_params {
-        let params = ennbo::ENNParams::new(
-            k_values[i],
-            epistemic_scales[i],
-            aleatoric_scales[i],
-        )
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let params = ennbo::ENNParams::new(k_values[i], epistemic_scales[i], aleatoric_scales[i])
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         paramss.push(params);
     }
 

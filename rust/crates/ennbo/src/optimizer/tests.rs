@@ -1,16 +1,13 @@
-use super::{
-    ObservationStore, Optimizer, Telemetry,
-};
-use crate::config::{ConfigOverrides, lhd_only_config, turbo_zero_config};
+use super::{ObservationStore, Optimizer, Telemetry};
+use crate::config::{lhd_only_config, turbo_zero_config, ConfigOverrides};
 use crate::error::ENNError;
 use crate::optimizer_factory::{
-    create_optimizer_enn_with_overrides,
-    create_optimizer_lhd_with_overrides,
+    create_optimizer_enn_with_overrides, create_optimizer_lhd_with_overrides,
     create_optimizer_zero_with_overrides,
 };
 use ndarray::array;
-use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 #[test]
 fn test_optimizer_creation() {
@@ -96,7 +93,9 @@ fn test_tell() {
     let candidates = optimizer.ask(5, &mut rng).unwrap();
     let y = array![[1.0], [2.0], [3.0], [4.0], [5.0]];
 
-    optimizer.tell(&candidates.view(), &y.view(), &mut rng).unwrap();
+    optimizer
+        .tell(&candidates.view(), &y.view(), &mut rng)
+        .unwrap();
 
     assert!(optimizer.telemetry().dt_tell > 0.0);
 }
@@ -114,8 +113,7 @@ fn test_create_optimizer_factories_and_telemetry_defaults() {
 
     let mut enn =
         create_optimizer_enn_with_overrides(bounds.clone(), 3, 2, &mut rng, None).unwrap();
-    let mut zero =
-        create_optimizer_zero_with_overrides(bounds.clone(), 2, &mut rng, None).unwrap();
+    let mut zero = create_optimizer_zero_with_overrides(bounds.clone(), 2, &mut rng, None).unwrap();
     let mut lhd = create_optimizer_lhd_with_overrides(bounds, 2, &mut rng, None).unwrap();
 
     assert_eq!(enn.telemetry().dt_fit, 0.0);
@@ -145,13 +143,8 @@ fn test_create_optimizer_with_overrides() {
         ..Default::default()
     };
 
-    let mut opt = create_optimizer_zero_with_overrides(
-        bounds,
-        4,
-        &mut rng,
-        Some(&overrides),
-    )
-    .unwrap();
+    let mut opt =
+        create_optimizer_zero_with_overrides(bounds, 4, &mut rng, Some(&overrides)).unwrap();
     for _ in 0..15 {
         let x = opt.ask(1, &mut rng).unwrap();
         let y = array![[0.0]];

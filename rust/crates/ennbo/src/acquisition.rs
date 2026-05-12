@@ -215,7 +215,12 @@ impl ParetoAcquisition {
         if n_objectives == 1 {
             let mu_1d = mu.column(0).to_owned();
             let sigma_1d = se.column(0).to_owned();
-            return Self::arms_from_pareto_fronts_2d(&mu_1d.view(), &sigma_1d.view(), num_arms, rng);
+            return Self::arms_from_pareto_fronts_2d(
+                &mu_1d.view(),
+                &sigma_1d.view(),
+                num_arms,
+                rng,
+            );
         }
 
         // Multi-objective: use non-dominated sorting (simplified)
@@ -303,9 +308,7 @@ impl ParetoAcquisition {
         }
 
         // First front: points with domination count 0
-        let mut current_front: Vec<usize> = (0..n)
-            .filter(|&i| domination_count[i] == 0)
-            .collect();
+        let mut current_front: Vec<usize> = (0..n).filter(|&i| domination_count[i] == 0).collect();
 
         while !current_front.is_empty() {
             let mut next_front = Vec::new();
@@ -436,7 +439,9 @@ mod tests {
         let sigma = array![0.1, 0.2, 0.3, 0.4, 0.5];
 
         let mut rng = ChaCha8Rng::seed_from_u64(42);
-        let selected = thompson.select(&mu.view(), &sigma.view(), 3, &mut rng).unwrap();
+        let selected = thompson
+            .select(&mu.view(), &sigma.view(), 3, &mut rng)
+            .unwrap();
 
         assert_eq!(selected.len(), 3);
         assert!(selected.iter().all(|&i| i < 5));

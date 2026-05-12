@@ -99,9 +99,8 @@ impl TurboTrustRegion {
     /// Compute failure tolerance based on num_arms and num_dim.
     fn compute_failure_tolerance(&mut self) {
         if let Some(num_arms) = self.num_arms {
-            let tolerance = ((4.0 / num_arms as f64)
-                .max(self.num_dim as f64 / num_arms as f64))
-            .ceil() as i32;
+            let tolerance =
+                ((4.0 / num_arms as f64).max(self.num_dim as f64 / num_arms as f64)).ceil() as i32;
             self.failure_tolerance = Some(tolerance.max(1));
         }
     }

@@ -1,29 +1,22 @@
 use super::{
     ask_init, ask_init_hybrid, ask_turbo, maybe_cap_selection_candidates, select_with_pareto,
     select_with_random, select_with_thompson, select_with_ucb, selection_candidate_cap,
-    tell_common, tell_init, tell_turbo,
-    InitStrategy,
-    InitStrategyState,
-    Strategy,
+    tell_common, tell_init, tell_turbo, InitStrategy, InitStrategyState, Strategy,
     TurboStrategyState,
 };
-use crate::config::{AcquisitionConfig, turbo_enn_config, turbo_zero_config};
+use crate::config::{turbo_enn_config, turbo_zero_config, AcquisitionConfig};
 use crate::optimizer::{Optimizer, Telemetry};
-use ndarray::{Array2, array};
-use rand::SeedableRng;
+use ndarray::{array, Array2};
 use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 #[test]
 fn test_private_strategy_helpers_directly() {
     let bounds = array![[0.0, 1.0], [0.0, 1.0]];
     let mut rng = StdRng::seed_from_u64(77);
-    let mut optimizer = Optimizer::new_with_strategy(
-        bounds,
-        turbo_zero_config(),
-        Strategy::turbo(),
-        &mut rng,
-    )
-    .unwrap();
+    let mut optimizer =
+        Optimizer::new_with_strategy(bounds, turbo_zero_config(), Strategy::turbo(), &mut rng)
+            .unwrap();
 
     let init_state = InitStrategyState::new(InitStrategy::Random, 3);
     let x_init = ask_init(&init_state, &mut optimizer, 2, &mut rng).unwrap();
@@ -71,7 +64,9 @@ fn test_thompson_sampling_uses_posterior_sample() {
 
     let x_fit = array![[0.0, 0.0], [1.0, 1.0], [0.2, 0.8], [0.8, 0.2], [0.5, 0.5]];
     let y_fit = array![[0.0], [1.0], [0.5], [0.4], [0.6]];
-    optimizer.tell(&x_fit.view(), &y_fit.view(), &mut rng).unwrap();
+    optimizer
+        .tell(&x_fit.view(), &y_fit.view(), &mut rng)
+        .unwrap();
 
     let tel_after_tell = optimizer.telemetry();
     assert!(
@@ -90,9 +85,16 @@ fn test_thompson_sampling_uses_posterior_sample() {
     let mut rng2 = StdRng::seed_from_u64(42);
     let mut cfg2 = turbo_enn_config();
     cfg2.acquisition = AcquisitionConfig::Thompson;
-    let mut optimizer2 =
-        Optimizer::new_with_strategy(array![[0.0, 1.0], [0.0, 1.0]], cfg2, Strategy::turbo(), &mut rng2).unwrap();
-    optimizer2.tell(&x_fit.view(), &y_fit.view(), &mut rng2).unwrap();
+    let mut optimizer2 = Optimizer::new_with_strategy(
+        array![[0.0, 1.0], [0.0, 1.0]],
+        cfg2,
+        Strategy::turbo(),
+        &mut rng2,
+    )
+    .unwrap();
+    optimizer2
+        .tell(&x_fit.view(), &y_fit.view(), &mut rng2)
+        .unwrap();
 
     let _candidates1 = optimizer.ask(2, &mut rng).unwrap();
     let _candidates2 = optimizer2.ask(2, &mut rng2).unwrap();
@@ -148,7 +150,9 @@ fn test_telemetry_populated_after_operations() {
 
     let x_fit = array![[0.0, 0.0], [1.0, 1.0], [0.5, 0.5]];
     let y_fit = array![[0.0], [1.0], [0.5]];
-    optimizer.tell(&x_fit.view(), &y_fit.view(), &mut rng).unwrap();
+    optimizer
+        .tell(&x_fit.view(), &y_fit.view(), &mut rng)
+        .unwrap();
 
     let tel1 = optimizer.telemetry();
     assert!(
@@ -173,19 +177,31 @@ fn turbo_strategy_state_default_and_tell_common_paths() {
 
     let bounds = array![[0.0, 1.0], [0.0, 1.0]];
     let mut rng = StdRng::seed_from_u64(200);
-    let mut opt_no_sur =
-        Optimizer::new_with_strategy(bounds.clone(), turbo_zero_config(), Strategy::turbo(), &mut rng)
-            .unwrap();
+    let mut opt_no_sur = Optimizer::new_with_strategy(
+        bounds.clone(),
+        turbo_zero_config(),
+        Strategy::turbo(),
+        &mut rng,
+    )
+    .unwrap();
     let x = array![[0.2, 0.3]];
     let y = array![[0.1]];
     tell_common(&mut opt_no_sur, &x.view(), &y.view(), None, &mut rng).unwrap();
 
     let mut opt_enn =
-        Optimizer::new_with_strategy(bounds, turbo_enn_config(), Strategy::turbo(), &mut rng).unwrap();
+        Optimizer::new_with_strategy(bounds, turbo_enn_config(), Strategy::turbo(), &mut rng)
+            .unwrap();
     let x2 = array![[0.0, 0.0], [1.0, 1.0]];
     let y2 = array![[0.0], [1.0]];
     let mut tel = Telemetry::default();
-    tell_common(&mut opt_enn, &x2.view(), &y2.view(), Some(&mut tel), &mut rng).unwrap();
+    tell_common(
+        &mut opt_enn,
+        &x2.view(),
+        &y2.view(),
+        Some(&mut tel),
+        &mut rng,
+    )
+    .unwrap();
     assert!(tel.dt_fit > 0.0);
 }
 
@@ -225,7 +241,8 @@ fn select_with_functions_direct_smoke() {
     assert_eq!(out_r.nrows(), 2);
 
     let mut opt =
-        Optimizer::new_with_strategy(bounds, turbo_enn_config(), Strategy::turbo(), &mut rng).unwrap();
+        Optimizer::new_with_strategy(bounds, turbo_enn_config(), Strategy::turbo(), &mut rng)
+            .unwrap();
     let xf = array![[0.0, 0.0], [1.0, 1.0], [0.2, 0.8]];
     let yf = array![[0.0], [1.0], [0.5]];
     opt.tell(&xf.view(), &yf.view(), &mut rng).unwrap();

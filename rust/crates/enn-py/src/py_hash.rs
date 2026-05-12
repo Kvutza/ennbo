@@ -25,9 +25,8 @@ pub fn normal_hash_batch_multi_seed_fast_py<'py>(
     output_shape.push(num_metrics.max(0) as usize);
 
     // Release GIL for computation
-    let result = py.allow_threads(|| {
-        ennbo::normal_hash_batch_multi_seed_fast(&seeds, &indices, num_metrics)
-    });
+    let result = py
+        .allow_threads(|| ennbo::normal_hash_batch_multi_seed_fast(&seeds, &indices, num_metrics));
 
     match result {
         Ok(arr) => {

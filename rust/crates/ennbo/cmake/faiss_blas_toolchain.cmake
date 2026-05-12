@@ -1,5 +1,5 @@
-# Used as CMAKE_TOOLCHAIN_FILE (set in the environment for `ennbo` `--features modal`) so Faiss's
-# `find_package(BLAS)` succeeds when building static `faiss-sys` on Linux.
+# Used as CMAKE_TOOLCHAIN_FILE so Faiss's `find_package(BLAS)` succeeds when
+# building static `faiss-sys` on Linux.
 cmake_minimum_required(VERSION 3.16)
 
 set(_enn_blas "")

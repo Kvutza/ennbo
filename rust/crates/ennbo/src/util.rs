@@ -79,16 +79,10 @@ pub fn pareto_front_2d_maximize(
     };
 
     // Create sortable pairs (a, b) with original index
-    let mut pairs: Vec<(usize, f64, f64)> = indices
-        .iter()
-        .map(|&i| (i, a[i], b[i]))
-        .collect();
+    let mut pairs: Vec<(usize, f64, f64)> = indices.iter().map(|&i| (i, a[i], b[i])).collect();
 
     // Sort by a descending (for maximization), then by b descending
-    pairs.sort_by(|x, y| {
-        y.1.total_cmp(&x.1)
-            .then_with(|| y.2.total_cmp(&x.2))
-    });
+    pairs.sort_by(|x, y| y.1.total_cmp(&x.1).then_with(|| y.2.total_cmp(&x.2)));
 
     // Walk frontier: keep points with b better than or equal to any seen so far
     // This matches Python behavior which keeps ties when both a and b are equal
@@ -161,7 +155,8 @@ pub fn calculate_sobol_indices(x: &ArrayView2<f64>, y: &ArrayView1<f64>) -> Arra
         let x_dim = x.column(dim);
 
         // Rank values
-        let mut indexed: Vec<(usize, f64)> = x_dim.iter().enumerate().map(|(i, &v)| (i, v)).collect();
+        let mut indexed: Vec<(usize, f64)> =
+            x_dim.iter().enumerate().map(|(i, &v)| (i, v)).collect();
         indexed.sort_by(|a, b| a.1.total_cmp(&b.1));
 
         // Assign bins based on rank
@@ -235,8 +230,7 @@ pub fn arms_from_pareto_fronts(
 
         let mut front_sorted = front;
         front_sorted.sort_by(|&a, &b| mu[b].total_cmp(&mu[a]));
-        let in_front: std::collections::HashSet<usize> =
-            front_sorted.iter().copied().collect();
+        let in_front: std::collections::HashSet<usize> = front_sorted.iter().copied().collect();
 
         if i_keep.len() + front_sorted.len() <= num_arms {
             i_keep.extend(&front_sorted);
@@ -262,7 +256,9 @@ fn deterministic_choice(indices: &[usize], k: usize, seed: u64) -> Vec<usize> {
     let mut pool = indices.to_vec();
     let mut selected = Vec::with_capacity(k);
     for _ in 0..k {
-        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         let idx = (state as usize) % pool.len();
         selected.push(pool.remove(idx));
     }
@@ -361,7 +357,14 @@ mod tests {
 
     #[test]
     fn test_arms_from_pareto_front_overflow() {
-        let x_cand = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.5, 0.5], [0.2, 0.8]];
+        let x_cand = array![
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 1.0],
+            [0.5, 0.5],
+            [0.2, 0.8]
+        ];
         let mu = array![5.0, 4.0, 3.0, 2.0, 1.0, 0.0];
         let se = array![0.10, 0.20, 0.15, 0.40, 0.05, 0.50];
 

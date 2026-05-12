@@ -124,7 +124,9 @@ impl ENNSurrogate {
                 } else {
                     let p = in_yv.slice(s![..n_old, ..]);
                     p.shape() == m_yv.shape()
-                        && p.iter().zip(m_yv.iter()).all(|(a, b)| (a - b).abs() < 1e-12)
+                        && p.iter()
+                            .zip(m_yv.iter())
+                            .all(|(a, b)| (a - b).abs() < 1e-12)
                 }
             }
         };
@@ -208,9 +210,13 @@ impl Surrogate for ENNSurrogate {
         let posterior = model.posterior(x, params, &Default::default())?;
 
         // Convert from dynamic dimension to fixed 2D
-        let mu = posterior.mu.into_dimensionality::<ndarray::Ix2>()
+        let mu = posterior
+            .mu
+            .into_dimensionality::<ndarray::Ix2>()
             .map_err(|e| ENNError::InvalidParameter(format!("Shape error: {}", e)))?;
-        let se = posterior.se.into_dimensionality::<ndarray::Ix2>()
+        let se = posterior
+            .se
+            .into_dimensionality::<ndarray::Ix2>()
             .map_err(|e| ENNError::InvalidParameter(format!("Shape error: {}", e)))?;
 
         Ok(SurrogatePrediction { mu, se })
@@ -237,7 +243,8 @@ impl Surrogate for ENNSurrogate {
         let base_seed = u64::from_le_bytes(seed_bytes) as i64;
         let function_seeds: Vec<i64> = (0..num_samples as i64).map(|i| base_seed + i).collect();
 
-        let (draws, _) = model.posterior_function_draw(x, params, &function_seeds, &Default::default())?;
+        let (draws, _) =
+            model.posterior_function_draw(x, params, &function_seeds, &Default::default())?;
 
         Ok(draws)
     }
@@ -252,7 +259,8 @@ impl Surrogate for ENNSurrogate {
 
         if y_obs.ncols() > 1 {
             let num_top = k.min(n);
-            let mut union_indices: std::collections::HashSet<usize> = std::collections::HashSet::new();
+            let mut union_indices: std::collections::HashSet<usize> =
+                std::collections::HashSet::new();
 
             for m in 0..y_obs.ncols() {
                 let col: Vec<f64> = y_obs.column(m).to_vec();
@@ -287,8 +295,8 @@ impl Surrogate for ENNSurrogate {
 mod tests {
     use super::*;
     use ndarray::array;
-    use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rand::SeedableRng;
 
     #[test]
     fn test_enn_surrogate_fit_predict() {

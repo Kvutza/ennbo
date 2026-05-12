@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "ennbo"
-version = "0.3.6"
+version = "0.3.5"
 description = "Epistemic Nearest Neighbors"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -55,13 +55,7 @@ python-source = "src"
 module-name = "enn.enn_rust"
 profile = "release"
 auditwheel = "skip"
-# Faiss linkage is not set here — see Makefile.
-# - `make` / `make install` on Linux: static (bundled) so builds work without libfaiss_c.
-# - `make all-dynamic` / `install-dynamic`: dynamic (needs linkable libfaiss_c).
-# - Plain `maturin build` / `develop` (no --features): dynamic.
-# - From sdist without system Faiss: pip install . --config-settings='build-args=--features static-faiss'
-# - Linux PyPI: `make pypi-publish` (static on Linux).
-# (`modal` on `ennbo-py` is an alias for the same `ennbo/modal` linkage as `static-faiss`.)
+# Faiss is always built and linked statically by the Rust crate configuration.
 # `.cargo/` is outside the Rust workspace; include it for any workspace-level Cargo config.
 include = [
     { path = ".cargo/**/*", format = "sdist" },
