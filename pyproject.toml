@@ -55,10 +55,11 @@ python-source = "src"
 module-name = "enn.enn_rust"
 profile = "release"
 auditwheel = "skip"
-# Faiss: default is dynamic `libfaiss_c`. For static Faiss (sdist / Linux wheels without system Faiss):
-#   pip install ennbo --config-settings='build-args=--features static-faiss'
-#   maturin build --release --features static-faiss
-# (`modal` on `ennbo-py` remains an alias for the same `ennbo/modal` feature.)
+# Default maturin/Cargo build: dynamic `libfaiss_c` (needs headers/libs on the build host).
+# Static Faiss (bundled, no system libfaiss_c):
+#   pip install . --config-settings='build-args=--features static-faiss'
+# Linux PyPI wheels: use `make pypi-publish` / `make pypi-build` (passes --features static-faiss on Linux only).
+# (`modal` on `ennbo-py` is an alias for the same `ennbo/modal` linkage as `static-faiss`.)
 # `.cargo/` is outside the Rust workspace; include it for any workspace-level Cargo config.
 include = [
     { path = ".cargo/**/*", format = "sdist" },

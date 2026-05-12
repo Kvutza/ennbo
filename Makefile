@@ -1,17 +1,16 @@
 .PHONY: all clean test install rust-test python-test lint pypi-build pypi-publish pypi-auth-check
 
-# Linux: default Cargo build is dynamic Faiss; Make passes `--features static-faiss` so
-# `make install` / `pypi-build` match portable Linux wheels (static Faiss). macOS: empty.
-MATURIN_FAISS_FLAGS := $(shell test "$$(uname -s)" = Linux && echo --features static-faiss)
+# Linux PyPI / minimal images: static Faiss (no system libfaiss_c). Local `make all` / `install` stay dynamic.
+MATURIN_STATIC_FAISS := $(shell test "$$(uname -s)" = Linux && echo --features static-faiss)
 
-# Default target: build the Rust extension in release mode
+# Default target: build the Rust extension in release mode (dynamic Faiss when libfaiss_c is available)
 all:
-	maturin build --release $(MATURIN_FAISS_FLAGS)
+	maturin build --release
 
 # Install both the Rust extension and Python package
 install:
 	@echo "Building and installing Rust extension (see pyproject [tool.maturin])..."
-	maturin develop --release $(MATURIN_FAISS_FLAGS)
+	maturin develop --release
 	@echo "Installing Python package (ennbo)..."
 	pip install -e .
 	@echo "Installation complete!"
@@ -34,16 +33,17 @@ lint:
 	kiss check
 
 # --- PyPI (ennbo): token in MATURIN_PYPI_TOKEN, or credentials in ~/.pypirc ---
+# On Linux, static Faiss is required for typical publish hosts without libfaiss_c.
 pypi-build:
-	maturin build --release $(MATURIN_FAISS_FLAGS)
+	maturin build --release $(MATURIN_STATIC_FAISS)
 
 # Note: `maturin publish` builds again before upload (same as a clean "build then publish").
 pypi-publish:
-	maturin publish --non-interactive $(MATURIN_FAISS_FLAGS)
+	maturin publish --non-interactive $(MATURIN_STATIC_FAISS)
 
 # Hits PyPI with your credentials but skips files already on the index (good auth smoke test).
 pypi-auth-check: pypi-build
-	maturin publish --non-interactive --skip-existing $(MATURIN_FAISS_FLAGS)
+	maturin publish --non-interactive --skip-existing $(MATURIN_STATIC_FAISS)
 
 # Clean build artifacts
 clean:
