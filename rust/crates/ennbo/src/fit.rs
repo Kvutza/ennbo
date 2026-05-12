@@ -312,16 +312,10 @@ pub fn enn_fit<R: Rng>(
 mod tests {
     use super::*;
     use crate::index::IndexDriver;
+    use crate::test_helpers::test_epistemic_model_exact_unit_square as create_test_model;
     use ndarray::array;
     use rand::rngs::StdRng;
     use rand::SeedableRng;
-
-    fn create_test_model() -> EpistemicNearestNeighbors {
-        let train_x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.5, 0.5]];
-        let train_y = array![[0.0], [1.0], [1.0], [2.0], [1.0]];
-
-        EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap()
-    }
 
     #[test]
     fn test_subsample_loglik_basic() {

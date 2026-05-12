@@ -26,6 +26,9 @@ pub mod traits;
 pub mod trust_region;
 pub mod util;
 
+#[cfg(test)]
+pub(crate) mod test_helpers;
+
 pub use acquisition::{
     AcquisitionError, ParetoAcquisition, RandomAcquisition, ThompsonAcquisition, UCBAcquisition,
 };

@@ -474,15 +474,9 @@ mod tests {
     use super::*;
     use crate::index::IndexDriver;
     use crate::model::EpistemicNearestNeighbors;
+    use crate::test_helpers::test_epistemic_model_exact_unit_square as create_test_model;
     use ndarray::array;
     use ndarray::ArrayView2;
-
-    fn create_test_model() -> EpistemicNearestNeighbors {
-        let train_x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
-        let train_y = array![[0.0], [1.0], [1.0], [2.0]];
-
-        EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap()
-    }
 
     fn assert_batch_neighbor_fill<F>(
         model: &EpistemicNearestNeighbors,
