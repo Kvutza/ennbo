@@ -1,8 +1,8 @@
 .PHONY: all clean test install rust-test python-test lint pypi-build pypi-publish pypi-auth-check
 
-# Linux: default `enn-py` features omit `modal` so `maturin build` works on macOS without a
-# static Faiss/OpenMP toolchain; Make passes `--features modal` here to keep static Faiss.
-MATURIN_FAISS_FLAGS := $(shell test "$$(uname -s)" = Linux && echo --features modal)
+# Linux: default Cargo build is dynamic Faiss; Make passes `--features static-faiss` so
+# `make install` / `pypi-build` match portable Linux wheels (static Faiss). macOS: empty.
+MATURIN_FAISS_FLAGS := $(shell test "$$(uname -s)" = Linux && echo --features static-faiss)
 
 # Default target: build the Rust extension in release mode
 all:
@@ -39,11 +39,11 @@ pypi-build:
 
 # Note: `maturin publish` builds again before upload (same as a clean "build then publish").
 pypi-publish:
-	maturin publish --non-interactive
+	maturin publish --non-interactive $(MATURIN_FAISS_FLAGS)
 
 # Hits PyPI with your credentials but skips files already on the index (good auth smoke test).
 pypi-auth-check: pypi-build
-	maturin publish --non-interactive --skip-existing
+	maturin publish --non-interactive --skip-existing $(MATURIN_FAISS_FLAGS)
 
 # Clean build artifacts
 clean:

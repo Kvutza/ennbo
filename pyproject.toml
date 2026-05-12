@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "ennbo"
-version = "0.3.5"
+version = "0.3.6"
 description = "Epistemic Nearest Neighbors"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -55,9 +55,10 @@ python-source = "src"
 module-name = "enn.enn_rust"
 profile = "release"
 auditwheel = "skip"
-# On Linux, `enn-py` enables `ennbo` feature `modal` via target-specific Cargo deps (static Faiss).
-# On macOS, bare `maturin build` still links a system `libfaiss_c` when found (Homebrew/conda).
-# `maturin build --features modal` remains available to force static Faiss on any platform.
+# Faiss: default is dynamic `libfaiss_c`. For static Faiss (sdist / Linux wheels without system Faiss):
+#   pip install ennbo --config-settings='build-args=--features static-faiss'
+#   maturin build --release --features static-faiss
+# (`modal` on `ennbo-py` remains an alias for the same `ennbo/modal` feature.)
 # `.cargo/` is outside the Rust workspace; include it for any workspace-level Cargo config.
 include = [
     { path = ".cargo/**/*", format = "sdist" },
