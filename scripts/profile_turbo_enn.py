@@ -13,7 +13,6 @@ from enn.turbo.config.acq_type import AcqType
 from enn.turbo.config.candidate_gen_config import CandidateGenConfig
 from enn.turbo.config.enn_surrogate_config import ENNFitConfig, ENNSurrogateConfig
 from enn.turbo.config.factory import turbo_enn_config
-from enn.turbo.config.num_candidates_fn import const_num_candidates
 from enn.turbo.config.trust_region import TurboTRConfig
 
 
@@ -35,16 +34,15 @@ def _make_bounds(num_dim: int) -> np.ndarray:
 def _make_optimizer(cfg: ProfileConfig) -> object:
     rng = np.random.default_rng(cfg.seed)
     bounds = _make_bounds(cfg.num_dim)
-    # k=None routes to Python optimizer (profile script uses _x_obs, _surrogate, _find_x_center)
     enn_cfg = ENNSurrogateConfig(
-        k=None,
+        k=10,
         fit=ENNFitConfig(
             num_fit_samples=cfg.num_fit_samples,
             num_fit_candidates=cfg.num_fit_candidates,
         ),
     )
     candidates = (
-        CandidateGenConfig(num_candidates=const_num_candidates(cfg.num_candidates))
+        CandidateGenConfig(num_candidates=cfg.num_candidates)
         if cfg.num_candidates is not None
         else None
     )
@@ -86,6 +84,9 @@ def _time_ask(opt: object, num_arms: int, repeats: int = 3) -> float:
 
 
 def _time_find_center(opt: object, rng: np.random.Generator) -> float:
+    if not hasattr(opt, "_surrogate"):
+        _ = opt.ask(num_arms=1)
+        return 0.0
     x_obs = opt._x_obs.view()
     y_obs = opt._y_obs.view()
     _ = opt._surrogate.fit(x_obs, y_obs, None, num_steps=0, rng=rng)
@@ -95,6 +96,10 @@ def _time_find_center(opt: object, rng: np.random.Generator) -> float:
 
 
 def _time_fit(opt: object, rng: np.random.Generator) -> float:
+    if not hasattr(opt, "_surrogate"):
+        t0 = time.perf_counter()
+        _ = opt.ask(num_arms=1)
+        return time.perf_counter() - t0
     x_obs = opt._x_obs.view()
     y_obs = opt._y_obs.view()
     t0 = time.perf_counter()

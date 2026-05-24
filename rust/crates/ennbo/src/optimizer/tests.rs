@@ -1,4 +1,5 @@
-use super::{ObservationStore, Optimizer, Telemetry};
+use super::observation_store::ObservationStore;
+use super::{Optimizer, Telemetry};
 use crate::config::{lhd_only_config, turbo_zero_config, ConfigOverrides};
 use crate::error::ENNError;
 use crate::optimizer_factory::{
@@ -33,6 +34,20 @@ fn test_optimizer_ask() {
 }
 
 #[test]
+fn test_add_observations_returns_delta() {
+    let bounds = array![[0.0, 1.0], [0.0, 1.0]];
+    let mut rng = StdRng::seed_from_u64(42);
+    let mut optimizer = Optimizer::new(bounds, turbo_zero_config(), &mut rng).unwrap();
+    let x = array![[0.1, 0.2]];
+    let y = array![[1.0]];
+    let delta = optimizer.add_observations(&x.view(), &y.view()).unwrap();
+    assert_eq!(delta.old_n, 0);
+    assert_eq!(delta.new_n, 1);
+    assert_eq!(delta.x_new_view().nrows(), 1);
+    assert_eq!(delta.y_new_view().nrows(), 1);
+}
+
+#[test]
 fn test_add_observations() {
     let bounds = array![[0.0, 1.0], [0.0, 1.0]];
     let mut rng = StdRng::seed_from_u64(42);
@@ -62,25 +77,6 @@ fn test_add_observations_mismatched_rows_returns_error() {
         .add_observations(&x.view(), &y.view())
         .expect_err("expected InvalidShape for mismatched row counts");
     assert!(matches!(err, ENNError::InvalidShape { .. }));
-}
-
-#[test]
-fn test_trailing_obs_trim() {
-    let bounds = array![[0.0, 1.0], [0.0, 1.0]];
-    let mut config = turbo_zero_config();
-    config.trailing_obs = Some(10);
-    let mut rng = StdRng::seed_from_u64(99);
-
-    let mut optimizer = Optimizer::new(bounds, config, &mut rng).unwrap();
-
-    for _ in 0..25 {
-        let x = optimizer.ask(1, &mut rng).unwrap();
-        let y = array![[x[[0, 0]] + x[[0, 1]]]];
-        optimizer.tell(&x.view(), &y.view(), &mut rng).unwrap();
-    }
-
-    let n = optimizer.x_obs().unwrap().nrows();
-    assert!(n <= 10, "trailing_obs=10 should trim to <=10, got {n}");
 }
 
 #[test]
@@ -134,27 +130,6 @@ fn test_create_optimizer_factories_and_telemetry_defaults() {
 }
 
 #[test]
-fn test_create_optimizer_with_overrides() {
-    let bounds = array![[0.0, 1.0], [0.0, 1.0]];
-    let mut rng = StdRng::seed_from_u64(7);
-
-    let overrides = ConfigOverrides {
-        trailing_obs: Some(8),
-        ..Default::default()
-    };
-
-    let mut opt =
-        create_optimizer_zero_with_overrides(bounds, 4, &mut rng, Some(&overrides)).unwrap();
-    for _ in 0..15 {
-        let x = opt.ask(1, &mut rng).unwrap();
-        let y = array![[0.0]];
-        opt.tell(&x.view(), &y.view(), &mut rng).unwrap();
-    }
-    let n = opt.x_obs().unwrap().nrows();
-    assert!(n <= 8);
-}
-
-#[test]
 fn observation_store_cache_and_edges() {
     let mut store = ObservationStore::new();
     assert!(store.is_empty());
@@ -180,7 +155,7 @@ fn observation_store_cache_and_edges() {
 
     assert_eq!(store.x_at(0), &x1);
     assert_eq!(store.y_at(0), &y1);
-    let idxs: Vec<usize> = store.iter_indices().collect();
+    let idxs: Vec<usize> = (0..store.len()).collect();
     assert_eq!(idxs, vec![0]);
 
     let x2 = array![0.0, 0.0, 0.0];
@@ -193,4 +168,28 @@ fn observation_store_cache_and_edges() {
     store.replace(vec![array![1.0]], vec![array![2.0]]);
     assert_eq!(store.len(), 1);
     assert!(store.x_obs_array().unwrap()[[0, 0]] - 1.0 < 1e-12);
+}
+
+#[test]
+fn test_noise_aware_config_and_incumbent_after_tell() {
+    let bounds = array![[0.0, 1.0], [0.0, 1.0]];
+    let mut rng = StdRng::seed_from_u64(55);
+    let overrides = ConfigOverrides {
+        noise_aware: Some(true),
+        ..Default::default()
+    };
+    let mut opt =
+        create_optimizer_enn_with_overrides(bounds, 3, 0, &mut rng, Some(&overrides)).unwrap();
+    assert!(opt.config().noise_aware);
+
+    let x = array![
+        [0.2, 0.3],
+        [0.4, 0.5],
+        [0.6, 0.7],
+        [0.8, 0.9],
+    ];
+    let y = array![[0.0], [1.0], [2.0], [0.5]];
+    opt.tell(&x.view(), &y.view(), &mut rng).unwrap();
+    assert!(opt.incumbent_x_unit().is_some());
+    assert_eq!(opt.incumbent_tracker.observation_count(), 4);
 }

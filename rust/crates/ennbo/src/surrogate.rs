@@ -5,7 +5,7 @@ use rand::RngCore;
 use rand::SeedableRng;
 
 use crate::error::ENNError;
-use crate::fit::enn_fit;
+use crate::fitter::ENNFitter;
 use crate::index::IndexDriver;
 use crate::model::EpistemicNearestNeighbors;
 use crate::params::ENNParams;
@@ -26,6 +26,19 @@ pub trait Surrogate: Send + Sync {
         rng: &mut dyn RngCore,
     ) -> Result<(), ENNError>;
 
+    fn fit_append(
+        &mut self,
+        x_new: &ArrayView2<f64>,
+        y_new: &ArrayView2<f64>,
+        yvar_new: Option<&ArrayView2<f64>>,
+        rng: &mut dyn RngCore,
+    ) -> Result<(), ENNError> {
+        let _ = (x_new, y_new, yvar_new, rng);
+        Err(ENNError::InvalidParameter(
+            "fit_append not supported for this surrogate".to_string(),
+        ))
+    }
+
     fn predict(&self, x: &ArrayView2<f64>) -> Result<SurrogatePrediction, ENNError>;
 
     fn sample(
@@ -37,7 +50,9 @@ pub trait Surrogate: Send + Sync {
 
     fn lengthscales(&self) -> Option<Array1<f64>>;
 
-    fn get_incumbent_indices(&self, y_obs: &ArrayView2<f64>) -> Vec<usize>;
+    fn fitted_num_metrics(&self) -> Option<usize> {
+        None
+    }
 }
 
 pub type BoxedSurrogate = Box<dyn Surrogate + Send + Sync>;
@@ -69,6 +84,7 @@ pub struct ENNSurrogate {
     config: ENNSurrogateConfig,
     model: Option<EpistemicNearestNeighbors>,
     params: Option<ENNParams>,
+    fitter: Option<ENNFitter>,
 }
 
 impl ENNSurrogate {
@@ -77,6 +93,7 @@ impl ENNSurrogate {
             config,
             model: None,
             params: None,
+            fitter: None,
         }
     }
 
@@ -108,11 +125,11 @@ impl ENNSurrogate {
         let prefix_y = y.slice(s![..n_old, ..]);
         let same_prefix = prefix_x
             .iter()
-            .zip(model.train_x.iter())
+            .zip(model.train_x().iter())
             .all(|(a, b)| (a - b).abs() < 1e-12)
             && prefix_y
                 .iter()
-                .zip(model.train_y.iter())
+                .zip(model.train_y().iter())
                 .all(|(a, b)| (a - b).abs() < 1e-12);
 
         let same_yvar_prefix = match (model.train_yvar(), yvar) {
@@ -140,23 +157,82 @@ impl ENNSurrogate {
         let yvar_add = yvar.map(|v| v.slice(s![n_old.., ..]));
 
         model.add(&x_add, &y_add, yvar_add.as_ref())?;
-
-        let params = enn_fit(
-            model,
-            self.config.k,
-            self.config.num_fit_candidates,
-            self.config.num_fit_samples,
-            rng,
-            self.params.as_ref(),
-            self.config.infer_aleatoric_variance,
-        )?;
-
-        self.params = Some(params);
+        if let Some(fitter) = self.fitter.as_mut() {
+            fitter.update_y(&y_add);
+        }
+        self.run_fitter(rng)?;
         Ok(true)
+    }
+
+    fn run_fitter(&mut self, rng: &mut rand::rngs::StdRng) -> Result<(), ENNError> {
+        let model = self
+            .model
+            .as_ref()
+            .ok_or_else(|| ENNError::InvalidParameter("Surrogate not fitted".to_string()))?;
+        let num_metrics = model.train_y().ncols();
+        if self.fitter.is_none() {
+            let mut fitter = ENNFitter::new(
+                self.config.k,
+                self.config.num_fit_samples,
+                self.config.infer_aleatoric_variance,
+                num_metrics,
+            );
+            fitter.reset_y_stats(&model.train_y());
+            if let Some(p) = self.params {
+                fitter.set_params(p);
+            }
+            self.fitter = Some(fitter);
+        }
+        let fitter = self.fitter.as_mut().expect("fitter");
+        if let Some(p) = fitter.maybe_fit(model, rng, None)? {
+            self.params = Some(p);
+        }
+        Ok(())
+    }
+
+    fn fit_append_internal(
+        &mut self,
+        x_new: &ArrayView2<f64>,
+        y_new: &ArrayView2<f64>,
+        yvar_new: Option<&ArrayView2<f64>>,
+        rng: &mut rand::rngs::StdRng,
+    ) -> Result<(), ENNError> {
+        if self.model.is_some() {
+            let model = self.model.as_mut().expect("model");
+            model.add(x_new, y_new, yvar_new)?;
+            if let Some(fitter) = self.fitter.as_mut() {
+                fitter.update_y(y_new);
+            }
+            self.run_fitter(rng)?;
+            return Ok(());
+        }
+        let model = EpistemicNearestNeighbors::new(
+            x_new.to_owned(),
+            y_new.to_owned(),
+            yvar_new.map(|v| v.to_owned()),
+            self.config.scale_x,
+            self.config.index_driver,
+        )?;
+        let num_metrics = y_new.ncols();
+        let mut fitter = ENNFitter::new(
+            self.config.k,
+            self.config.num_fit_samples,
+            self.config.infer_aleatoric_variance,
+            num_metrics,
+        );
+        fitter.reset_y_stats(y_new);
+        self.model = Some(model);
+        self.fitter = Some(fitter);
+        self.run_fitter(rng)?;
+        Ok(())
     }
 }
 
 impl Surrogate for ENNSurrogate {
+    fn fitted_num_metrics(&self) -> Option<usize> {
+        self.model.as_ref().map(|m| m.num_metrics())
+    }
+
     fn fit(
         &mut self,
         x: &ArrayView2<f64>,
@@ -181,20 +257,39 @@ impl Surrogate for ENNSurrogate {
             self.config.index_driver,
         )?;
 
-        let params = enn_fit(
-            &model,
+        let num_metrics = y.ncols();
+        let mut fitter = ENNFitter::new(
             self.config.k,
-            self.config.num_fit_candidates,
             self.config.num_fit_samples,
-            &mut local_rng,
-            self.params.as_ref(),
             self.config.infer_aleatoric_variance,
-        )?;
-
+            num_metrics,
+        );
+        fitter.reset_y_stats(&model.train_y());
+        if let Some(p) = self.params {
+            fitter.set_params(p);
+        }
+        if let Some(p) = fitter.maybe_fit(&model, &mut local_rng, Some(1.0))? {
+            self.params = Some(p);
+        } else if let Some(p) = fitter.params() {
+            self.params = Some(*p);
+        }
         self.model = Some(model);
-        self.params = Some(params);
+        self.fitter = Some(fitter);
 
         Ok(())
+    }
+
+    fn fit_append(
+        &mut self,
+        x_new: &ArrayView2<f64>,
+        y_new: &ArrayView2<f64>,
+        yvar_new: Option<&ArrayView2<f64>>,
+        rng: &mut dyn RngCore,
+    ) -> Result<(), ENNError> {
+        let mut seed_bytes = [0u8; 32];
+        rng.fill_bytes(&mut seed_bytes);
+        let mut local_rng = rand::rngs::StdRng::from_seed(seed_bytes);
+        self.fit_append_internal(x_new, y_new, yvar_new, &mut local_rng)
     }
 
     fn predict(&self, x: &ArrayView2<f64>) -> Result<SurrogatePrediction, ENNError> {
@@ -251,43 +346,6 @@ impl Surrogate for ENNSurrogate {
 
     fn lengthscales(&self) -> Option<Array1<f64>> {
         None
-    }
-
-    fn get_incumbent_indices(&self, y_obs: &ArrayView2<f64>) -> Vec<usize> {
-        let k = self.config.k as usize;
-        let n = y_obs.nrows();
-
-        if y_obs.ncols() > 1 {
-            let num_top = k.min(n);
-            let mut union_indices: std::collections::HashSet<usize> =
-                std::collections::HashSet::new();
-
-            for m in 0..y_obs.ncols() {
-                let col: Vec<f64> = y_obs.column(m).to_vec();
-                let mut indexed: Vec<(usize, f64)> = col.into_iter().enumerate().collect();
-                indexed.sort_by(|a, b| b.1.total_cmp(&a.1));
-
-                for item in indexed.iter().take(num_top) {
-                    union_indices.insert(item.0);
-                }
-            }
-
-            let mut result: Vec<usize> = union_indices.into_iter().collect();
-            result.sort();
-            result
-        } else {
-            let y_flat: Vec<f64> = if y_obs.ndim() == 2 {
-                y_obs.column(0).to_vec()
-            } else {
-                y_obs.iter().copied().collect()
-            };
-
-            let num_top = k.min(y_flat.len());
-            let mut indexed: Vec<(usize, f64)> = y_flat.into_iter().enumerate().collect();
-            indexed.sort_by(|a, b| b.1.total_cmp(&a.1));
-
-            indexed.iter().take(num_top).map(|(i, _)| *i).collect()
-        }
     }
 }
 
@@ -363,39 +421,6 @@ mod tests {
             (v_inc - v_full).abs() < 1e-9,
             "train_yvar row0 incremental={v_inc} full_refit={v_full} (prefix yvar must refresh)"
         );
-    }
-
-    #[test]
-    fn test_get_incumbent_indices_single() {
-        let config = ENNSurrogateConfig {
-            k: 2,
-            ..Default::default()
-        };
-        let surrogate = ENNSurrogate::new(config);
-
-        let y = array![[0.0], [3.0], [1.0], [2.0]];
-        let indices = surrogate.get_incumbent_indices(&y.view());
-
-        // Should return top 2 indices by value
-        assert_eq!(indices.len(), 2);
-        assert!(indices.contains(&1)); // 3.0
-    }
-
-    #[test]
-    fn test_get_incumbent_indices_multi() {
-        let config = ENNSurrogateConfig {
-            k: 3,
-            ..Default::default()
-        };
-        let surrogate = ENNSurrogate::new(config);
-
-        // Multi-objective
-        let y = array![[0.0, 3.0], [3.0, 0.0], [1.0, 1.0], [2.0, 2.0]];
-        let indices = surrogate.get_incumbent_indices(&y.view());
-
-        // Should return union of top-k per objective
-        assert!(indices.len() >= 2);
-        assert!(indices.contains(&0) || indices.contains(&1)); // top of each objective
     }
 
     #[test]

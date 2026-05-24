@@ -29,6 +29,16 @@ fn pairwise_sq_l2(
     d2.mapv(|v| v.max(0.0))
 }
 
+fn index_search(
+    model: &EpistemicNearestNeighbors,
+    x: &ArrayView2<f64>,
+    search_k: i32,
+    exclude_nearest: bool,
+) -> Result<(Array2<f64>, Array2<i64>), ENNError> {
+    model.ensure_index_sync()?;
+    Ok(model.index().search(x, search_k, exclude_nearest)?)
+}
+
 pub(crate) fn get_neighbor_data(
     model: &EpistemicNearestNeighbors,
     x: &ArrayView2<f64>,
@@ -51,7 +61,7 @@ pub(crate) fn get_neighbor_data(
         return Ok(None);
     }
 
-    let (dist2s_full, idx_full) = model.index().search(x, search_k as i32, exclude_nearest)?;
+    let (dist2s_full, idx_full) = index_search(model, x, search_k as i32, exclude_nearest)?;
 
     let available_k = if exclude_nearest {
         search_k.saturating_sub(1)
@@ -121,7 +131,7 @@ pub(crate) fn get_conditional_neighbor_data(
 
     let train_search_k = search_k.min(n_train);
     let (dist2_train, idx_train) = if train_search_k > 0 {
-        model.index().search(x, train_search_k as i32, false)?
+        index_search(model, x, train_search_k as i32, false)?
     } else {
         (
             Array2::zeros((batch_size, 0)),
@@ -220,6 +230,24 @@ mod pairwise_tests {
     use ndarray::{array, Array2};
 
     #[test]
+    fn index_search_returns_neighbors() {
+        use super::index_search;
+        use crate::index::IndexDriver;
+        use crate::model::EpistemicNearestNeighbors;
+        use ndarray::array;
+
+        let train_x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
+        let train_y = array![[0.0], [1.0], [1.0]];
+        let model =
+            EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact)
+                .unwrap();
+        let query = array![[0.0, 0.0]];
+        let (dist2s, idx) = index_search(&model, &query.view(), 2, false).unwrap();
+        assert_eq!(idx[[0, 0]], 0);
+        assert!(dist2s[[0, 0]] < 1e-6);
+    }
+
+    #[test]
     fn pairwise_sq_l2_scaled_and_unscaled() {
         let x = array![[0.0, 0.0], [1.0, 0.0]];
         let y = array![[0.0, 1.0], [1.0, 1.0]];
@@ -250,5 +278,16 @@ mod pairwise_tests {
         let scale = array![1.0, 1.0];
         let d = pairwise_sq_l2(&x.view(), &y.view(), false, &scale.view());
         assert_eq!(d[[0, 0]], 5.0);
+    }
+
+    #[test]
+    fn pairwise_sq_l2_scaled_differs_from_unscaled() {
+        let x = array![[0.0, 0.0]];
+        let y = array![[2.0, 0.0]];
+        let scale = array![2.0, 1.0];
+        let d0 = pairwise_sq_l2(&x.view(), &y.view(), false, &scale.view());
+        let d1 = pairwise_sq_l2(&x.view(), &y.view(), true, &scale.view());
+        assert!((d0[[0, 0]] - 4.0).abs() < 1e-12);
+        assert!((d1[[0, 0]] - 1.0).abs() < 1e-12);
     }
 }

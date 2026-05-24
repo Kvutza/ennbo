@@ -16,7 +16,7 @@ def _morbo_tr_config():
 
 
 def _morbo_trust_region():
-    from enn.turbo.morbo_trust_region import MorboTrustRegion
+    from enn.turbo.python_fallback.morbo_trust_region import MorboTrustRegion
 
     cfg = _morbo_tr_config()
     return MorboTrustRegion(config=cfg, num_dim=3, rng=np.random.default_rng(42))
@@ -24,7 +24,7 @@ def _morbo_trust_region():
 
 def _turbo_trust_region():
     from enn.turbo.config import TurboTRConfig
-    from enn.turbo.turbo_trust_region import TurboTrustRegion
+    from enn.turbo.python_fallback.turbo_trust_region import TurboTrustRegion
 
     tr = TurboTrustRegion(config=TurboTRConfig(), num_dim=5)
     tr.validate_request(4)
@@ -40,8 +40,8 @@ def _enn_model():
 
 
 def _optimizer():
+    from enn import create_optimizer
     from enn.turbo.config import turbo_zero_config
-    from enn.turbo.optimizer import create_optimizer
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]])
     return create_optimizer(
@@ -100,11 +100,11 @@ def test_enn_surrogate_config_properties():
     assert cfg.num_fit_candidates == 30
 
 
-def test_observation_history_config_trailing_obs():
+def test_observation_history_config_empty():
     from enn.turbo.config.observation_history_config import ObservationHistoryConfig
 
-    cfg = ObservationHistoryConfig(trailing_obs=100)
-    assert cfg.trailing_obs == 100
+    cfg = ObservationHistoryConfig()
+    assert cfg == ObservationHistoryConfig()
 
 
 def test_trust_region_config_protocol():
@@ -137,10 +137,9 @@ def test_optimizer_config_properties():
     mo = MultiObjectiveConfig(num_metrics=3, alpha=0.05)
     cfg2 = OptimizerConfig(trust_region=MorboTRConfig(multi_objective=mo))
     assert cfg2.num_metrics == 3
-    # candidate_rv / raasp_driver / trailing_obs
+    # candidate_rv / raasp_driver
     assert cfg.candidate_rv is not None
     assert cfg.raasp_driver is not None
-    assert cfg.trailing_obs is None
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +170,7 @@ def test_turbo_trust_region_properties():
 
 def test_no_trust_region_num_metrics():
     from enn.turbo.config import NoTRConfig
-    from enn.turbo.no_trust_region import NoTrustRegion
+    from enn.turbo.python_fallback.no_trust_region import NoTrustRegion
 
     tr = NoTrustRegion(config=NoTRConfig(), num_dim=3)
     assert tr.num_metrics == 1
@@ -183,7 +182,7 @@ def test_no_trust_region_num_metrics():
 
 
 def test_surrogate_protocol_properties():
-    from enn.turbo.components.protocols import Surrogate
+    from enn.turbo.python_fallback.components.protocols import Surrogate
 
     # lengthscales / find_x_center
     assert hasattr(Surrogate, "lengthscales")
@@ -191,7 +190,7 @@ def test_surrogate_protocol_properties():
 
 
 def test_trust_region_protocol_properties():
-    from enn.turbo.components.protocols import TrustRegion
+    from enn.turbo.python_fallback.components.protocols import TrustRegion
 
     # length / compute_bounds
     assert hasattr(TrustRegion, "length")
@@ -199,34 +198,57 @@ def test_trust_region_protocol_properties():
 
 
 def test_acquisition_optimizer_protocol():
-    from enn.turbo.components.protocols import AcquisitionOptimizer
+    from enn.turbo.python_fallback.components.protocols import AcquisitionOptimizer
 
     assert hasattr(AcquisitionOptimizer, "select")
 
 
 def test_surrogate_lengthscales():
-    from enn.turbo.components.enn_surrogate import ENNSurrogate
-    from enn.turbo.components.gp_surrogate import GPSurrogate
-    from enn.turbo.components.no_surrogate import NoSurrogate
-    from enn.turbo.config import ENNSurrogateConfig
+    from enn.turbo.python_fallback.components.gp_surrogate import GPSurrogate
 
-    # enn_surrogate, gp_surrogate, no_surrogate all expose lengthscales
-    assert ENNSurrogate(ENNSurrogateConfig()).lengthscales is None
     assert GPSurrogate().lengthscales is None
-    assert NoSurrogate().lengthscales is None
 
 
 def test_incumbent_selector_protocol():
-    from enn.turbo.components.incumbent_selector_protocol import IncumbentSelector
+    from enn.turbo.python_fallback.components.incumbent_selector_protocol import (
+        IncumbentSelector,
+    )
 
     assert hasattr(IncumbentSelector, "select")
 
 
 def test_thompson_acq_optimizer_class():
-    from enn.turbo.components.thompson_acq_optimizer import ThompsonAcqOptimizer
+    from enn.turbo.python_fallback.components.thompson_acq_optimizer import (
+        ThompsonAcqOptimizer,
+    )
 
     t = ThompsonAcqOptimizer()
     assert hasattr(t, "select")
+
+
+def test_pareto_and_random_acq_optimizer_select():
+    from enn.turbo.python_fallback.components.pareto_acq_optimizer import (
+        ParetoAcqOptimizer,
+    )
+    from enn.turbo.python_fallback.components.random_acq_optimizer import (
+        RandomAcqOptimizer,
+    )
+
+    rng = np.random.default_rng(0)
+    surrogate = _fit_gp_surrogate_for_kiss(rng)
+    x_cand = np.array([[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]], dtype=float)
+    assert ParetoAcqOptimizer().select(x_cand, 2, surrogate, rng).shape == (2, 2)
+    assert RandomAcqOptimizer().select(x_cand, 2, surrogate, rng).shape == (2, 2)
+
+
+def _fit_gp_surrogate_for_kiss(rng):
+    from enn.turbo.python_fallback.components.gp_surrogate import GPSurrogate
+
+    surrogate = GPSurrogate()
+    x = np.array([[0.2, 0.3], [0.5, 0.5], [0.7, 0.8]], dtype=float)
+    y = np.array([0.5, 0.7, 0.3], dtype=float)
+    surrogate.fit(x, y, None, num_steps=5, rng=rng)
+    return surrogate
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +308,7 @@ def test_optimizer_init_progress():
 
 
 def test_lhd_only_strategy():
-    from enn.turbo.strategies.lhd_only_strategy import LHDOnlyStrategy
+    from enn.turbo.python_fallback.strategies.lhd_only_strategy import LHDOnlyStrategy
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]])
     s = LHDOnlyStrategy.create(bounds=bounds, rng=np.random.default_rng(0))
@@ -295,14 +317,18 @@ def test_lhd_only_strategy():
 
 
 def test_optimization_strategy_protocol():
-    from enn.turbo.strategies.optimization_strategy import OptimizationStrategy
+    from enn.turbo.python_fallback.strategies.optimization_strategy import (
+        OptimizationStrategy,
+    )
 
     assert hasattr(OptimizationStrategy, "ask")
     assert hasattr(OptimizationStrategy, "init_progress")
 
 
 def test_turbo_hybrid_strategy():
-    from enn.turbo.strategies.turbo_hybrid_strategy import TurboHybridStrategy
+    from enn.turbo.python_fallback.strategies.turbo_hybrid_strategy import (
+        TurboHybridStrategy,
+    )
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]])
     s = TurboHybridStrategy.create(
@@ -318,7 +344,7 @@ def test_turbo_hybrid_strategy():
 
 
 def test_build_trust_region():
-    from enn.turbo.components.builder import build_trust_region
+    from enn.turbo.python_fallback.components.builder import build_trust_region
     from enn.turbo.config import NoTRConfig, TurboTRConfig
 
     rng = np.random.default_rng(0)
@@ -329,13 +355,13 @@ def test_build_trust_region():
 
 
 def test_turbo_gp_base():
-    from enn.turbo.turbo_gp_base import TurboGPBase
+    from enn.turbo.python_fallback.turbo_gp_base import TurboGPBase
 
     assert hasattr(TurboGPBase, "forward")
 
 
 def test_scalar_incumbent_mixin():
-    from enn.turbo.turbo_utils import ScalarIncumbentMixin
+    from enn.turbo.python_fallback.turbo_utils import ScalarIncumbentMixin
 
     assert hasattr(ScalarIncumbentMixin, "get_incumbent_index")
 

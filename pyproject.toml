@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "ennbo"
-version = "0.3.6"
+version = "0.3.7"
 description = "Epistemic Nearest Neighbors"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -39,6 +39,7 @@ with-deps = [
 ]
 dev = [
     "pytest>=8.0",
+    "pytest-testmon>=2.0",
     "ruff>=0.4",
     "nbmake>=1.5",
     "nds>=0.4.3",
@@ -63,8 +64,16 @@ include = [
     { path = ".cargo/**/*", format = "sdist" },
     { path = "rust/.cargo/**/*", format = "sdist" },
 ]
+# Agent / malvin working dirs at repo root (also in .gitignore); keep out of sdist/wheels.
+exclude = [
+    "_malvin/**/*",
+    "_kpop/**/*",
+    "malvin_memories/**/*",
+    ".malvin_memories/**/*",
+]
 
 [tool.pytest.ini_options]
+addopts = "--testmon"
 pythonpath = ["src", "."]
 testpaths = ["tests"]
 filterwarnings = [

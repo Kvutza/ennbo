@@ -18,14 +18,14 @@ except ImportError:
 pytestmark = pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust not available")
 
 
-def test_const_num_candidates_falls_back_to_python():
-    """const_num_candidates(n) cannot map to Rust factor model; must use Python backend."""
+def test_const_num_candidates_uses_rust_when_constant():
+    """Fixed num_candidates maps to Rust min=max override."""
     config = turbo_zero_config(num_candidates=500, num_init=4)
-    assert not is_rust_supported_config(config)
+    assert is_rust_supported_config(config)
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(42)
     opt = create_optimizer(bounds=bounds, config=config, rng=rng)
-    assert not isinstance(opt, RustOptimizer)
+    assert isinstance(opt, RustOptimizer)
 
 
 def test_default_num_candidates_uses_rust_when_available():
@@ -36,6 +36,21 @@ def test_default_num_candidates_uses_rust_when_available():
     rng = np.random.default_rng(42)
     opt = create_optimizer(bounds=bounds, config=config, rng=rng)
     assert isinstance(opt, RustOptimizer)
+
+
+def test_default_num_candidates_telemetry_matches_python_resolve():
+    num_arms = 8
+    config = turbo_zero_config(num_init=4)
+    bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
+    opt = create_optimizer(bounds=bounds, config=config, rng=np.random.default_rng(44))
+    assert isinstance(opt, RustOptimizer)
+    expected = config.candidates.resolve_num_candidates(num_dim=2, num_arms=num_arms)
+    while opt.init_progress is not None:
+        x = opt.ask(num_arms=num_arms)
+        y = -np.sum((x - 0.5) ** 2, axis=1).reshape(-1, 1)
+        opt.tell(x, y)
+    opt.ask(num_arms=num_arms)
+    assert opt.telemetry().num_candidates == expected
 
 
 def test_rust_optimizer_tell_raises_on_mismatched_xy_rows():

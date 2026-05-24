@@ -12,6 +12,7 @@ from .rust_optimizer_helpers import (
     _config_to_rust_overrides,
     _is_lhd_only_config,
     is_rust_supported_config,
+    resolve_enn_k,
 )
 from .types.telemetry import Telemetry
 
@@ -89,6 +90,7 @@ class RustOptimizer:
             dt_gen=t.dt_gen,
             dt_sel=t.dt_sel,
             dt_tell=t.dt_tell,
+            num_candidates=int(t.num_candidates),
         )
 
     @property
@@ -145,7 +147,9 @@ def create_optimizer(
 ) -> Any:
     """Create optimizer, using Rust backend when possible."""
     if not is_rust_supported_config(config):
-        from .optimizer import create_optimizer as create_python_optimizer
+        from .python_fallback.optimizer import (
+            create_optimizer as create_python_optimizer,
+        )
 
         return create_python_optimizer(bounds=bounds, config=config, rng=rng)
 
@@ -160,7 +164,7 @@ def create_optimizer(
             bounds_arr, n_init, seed, config_overrides=overrides
         )
     elif isinstance(config.surrogate, ENNSurrogateConfig):
-        k = config.surrogate.k
+        k = resolve_enn_k(config)
         inner = _rust.create_optimizer_enn(
             bounds_arr, k, n_init, seed, config_overrides=overrides
         )

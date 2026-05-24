@@ -1,15 +1,26 @@
 //! Optimizer state machine for ask/tell pattern.
 
+mod incumbent;
+mod observation_delta;
+mod observation_store;
+mod tr_state;
+
+pub use observation_delta::ObservationDelta;
+
 use ndarray::{Array1, Array2, ArrayView2};
 use rand::RngCore;
-use std::cell::RefCell;
 
 use crate::candidates::SobolEngine;
 use crate::config::{InitStrategy, OptimizerConfig, SurrogateConfig};
 use crate::error::ENNError;
+use crate::incumbent_tracker::{
+    tracker_m_from_enn_k, tracker_m_no_surrogate, IncrementalIncumbentTracker,
+};
 use crate::strategy::Strategy;
 use crate::surrogate::{BoxedSurrogate, ENNSurrogate, Surrogate};
-use crate::trust_region::TurboTrustRegion;
+use tr_state::TrustRegionState;
+
+use observation_store::ObservationStore;
 
 /// Telemetry for timing.
 #[derive(Debug, Clone, Default)]
@@ -18,100 +29,7 @@ pub struct Telemetry {
     pub dt_gen: f64,
     pub dt_sel: f64,
     pub dt_tell: f64,
-}
-
-/// Observation store with auto-invalidating cache.
-struct ObservationStore {
-    x_obs: Vec<Array1<f64>>,
-    y_obs: Vec<Array1<f64>>,
-    cached_x: RefCell<Option<Array2<f64>>>,
-    cached_y: RefCell<Option<Array2<f64>>>,
-}
-
-impl ObservationStore {
-    fn new() -> Self {
-        Self {
-            x_obs: Vec::new(),
-            y_obs: Vec::new(),
-            cached_x: RefCell::new(None),
-            cached_y: RefCell::new(None),
-        }
-    }
-
-    fn invalidate_cache(&self) {
-        *self.cached_x.borrow_mut() = None;
-        *self.cached_y.borrow_mut() = None;
-    }
-
-    fn push(&mut self, x: Array1<f64>, y: Array1<f64>) {
-        self.invalidate_cache();
-        self.x_obs.push(x);
-        self.y_obs.push(y);
-    }
-
-    fn len(&self) -> usize {
-        self.x_obs.len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.x_obs.is_empty()
-    }
-
-    fn x_obs_array(&self) -> Option<Array2<f64>> {
-        if self.x_obs.is_empty() {
-            return None;
-        }
-        let mut cache = self.cached_x.borrow_mut();
-        if let Some(ref cached) = *cache {
-            return Some(cached.clone());
-        }
-        let arr = Self::build_array2(&self.x_obs);
-        *cache = Some(arr.clone());
-        Some(arr)
-    }
-
-    fn y_obs_array(&self) -> Option<Array2<f64>> {
-        if self.y_obs.is_empty() {
-            return None;
-        }
-        let mut cache = self.cached_y.borrow_mut();
-        if let Some(ref cached) = *cache {
-            return Some(cached.clone());
-        }
-        let arr = Self::build_array2(&self.y_obs);
-        *cache = Some(arr.clone());
-        Some(arr)
-    }
-
-    fn build_array2(vecs: &[Array1<f64>]) -> Array2<f64> {
-        let n = vecs.len();
-        let d = vecs[0].len();
-        let mut result = Array2::zeros((n, d));
-        for (i, v) in vecs.iter().enumerate() {
-            for j in 0..d {
-                result[[i, j]] = v[j];
-            }
-        }
-        result
-    }
-
-    fn replace(&mut self, new_x: Vec<Array1<f64>>, new_y: Vec<Array1<f64>>) {
-        self.invalidate_cache();
-        self.x_obs = new_x;
-        self.y_obs = new_y;
-    }
-
-    fn x_at(&self, idx: usize) -> &Array1<f64> {
-        &self.x_obs[idx]
-    }
-
-    fn y_at(&self, idx: usize) -> &Array1<f64> {
-        &self.y_obs[idx]
-    }
-
-    fn iter_indices(&self) -> impl Iterator<Item = usize> {
-        0..self.x_obs.len()
-    }
+    pub num_candidates: usize,
 }
 
 /// Optimizer state machine.
@@ -119,11 +37,10 @@ pub struct Optimizer {
     bounds: Array2<f64>,
     num_dim: usize,
     config: OptimizerConfig,
-    tr_state: TurboTrustRegion,
+    tr_state: TrustRegionState,
     surrogate: Option<BoxedSurrogate>,
     strategy: Strategy,
     obs_store: ObservationStore,
-    trailing_obs: Option<usize>,
     incumbent_idx: Option<usize>,
     incumbent_x_unit: Option<Array1<f64>>,
     incumbent_y_scalar: Option<Array1<f64>>,
@@ -131,6 +48,7 @@ pub struct Optimizer {
     sobol_engine: Option<SobolEngine>,
     sobol_seed_base: u64,
     telemetry: Telemetry,
+    incumbent_tracker: IncrementalIncumbentTracker,
 }
 
 impl Optimizer {
@@ -158,8 +76,8 @@ impl Optimizer {
             });
         }
 
-        // Initialize trust region
-        let tr_state = TurboTrustRegion::new(num_dim, config.trust_region);
+        let tr_state = TrustRegionState::from_config(num_dim, &config.trust_region, rng)
+            .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
 
         // Initialize surrogate (None means no surrogate; NoSurrogate was wasteful/unclear)
         let surrogate: Option<BoxedSurrogate> = match &config.surrogate {
@@ -183,7 +101,18 @@ impl Optimizer {
         let mut seed_bytes = [0u8; 8];
         rng.fill_bytes(&mut seed_bytes);
         let sobol_seed_base = u64::from_le_bytes(seed_bytes) % (1u64 << 31);
-        let trailing_obs = config.trailing_obs;
+        let num_metrics = tr_state.num_metrics();
+        let tracker_m = match &config.surrogate {
+            SurrogateConfig::ENN(enn_config) => tracker_m_from_enn_k(enn_config.k),
+            SurrogateConfig::None => tracker_m_no_surrogate(),
+        };
+        let noise_aware = config.noise_aware
+            || tr_state
+                .morbo()
+                .map(|m| m.noise_aware())
+                .unwrap_or(false);
+        let incumbent_tracker =
+            IncrementalIncumbentTracker::new(tracker_m, noise_aware, num_metrics);
 
         Ok(Self {
             bounds,
@@ -193,7 +122,6 @@ impl Optimizer {
             surrogate,
             strategy,
             obs_store: ObservationStore::new(),
-            trailing_obs,
             incumbent_idx: None,
             incumbent_x_unit: None,
             incumbent_y_scalar: None,
@@ -201,6 +129,7 @@ impl Optimizer {
             sobol_engine,
             sobol_seed_base,
             telemetry: Telemetry::default(),
+            incumbent_tracker,
         })
     }
 
@@ -259,14 +188,19 @@ impl Optimizer {
         &self.config
     }
 
-    /// Get trust region.
-    pub fn trust_region(&self) -> &TurboTrustRegion {
+    /// Get trust region state.
+    pub fn trust_region(&self) -> &TrustRegionState {
         &self.tr_state
     }
 
-    /// Get mutable trust region.
-    pub fn trust_region_mut(&mut self) -> &mut TurboTrustRegion {
+    /// Get mutable trust region state.
+    pub fn trust_region_mut(&mut self) -> &mut TrustRegionState {
         &mut self.tr_state
+    }
+
+    /// Trust region length (TuRBO or Morbo inner).
+    pub fn tr_length(&self) -> f64 {
+        self.tr_state.length()
     }
 
     /// Get surrogate.
@@ -297,120 +231,21 @@ impl Optimizer {
         &mut self,
         x: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
-    ) -> Result<(), ENNError> {
+    ) -> Result<ObservationDelta, ENNError> {
         if x.nrows() != y.nrows() {
             return Err(ENNError::InvalidShape {
                 expected: vec![x.nrows(), y.ncols()],
                 got: vec![y.nrows(), y.ncols()],
             });
         }
+        let old_n = self.obs_store.len();
         for i in 0..x.nrows() {
             let x_row: Array1<f64> = x.row(i).to_owned();
             let y_row: Array1<f64> = y.row(i).to_owned();
+            self.incumbent_tracker.tell(old_n + i, &y_row);
             self.obs_store.push(x_row, y_row);
         }
-        Ok(())
-    }
-
-    /// Trim observations to trailing_obs limit, preserving incumbent + recent.
-    /// Must be called after update_incumbent so incumbent_idx is current.
-    pub fn trim_trailing_obs(&mut self) -> Result<(), ENNError> {
-        let Some(limit) = self.trailing_obs else {
-            return Ok(());
-        };
-        let n = self.obs_store.len();
-        if n <= limit {
-            return Ok(());
-        }
-
-        let start = n.saturating_sub(limit);
-        let recent: std::collections::HashSet<usize> = (start..n).collect();
-
-        let mut keep: std::collections::HashSet<usize> = recent;
-        if let Some(idx) = self.incumbent_idx {
-            keep.insert(idx);
-        }
-
-        let keep = if keep.len() > limit {
-            let mut k: std::collections::HashSet<usize> =
-                self.incumbent_idx.iter().copied().collect();
-            let mut remaining = limit.saturating_sub(k.len());
-            for i in (0..n).rev() {
-                if remaining == 0 {
-                    break;
-                }
-                if !k.contains(&i) {
-                    k.insert(i);
-                    remaining -= 1;
-                }
-            }
-            k
-        } else {
-            keep
-        };
-
-        let mut indices: Vec<usize> = keep.into_iter().collect();
-        indices.sort_unstable();
-
-        let new_x: Vec<Array1<f64>> = indices
-            .iter()
-            .map(|&i| self.obs_store.x_at(i).clone())
-            .collect();
-        let new_y: Vec<Array1<f64>> = indices
-            .iter()
-            .map(|&i| self.obs_store.y_at(i).clone())
-            .collect();
-
-        self.obs_store.replace(new_x, new_y);
-
-        let new_incumbent_idx = self
-            .incumbent_idx
-            .and_then(|old_idx| indices.iter().position(|&i| i == old_idx));
-        self.incumbent_idx = new_incumbent_idx;
-        if let Some(idx) = self.incumbent_idx {
-            self.incumbent_x_unit = Some(self.obs_store.x_at(idx).clone());
-            self.incumbent_y_scalar = Some(self.obs_store.y_at(idx).clone());
-        }
-
-        Ok(())
-    }
-
-    /// Update incumbent.
-    pub fn update_incumbent(&mut self, _rng: &mut dyn RngCore) -> Result<(), ENNError> {
-        if self.obs_store.is_empty() {
-            self.incumbent_idx = None;
-            self.incumbent_x_unit = None;
-            self.incumbent_y_scalar = None;
-            return Ok(());
-        }
-
-        let candidate_indices = if let Some(surrogate) = &self.surrogate {
-            let y_obs = self.y_obs().unwrap();
-            surrogate.get_incumbent_indices(&y_obs.view())
-        } else {
-            self.obs_store.iter_indices().collect()
-        };
-
-        if candidate_indices.is_empty() {
-            self.incumbent_idx = None;
-            self.incumbent_x_unit = None;
-            self.incumbent_y_scalar = None;
-            return Ok(());
-        }
-
-        let best_idx = candidate_indices
-            .into_iter()
-            .max_by(|&a, &b| {
-                let a_y = self.obs_store.y_at(a)[0];
-                let b_y = self.obs_store.y_at(b)[0];
-                a_y.total_cmp(&b_y)
-            })
-            .ok_or_else(|| ENNError::InvalidParameter("No incumbent candidates".to_string()))?;
-        self.incumbent_idx = Some(best_idx);
-        self.incumbent_x_unit = Some(self.obs_store.x_at(best_idx).clone());
-        self.incumbent_y_scalar = Some(self.obs_store.y_at(best_idx).clone());
-
-        Ok(())
+        observation_delta::observation_delta_from_store(&self.obs_store, old_n)
     }
 
     /// Get incumbent x in unit space.
@@ -456,3 +291,9 @@ impl Optimizer {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_incremental;
+#[cfg(test)]
+mod tests_morbo_incumbent;
+#[cfg(test)]
+mod tests_morbo_noise_aware_incumbent;

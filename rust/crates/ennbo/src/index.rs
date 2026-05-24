@@ -23,7 +23,7 @@ pub enum IndexDriver {
 pub struct ENNIndex {
     inner: Mutex<IndexImpl>,
     num_dim: usize,
-    x_scale: Array1<f64>,
+    x_scale: Mutex<Array1<f64>>,
     scale_x: bool,
     driver: IndexDriver,
 }
@@ -116,7 +116,7 @@ impl ENNIndex {
         Ok(Self {
             inner,
             num_dim,
-            x_scale,
+            x_scale: Mutex::new(x_scale),
             scale_x,
             driver,
         })
@@ -126,15 +126,37 @@ impl ENNIndex {
         self.driver
     }
 
-    pub fn add(&mut self, x: &ArrayView2<f64>) -> Result<(), IndexError> {
+    pub fn rebuild_from_scaled(
+        &self,
+        train_x_scaled: Array2<f64>,
+        x_scale: Array1<f64>,
+    ) -> Result<(), IndexError> {
+        let new_inner = make_faiss(self.num_dim, self.driver, &train_x_scaled.view())?;
+        *self
+            .inner
+            .lock()
+            .expect("faiss index mutex poisoned") = new_inner;
+        *self
+            .x_scale
+            .lock()
+            .expect("faiss x_scale mutex poisoned") = x_scale;
+        Ok(())
+    }
+
+    pub fn add(&self, x: &ArrayView2<f64>) -> Result<(), IndexError> {
         if x.ncols() != self.num_dim {
             return Err(IndexError::InvalidShape {
                 expected: self.num_dim,
                 got: x.ncols(),
             });
         }
+        let x_scale = self
+            .x_scale
+            .lock()
+            .expect("faiss x_scale mutex poisoned")
+            .clone();
         let x_scaled: Array2<f64> = if self.scale_x {
-            x / &self.x_scale.view().insert_axis(Axis(0))
+            x / &x_scale.view().insert_axis(Axis(0))
         } else {
             x.to_owned()
         };
@@ -172,8 +194,13 @@ impl ENNIndex {
         let n_query = x.nrows();
         let search_k = search_k as usize;
 
+        let x_scale = self
+            .x_scale
+            .lock()
+            .expect("faiss x_scale mutex poisoned")
+            .clone();
         let x_scaled: Array2<f64> = if self.scale_x {
-            x / &self.x_scale.view().insert_axis(Axis(0))
+            x / &x_scale.view().insert_axis(Axis(0))
         } else {
             x.to_owned()
         };
@@ -280,7 +307,7 @@ mod tests {
 
     #[test]
     fn test_index_add() {
-        let mut index = index_unit(array![[0.0, 0.0]], IndexDriver::Exact);
+        let index = index_unit(array![[0.0, 0.0]], IndexDriver::Exact);
 
         let new_point = array![[1.0, 1.0]];
         index.add(&new_point.view()).unwrap();
@@ -349,6 +376,28 @@ mod tests {
                 "neighbor slot j={j} must be a valid train row index, got id={id}"
             );
         }
+    }
+
+    #[test]
+    fn kiss_index_helper_unit_names() {
+        assert_eq!(faiss_spec(IndexDriver::Exact), "Flat");
+        assert_eq!(faiss_spec(IndexDriver::HNSW), "HNSW32");
+        let _ = faiss_map_err as fn(FaissError) -> IndexError;
+        let rows = array![[1.0, 2.0], [3.0, 4.0]];
+        let f32 = arr2_rows_to_f32(&rows.view());
+        assert_eq!(f32.len(), 4);
+        let index = make_faiss(2, IndexDriver::Exact, &rows.view()).unwrap();
+        assert_eq!(index.ntotal(), 2);
+        let (d, i) = pad_neighbor_cols_to_search_k(
+            array![[1.0, 2.0]],
+            array![[0i64, 1]],
+            3,
+        );
+        assert_eq!(d.ncols(), 3);
+        assert_eq!(i.ncols(), 3);
+        let (d2, i2) = unpack_faiss_search(1, 2, &[0.5f32, 1.5], &[faiss::Idx::new(0), faiss::Idx::new(1)]);
+        assert_eq!(d2.shape(), &[1, 2]);
+        assert_eq!(i2.shape(), &[1, 2]);
     }
 
     #[test]

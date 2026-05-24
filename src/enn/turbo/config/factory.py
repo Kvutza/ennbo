@@ -7,19 +7,20 @@ from .acq_type import AcqType
 from .candidate_gen_config import CandidateGenConfig
 from .candidate_rv import CandidateRV
 from .init_config import InitConfig
-from .num_candidates_fn import NumCandidatesFn, const_num_candidates
 from .optimizer_config import ObservationHistoryConfig, OptimizerConfig
 
 
 def _make_candidate_gen_config(
     candidate_rv: CandidateRV,
-    num_candidates: NumCandidatesFn | int | None,
+    num_candidates: int | None,
+    *,
+    num_candidates_per_arm: int | None = None,
 ) -> CandidateGenConfig:
-    if num_candidates is None:
-        return CandidateGenConfig(candidate_rv=candidate_rv)
-    if isinstance(num_candidates, int):
-        num_candidates = const_num_candidates(num_candidates)
-    return CandidateGenConfig(candidate_rv=candidate_rv, num_candidates=num_candidates)
+    return CandidateGenConfig(
+        candidate_rv=candidate_rv,
+        num_candidates=num_candidates,
+        num_candidates_per_arm=num_candidates_per_arm,
+    )
 
 
 def _acq_configs(
@@ -40,7 +41,6 @@ def turbo_one_config(
     *,
     num_candidates: int | None = None,
     num_init: int | None = None,
-    trailing_obs: int | None = None,
     trust_region: tr.TrustRegionConfig | None = None,
     candidate_rv: CandidateRV = CandidateRV.SOBOL,
     acq_type: AcqType = AcqType.THOMPSON,
@@ -53,26 +53,30 @@ def turbo_one_config(
         surrogate=sur.GPSurrogateConfig(),
         acquisition=acquisition,
         acq_optimizer=acq_optimizer,
-        observation_history=ObservationHistoryConfig(trailing_obs=trailing_obs),
+        observation_history=ObservationHistoryConfig(),
     )
 
 
 def turbo_zero_config(
     *,
     num_candidates: int | None = None,
+    num_candidates_per_arm: int | None = None,
     num_init: int | None = None,
-    trailing_obs: int | None = None,
     trust_region: tr.TrustRegionConfig | None = None,
     candidate_rv: CandidateRV = CandidateRV.SOBOL,
 ) -> OptimizerConfig:
     return OptimizerConfig(
         trust_region=trust_region or tr.TurboTRConfig(),
-        candidates=_make_candidate_gen_config(candidate_rv, num_candidates),
+        candidates=_make_candidate_gen_config(
+            candidate_rv,
+            num_candidates,
+            num_candidates_per_arm=num_candidates_per_arm,
+        ),
         init=InitConfig(num_init=num_init),
         surrogate=sur.NoSurrogateConfig(),
         acquisition=acq.RandomAcquisitionConfig(),
         acq_optimizer=acq.RAASPOptimizerConfig(),
-        observation_history=ObservationHistoryConfig(trailing_obs=trailing_obs),
+        observation_history=ObservationHistoryConfig(),
     )
 
 
@@ -82,7 +86,6 @@ def turbo_enn_config(
     trust_region: tr.TrustRegionConfig | None = None,
     candidates: CandidateGenConfig | None = None,
     num_init: int | None = None,
-    trailing_obs: int | None = None,
     acq_type: AcqType = AcqType.PARETO,
 ) -> OptimizerConfig:
     acquisition, acq_optimizer = _acq_configs(acq_type)
@@ -96,7 +99,7 @@ def turbo_enn_config(
         surrogate=surrogate,
         acquisition=acquisition,
         acq_optimizer=acq_optimizer,
-        observation_history=ObservationHistoryConfig(trailing_obs=trailing_obs),
+        observation_history=ObservationHistoryConfig(),
     )
 
 
@@ -104,7 +107,6 @@ def lhd_only_config(
     *,
     num_candidates: int | None = None,
     num_init: int | None = None,
-    trailing_obs: int | None = None,
     trust_region: tr.TrustRegionConfig | None = None,
     candidate_rv: CandidateRV = CandidateRV.SOBOL,
 ) -> OptimizerConfig:
@@ -117,5 +119,5 @@ def lhd_only_config(
         surrogate=sur.NoSurrogateConfig(),
         acquisition=acq.RandomAcquisitionConfig(),
         acq_optimizer=acq.RAASPOptimizerConfig(),
-        observation_history=ObservationHistoryConfig(trailing_obs=trailing_obs),
+        observation_history=ObservationHistoryConfig(),
     )

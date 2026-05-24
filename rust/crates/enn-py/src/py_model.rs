@@ -1,7 +1,7 @@
 //! ENN model Python bindings.
 
 use ennbo::traits::PosteriorComputation;
-use numpy::{IntoPyArray, PyArray2, PyArrayDyn, PyReadonlyArray2};
+use numpy::{IntoPyArray, PyArray2, PyArrayDyn, PyReadonlyArray2, ToPyArray};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
@@ -58,6 +58,12 @@ impl PyEpistemicNearestNeighbors {
         let yvar_arr = yvar.as_ref().map(|v| v.as_array());
         self.inner
             .add(&x.as_array(), &y.as_array(), yvar_arr.as_ref())
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn sync_index(&self) -> PyResult<()> {
+        self.inner
+            .sync_index()
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
@@ -299,12 +305,12 @@ impl PyEpistemicNearestNeighbors {
 
     #[getter]
     fn train_x<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray2<f64>>> {
-        Ok(self.inner.train_x().clone().into_pyarray_bound(py))
+        Ok(self.inner.train_x().to_owned().to_pyarray_bound(py))
     }
 
     #[getter]
     fn train_y<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray2<f64>>> {
-        Ok(self.inner.train_y().clone().into_pyarray_bound(py))
+        Ok(self.inner.train_y().to_owned().to_pyarray_bound(py))
     }
 
     #[getter]
@@ -312,7 +318,7 @@ impl PyEpistemicNearestNeighbors {
         Ok(self
             .inner
             .train_yvar()
-            .map(|a| a.clone().into_pyarray_bound(py)))
+            .map(|a| a.to_owned().into_pyarray_bound(py)))
     }
 
     #[getter]

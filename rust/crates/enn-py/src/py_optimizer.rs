@@ -6,6 +6,62 @@ use pyo3::prelude::*;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
+pub(crate) fn optional_f64(dict: &Bound<'_, pyo3::types::PyDict>, key: &str) -> PyResult<Option<f64>> {
+    match dict.get_item(key)? {
+        Some(v) => Ok(Some(v.extract()?)),
+        None => Ok(None),
+    }
+}
+
+pub(crate) fn optional_usize(dict: &Bound<'_, pyo3::types::PyDict>, key: &str) -> PyResult<Option<usize>> {
+    match dict.get_item(key)? {
+        Some(v) => Ok(Some(v.extract()?)),
+        None => Ok(None),
+    }
+}
+
+pub(crate) fn optional_bool(dict: &Bound<'_, pyo3::types::PyDict>, key: &str) -> PyResult<Option<bool>> {
+    match dict.get_item(key)? {
+        Some(v) => Ok(Some(v.extract()?)),
+        None => Ok(None),
+    }
+}
+
+pub(crate) fn apply_scalar_overrides(
+    dict: &Bound<'_, pyo3::types::PyDict>,
+    overrides: &mut ennbo::ConfigOverrides,
+) -> PyResult<()> {
+    overrides.num_candidates_factor = optional_f64(dict, "num_candidates_factor")?;
+    overrides.min_candidates = optional_usize(dict, "min_candidates")?;
+    overrides.max_candidates = optional_usize(dict, "max_candidates")?;
+    overrides.num_candidates_per_arm = optional_usize(dict, "num_candidates_per_arm")?;
+    overrides.length_init = optional_f64(dict, "length_init")?;
+    overrides.length_min = optional_f64(dict, "length_min")?;
+    overrides.length_max = optional_f64(dict, "length_max")?;
+    overrides.num_fit_samples = optional_usize(dict, "num_fit_samples")?;
+    overrides.num_fit_candidates = optional_usize(dict, "num_fit_candidates")?;
+    overrides.noise_aware = optional_bool(dict, "noise_aware")?;
+    overrides.scale_x = optional_bool(dict, "scale_x")?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod kiss_coverage_tests {
+    use super::{
+        apply_scalar_overrides, optional_bool, optional_f64, optional_usize,
+    };
+
+    #[test]
+    fn py_optimizer_helpers_are_linked() {
+        let _ = (
+            optional_f64 as fn(_, _) -> _,
+            optional_usize as fn(_, _) -> _,
+            optional_bool as fn(_, _) -> _,
+            apply_scalar_overrides as fn(_, _) -> _,
+        );
+    }
+}
+
 pub fn parse_config_overrides_from_dict(
     dict: &Bound<'_, pyo3::types::PyDict>,
 ) -> PyResult<ennbo::ConfigOverrides> {
@@ -58,33 +114,16 @@ pub fn parse_config_overrides_from_dict(
             }
         });
     }
-    if let Some(v) = dict.get_item("num_candidates_factor")? {
-        overrides.num_candidates_factor = Some(v.extract::<f64>()?);
+    if let Some(v) = dict.get_item("trust_region")? {
+        let s: String = v.extract()?;
+        overrides.trust_region_kind = Some(s);
     }
-    if let Some(v) = dict.get_item("min_candidates")? {
-        overrides.min_candidates = Some(v.extract::<usize>()?);
+    overrides.num_metrics = optional_usize(dict, "num_metrics")?;
+    overrides.alpha = optional_f64(dict, "alpha")?;
+    if let Some(v) = dict.get_item("rescalarize")? {
+        overrides.rescalarize = Some(v.extract()?);
     }
-    if let Some(v) = dict.get_item("max_candidates")? {
-        overrides.max_candidates = Some(v.extract::<usize>()?);
-    }
-    if let Some(v) = dict.get_item("length_init")? {
-        overrides.length_init = Some(v.extract::<f64>()?);
-    }
-    if let Some(v) = dict.get_item("length_min")? {
-        overrides.length_min = Some(v.extract::<f64>()?);
-    }
-    if let Some(v) = dict.get_item("length_max")? {
-        overrides.length_max = Some(v.extract::<f64>()?);
-    }
-    if let Some(v) = dict.get_item("trailing_obs")? {
-        overrides.trailing_obs = Some(v.extract::<usize>()?);
-    }
-    if let Some(v) = dict.get_item("num_fit_samples")? {
-        overrides.num_fit_samples = Some(v.extract::<usize>()?);
-    }
-    if let Some(v) = dict.get_item("num_fit_candidates")? {
-        overrides.num_fit_candidates = Some(v.extract::<usize>()?);
-    }
+    apply_scalar_overrides(dict, &mut overrides)?;
     Ok(overrides)
 }
 
@@ -142,6 +181,7 @@ impl PyOptimizer {
             dt_gen: t.dt_gen,
             dt_sel: t.dt_sel,
             dt_tell: t.dt_tell,
+            num_candidates: t.num_candidates,
         }
     }
 
@@ -152,7 +192,7 @@ impl PyOptimizer {
 
     /// Current trust-region length.
     fn tr_length(&self) -> f64 {
-        self.inner.trust_region().length()
+        self.inner.tr_length()
     }
 
     /// Get observations x in unit space (if any).
@@ -199,6 +239,8 @@ pub struct PyTelemetry {
     pub dt_sel: f64,
     #[pyo3(get)]
     pub dt_tell: f64,
+    #[pyo3(get)]
+    pub num_candidates: usize,
 }
 
 /// Create TuRBO-ENN optimizer

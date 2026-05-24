@@ -5,9 +5,10 @@ import numpy as np
 import pytest
 
 from enn import create_optimizer
-from enn.turbo.components import NoSurrogate, SurrogateResult
+from enn.turbo.python_fallback.components.no_surrogate import NoSurrogate
+from enn.turbo.python_fallback.components.surrogate_result import SurrogateResult
 from enn.turbo.config import CandidateRV
-from enn.turbo.optimizer import Optimizer
+from enn.turbo.python_fallback.optimizer import Optimizer
 from enn.turbo.optimizer_config import turbo_enn_config, turbo_zero_config
 
 
@@ -39,11 +40,9 @@ def test_turbo_enn_affine_invariance_under_dynamic_y_range() -> None:
     assert np.allclose(lengths_a, lengths_b)
 
 
-def test_trailing_obs_preserves_unique_best_and_is_deterministic_under_ties() -> None:
+def test_optimizer_preserves_unique_best_and_is_deterministic_under_ties() -> None:
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
-    config = turbo_zero_config(
-        trailing_obs=5, num_init=2, candidate_rv=CandidateRV.UNIFORM
-    )
+    config = turbo_zero_config(num_init=2, candidate_rv=CandidateRV.UNIFORM)
     num_steps = 30
 
     def run(y_fn) -> list[tuple[np.ndarray, np.ndarray]]:
@@ -77,6 +76,10 @@ class _NoSurrogateWithLengthscales(NoSurrogate):
     def __init__(self, lengthscales: np.ndarray) -> None:
         super().__init__()
         self._lengthscales = np.asarray(lengthscales, dtype=float)
+
+    @property
+    def lengthscales(self) -> np.ndarray:
+        return self._lengthscales
 
     def fit(
         self,

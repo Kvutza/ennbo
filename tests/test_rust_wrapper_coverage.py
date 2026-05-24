@@ -13,7 +13,9 @@ class _FakeInner:
         self._tr_length = 0.33
 
     def telemetry(self):
-        return types.SimpleNamespace(dt_fit=1.0, dt_gen=2.0, dt_sel=3.0, dt_tell=4.0)
+        return types.SimpleNamespace(
+            dt_fit=1.0, dt_gen=2.0, dt_sel=3.0, dt_tell=4.0, num_candidates=64
+        )
 
     def init_progress(self):
         return (1, 4)
@@ -62,7 +64,19 @@ def test_rust_optimizer_wrapper_methods():
     assert opt.tr_length == 0.33
     assert opt.init_progress == (1, 4)
     tele = opt.telemetry()
-    assert (tele.dt_fit, tele.dt_gen, tele.dt_sel, tele.dt_tell) == (1.0, 2.0, 3.0, 4.0)
+    assert (
+        tele.dt_fit,
+        tele.dt_gen,
+        tele.dt_sel,
+        tele.dt_tell,
+        tele.num_candidates,
+    ) == (
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        64,
+    )
 
     y = np.array([1.0, 2.0, 3.0], dtype=float)
     y_out = opt.tell(x, y)
@@ -85,7 +99,7 @@ def test__rust_module_exports_optimizer_when_available():
 
 
 def test_rust_optimizer_factory_rust_and_python_paths(monkeypatch):
-    import enn.turbo.optimizer as py_opt
+    import enn.turbo.python_fallback.optimizer as py_opt
     import enn.turbo.rust_optimizer as ro
     from enn.turbo.config import (
         AcqType,
@@ -115,6 +129,19 @@ def test_rust_optimizer_factory_rust_and_python_paths(monkeypatch):
     assert isinstance(out_rust, ro.RustOptimizer)
     assert created["args"][1] == 5
     assert created["args"][2] == 3
+
+    from enn.turbo.rust_optimizer_helpers import DEFAULT_ENN_K
+
+    cfg_default_k = turbo_enn_config(
+        acq_type=AcqType.PARETO,
+        enn=ENNSurrogateConfig(k=None),
+        num_init=3,
+    )
+    out_default = ro.create_optimizer(
+        bounds=bounds, config=cfg_default_k, rng=np.random.default_rng(1)
+    )
+    assert isinstance(out_default, ro.RustOptimizer)
+    assert created["args"][1] == DEFAULT_ENN_K
 
     sentinel = object()
     monkeypatch.setattr(py_opt, "create_optimizer", lambda **kwargs: sentinel)

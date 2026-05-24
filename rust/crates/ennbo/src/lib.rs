@@ -5,16 +5,25 @@
 
 #![allow(clippy::pedantic, clippy::nursery, clippy::cargo)]
 
+pub mod ennbo_build {
+    include!("ennbo_build_api.inc.rs");
+    use super::link_search;
+    define_ennbo_build_api!(link_search);
+}
+pub mod link_search;
 pub mod acquisition;
 pub mod candidates;
 pub mod config;
 pub mod draw;
 pub mod error;
 pub mod fit;
+pub mod fitter;
 pub mod hash;
 pub mod hypervolume;
+pub mod incumbent_tracker;
 pub mod index;
 pub mod model;
+pub mod morbo_trust_region;
 pub mod optimizer;
 pub mod optimizer_factory;
 pub mod params;
@@ -24,6 +33,7 @@ pub mod strategy;
 pub mod surrogate;
 pub mod traits;
 pub mod trust_region;
+pub mod trust_region_config;
 pub mod util;
 
 #[cfg(test)]
@@ -40,17 +50,23 @@ pub use config::{
 pub use draw::{Candidates, ConditionalPosteriorDrawInternals, DrawInternals, NeighborData};
 pub use error::{ENNError, EPS_VAR};
 pub use fit::{enn_fit, subsample_loglik};
+pub use fitter::{fit_probability, num_random_fit_candidates, ENNFitter};
 pub use hash::{normal_hash_batch_multi_seed, normal_hash_batch_multi_seed_fast};
 pub use hypervolume::hypervolume_2d_max;
+pub use incumbent_tracker::IncrementalIncumbentTracker;
 pub use index::{ENNIndex, IndexDriver, IndexError};
 pub use model::EpistemicNearestNeighbors;
-pub use optimizer::{Optimizer, Telemetry};
+pub use optimizer::{ObservationDelta, Optimizer, Telemetry};
 pub use optimizer_factory::{create_optimizer_enn, create_optimizer_lhd, create_optimizer_zero};
 pub use params::{ENNNormal, ENNParams, ParamsError, PosteriorFlags};
-pub use posterior::{compute_posterior_internals, WeightedPosteriorData};
+pub use posterior::{
+    compute_conditional_posterior_internals, compute_posterior_internals, WeightedPosteriorData,
+};
 pub use stats::WeightedStats;
 pub use strategy::Strategy;
 pub use surrogate::{ENNSurrogate, ENNSurrogateConfig, Surrogate, SurrogatePrediction};
 pub use traits::PosteriorComputation;
+pub use morbo_trust_region::{MorboTRSettings, MorboTrustRegion, Rescalarize};
 pub use trust_region::{NoTrustRegion, TRLengthConfig, TrustRegionError, TurboTrustRegion};
-pub use util::{calculate_sobol_indices, pareto_front_2d_maximize, standardize_y};
+pub use trust_region_config::TrustRegionConfig;
+pub use util::{argmax_random_tie, calculate_sobol_indices, pareto_front_2d_maximize, standardize_y};

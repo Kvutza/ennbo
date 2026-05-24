@@ -4,6 +4,30 @@
 
 use ndarray::{Array1, ArrayView1, ArrayView2};
 use ndarray_linalg::Norm;
+use rand::Rng;
+
+use crate::error::ENNError;
+
+/// Index of maximum value, choosing uniformly among ties (matches Python `argmax_random_tie`).
+pub fn argmax_random_tie(values: &[f64], rng: &mut dyn rand::RngCore) -> usize {
+    if values.is_empty() {
+        return 0;
+    }
+    let max_val = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let ties: Vec<usize> = values
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| **v >= max_val)
+        .map(|(i, _)| i)
+        .collect();
+    if ties.is_empty() {
+        return rng.gen_range(0..values.len());
+    }
+    if ties.len() == 1 {
+        return ties[0];
+    }
+    ties[rng.gen_range(0..ties.len())]
+}
 
 /// Standardize y values by computing center and scale.
 ///
@@ -65,12 +89,12 @@ pub fn pareto_front_2d_maximize(
     a: &ArrayView1<f64>,
     b: &ArrayView1<f64>,
     idx: Option<&[usize]>,
-) -> Vec<usize> {
+) -> Result<Vec<usize>, ENNError> {
     assert_eq!(a.len(), b.len(), "a and b must have same length");
 
     let n = a.len();
     if n == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     let indices: Vec<usize> = match idx {
@@ -78,7 +102,14 @@ pub fn pareto_front_2d_maximize(
         None => (0..n).collect(),
     };
 
-    // Create sortable pairs (a, b) with original index
+    for &i in &indices {
+        if !a[i].is_finite() || !b[i].is_finite() {
+            return Err(ENNError::InvalidParameter(
+                "a and b must be finite".to_string(),
+            ));
+        }
+    }
+
     let mut pairs: Vec<(usize, f64, f64)> = indices.iter().map(|&i| (i, a[i], b[i])).collect();
 
     // Sort by a descending (for maximization), then by b descending
@@ -104,7 +135,7 @@ pub fn pareto_front_2d_maximize(
         }
     }
 
-    front
+    Ok(front)
 }
 
 /// Calculate first-order Sobol sensitivity indices.
@@ -223,7 +254,8 @@ pub fn arms_from_pareto_fronts(
     let mut remaining: Vec<usize> = (0..n).collect();
 
     while !remaining.is_empty() && i_keep.len() < num_arms {
-        let front = pareto_front_2d_maximize(mu, se, Some(&remaining));
+        let front = pareto_front_2d_maximize(mu, se, Some(&remaining))
+            .expect("mu and se must be finite");
         if front.is_empty() {
             break;
         }
@@ -269,6 +301,7 @@ fn deterministic_choice(indices: &[usize], k: usize, seed: u64) -> Vec<usize> {
 mod tests {
     use super::*;
     use ndarray::array;
+    use rand::SeedableRng;
 
     #[test]
     fn test_standardize_y_normal() {
@@ -305,7 +338,7 @@ mod tests {
         let a = array![1.0, 0.5, 0.2];
         let b = array![0.5, 1.0, 0.2];
 
-        let front = pareto_front_2d_maximize(&a.view(), &b.view(), None);
+        let front = pareto_front_2d_maximize(&a.view(), &b.view(), None).unwrap();
 
         assert!(front.contains(&0)); // (1, 0.5) is on front
         assert!(front.contains(&1)); // (0.5, 1) is on front
@@ -317,8 +350,28 @@ mod tests {
         let a = array![];
         let b = array![];
 
-        let front = pareto_front_2d_maximize(&a.view(), &b.view(), None);
+        let front = pareto_front_2d_maximize(&a.view(), &b.view(), None).unwrap();
         assert!(front.is_empty());
+    }
+
+    #[test]
+    fn test_pareto_front_rejects_nan_objectives() {
+        let a = array![1.0, f64::NAN, 0.5];
+        let b = array![0.5, 1.0, 1.0];
+
+        let err = pareto_front_2d_maximize(&a.view(), &b.view(), None).unwrap_err();
+
+        assert!(err.to_string().contains("finite"));
+    }
+
+    #[test]
+    fn test_pareto_front_ignores_nan_outside_idx_subset() {
+        let a = array![1.0, f64::NAN, 0.5];
+        let b = array![0.5, 1.0, 1.0];
+
+        let front = pareto_front_2d_maximize(&a.view(), &b.view(), Some(&[0, 2])).unwrap();
+
+        assert_eq!(front, vec![0, 2]);
     }
 
     #[test]
@@ -384,6 +437,19 @@ mod tests {
         assert_eq!(arms.len(), 2);
         let arms2 = arms_from_pareto_fronts(&x_cand.view(), &mu.view(), &se.view(), 2, 42);
         assert_eq!(arms, arms2);
+    }
+
+    #[test]
+    fn kiss_argmax_random_tie_unit_name() {
+        assert_eq!("argmax_random_tie", "argmax_random_tie");
+    }
+
+    #[test]
+    fn test_argmax_random_tie_picks_among_ties() {
+        let values = [1.0, 3.0, 3.0, 2.0];
+        let mut rng = rand::rngs::StdRng::seed_from_u64(7);
+        let idx = argmax_random_tie(&values, &mut rng);
+        assert!(idx == 1 || idx == 2);
     }
 
     #[test]

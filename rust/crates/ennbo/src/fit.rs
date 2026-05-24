@@ -1,7 +1,7 @@
 //! Parameter fitting for ENN models via subsample log-likelihood.
 
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis};
-use rand::seq::SliceRandom;
+use rand::seq::index::sample;
 use rand::Rng;
 
 use crate::error::ENNError;
@@ -119,14 +119,10 @@ pub fn subsample_loglik<R: Rng>(
 
     let p_actual = p.min(n);
 
-    // Sample indices
     let indices: Vec<usize> = if p_actual == n {
         (0..n).collect()
     } else {
-        let mut idx: Vec<usize> = (0..n).collect();
-        idx.shuffle(rng);
-        idx.truncate(p_actual);
-        idx
+        sample(rng, n, p_actual).into_iter().collect()
     };
 
     // Select subsampled data
@@ -230,35 +226,24 @@ pub fn enn_fit<R: Rng>(
     let log_min = -3.0;
     let log_max = 3.0;
 
-    // Generate candidate epistemic variance scales
-    let epi_var_scale_log_values: Vec<f64> = (0..num_fit_candidates)
-        .map(|_| rng.gen_range(log_min..=log_max))
-        .collect();
-    let epi_var_scale_values: Vec<f64> = epi_var_scale_log_values
-        .iter()
-        .map(|&v| 10f64.powf(v))
+    let epi_var_scale_values: Vec<f64> = (0..num_fit_candidates)
+        .map(|_| 10f64.powf(rng.gen_range(log_min..=log_max)))
         .collect();
 
-    // Generate candidate aleatoric variance scales
     let ale_homoscedastic_values: Vec<f64> = if infer_aleatoric_variance_scale {
         (0..num_fit_candidates)
-            .map(|_| {
-                let log_val = rng.gen_range(log_min..=log_max);
-                10f64.powf(log_val)
-            })
+            .map(|_| 10f64.powf(rng.gen_range(log_min..=log_max)))
             .collect()
     } else {
         vec![0.0; num_fit_candidates]
     };
 
-    // Build parameter candidates
     let mut paramss: Vec<ENNParams> = epi_var_scale_values
         .iter()
         .zip(ale_homoscedastic_values.iter())
         .filter_map(|(&epi_val, &ale_val)| ENNParams::new(k, epi_val, ale_val).ok())
         .collect();
 
-    // Add warm-start parameters if provided
     if let Some(warm) = params_warm_start {
         let warm_params = ENNParams::new(
             k,
@@ -269,24 +254,22 @@ pub fn enn_fit<R: Rng>(
                 0.0
             },
         )
-        .map_err(|e| ENNError::InvalidParameter(format!("Invalid warm-start params: {}", e)))?;
+        .map_err(|e| ENNError::InvalidParameter(format!("Invalid warm-start params: {e}")))?;
         paramss.push(warm_params);
     }
 
     if paramss.is_empty() {
         return ENNParams::new(k, 1.0, 0.0).map_err(|e| {
-            ENNError::InvalidParameter(format!("Failed to create default params: {}", e))
+            ENNError::InvalidParameter(format!("Failed to create default params: {e}"))
         });
     }
 
-    // Compute y_std for standardization
     let y_std = train_y.std_axis(Axis(0), 0.0);
 
-    // Compute log-likelihoods
     let logliks = subsample_loglik(
         model,
-        &train_x.view(),
-        &train_y.view(),
+        &train_x,
+        &train_y,
         &paramss,
         num_fit_samples,
         rng,
@@ -297,7 +280,6 @@ pub fn enn_fit<R: Rng>(
         return Ok(paramss[0]);
     }
 
-    // Find best parameters
     let best_idx = logliks
         .iter()
         .enumerate()
@@ -441,6 +423,50 @@ mod tests {
         let y = array![[1.0]];
         let err = validate_subsample_inputs(&x.view(), &y.view(), 1, 0).unwrap_err();
         assert!(err.to_string().contains("paramss must be non-empty"));
+    }
+
+    #[test]
+    fn test_compute_single_loglik_gaussian_term_golden() {
+        let y_scaled = array![[1.0]];
+        let mu_i = array![[0.0]];
+        let se_i = array![[1.0]];
+        let ll = compute_single_loglik(&y_scaled.view(), &mu_i.view(), &se_i.view());
+        let expected = -0.5 * ((2.0 * std::f64::consts::PI).ln() + 1.0);
+        assert!((ll - expected).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_subsample_loglik_custom_y_std_seed_11() {
+        let model = create_test_model();
+        let x = array![[0.5, 0.5], [0.2, 0.8]];
+        let y = array![[1.0], [1.2]];
+        let params = ENNParams::new(2, 1.0, 0.1).unwrap();
+        let y_std = array![2.0];
+        let mut rng = StdRng::seed_from_u64(11);
+        let paramss = vec![params];
+        let logliks = subsample_loglik(
+            &model,
+            &x.view(),
+            &y.view(),
+            &paramss,
+            2,
+            &mut rng,
+            Some(&y_std.view()),
+        )
+        .unwrap();
+        assert_eq!(logliks.len(), 1);
+        assert!(logliks[0].is_finite());
+        let again = subsample_loglik(
+            &model,
+            &x.view(),
+            &y.view(),
+            &paramss,
+            2,
+            &mut StdRng::seed_from_u64(11),
+            Some(&y_std.view()),
+        )
+        .unwrap();
+        assert!((logliks[0] - again[0]).abs() < 1e-12);
     }
 
     #[test]

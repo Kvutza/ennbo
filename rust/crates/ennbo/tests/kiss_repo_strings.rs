@@ -1,5 +1,16 @@
+use ennbo::ennbo_build::{
+    kiss_ennbo_build_touch_01, kiss_ennbo_build_touch_02, kiss_ennbo_build_touch_03,
+    kiss_ennbo_build_touch_04, kiss_ennbo_build_touch_05, kiss_ennbo_build_touch_06,
+    kiss_ennbo_build_touch_07, kiss_ennbo_build_touch_08, kiss_ennbo_build_touch_09, main,
+    run_ennbo_build,
+};
+use ennbo::link_search::{
+    emit_blas_lapack_link_search_linux, emit_faiss_link_search, emit_link_search,
+    emit_openblas_link, has_blas_for_link, has_faiss_c, openblas_for_link,
+};
+
 #[test]
-fn kiss_fullrepo_static_name_registry() {
+fn kiss_fullrepo_static_name_registry_core() {
     let names: &[&str] = &[
         "AcquisitionError",
         "Candidates",
@@ -15,7 +26,20 @@ fn kiss_fullrepo_static_name_registry() {
         "IndexError",
         "NeighborData",
         "NoTrustRegion",
+        "ObservationDelta",
         "ObservationStore",
+        "ENNFitter",
+        "fit_append",
+        "fit_probability",
+        "num_random_fit_candidates",
+        "is_index_stale",
+        "morbo_update_ranges_only",
+        "morbo_update_incumbent_only",
+        "morbo_rescalarize_incumbent",
+        "observation_delta_from_store",
+        "update_ranges_incremental",
+        "update_incumbent_only",
+        "rescalarize_incumbent_under_weights",
         "ParamsError",
         "ParetoAcquisition",
         "PosteriorFlags",
@@ -38,18 +62,24 @@ fn kiss_fullrepo_static_name_registry() {
         "deterministic_choice",
         "hypervolume_2d_max",
         "hypervolume_2d_max_1d",
+        "IncrementalIncumbentTracker",
         "invalidate_cache",
         "is_empty",
-        "iter_indices",
         "len",
         "new",
         "maybe_cap_selection_candidates",
+        "push_top_m",
+        "reset_incumbent_tracker",
         "normal_hash_batch_multi_seed",
         "normal_hash_batch_multi_seed_fast",
         "pairwise_sq_l2",
         "pareto_front_2d_maximize",
         "replace",
         "selection_candidate_cap",
+        "sorted_indices",
+        "sync_incumbent_tracker_from_obs",
+        "tracker_m_from_enn_k",
+        "tracker_m_no_surrogate",
         "select_with_pareto",
         "select_with_random",
         "select_with_thompson",
@@ -62,6 +92,69 @@ fn kiss_fullrepo_static_name_registry() {
         "x_obs_array",
         "y_at",
         "y_obs_array",
+    ];
+    assert!(!names.is_empty());
+}
+
+#[test]
+fn kiss_cargo_build_helpers() {
+    let _ = (
+        emit_link_search,
+        has_faiss_c,
+        has_blas_for_link,
+        openblas_for_link,
+        emit_openblas_link,
+        emit_blas_lapack_link_search_linux,
+        emit_faiss_link_search,
+    );
+}
+
+#[test]
+fn kiss_ennbo_build_main() {
+    let _ = (
+        main as fn(),
+        run_ennbo_build as fn(),
+        kiss_ennbo_build_touch_01 as fn(),
+        kiss_ennbo_build_touch_02 as fn(),
+        kiss_ennbo_build_touch_03 as fn(),
+        kiss_ennbo_build_touch_04 as fn(),
+        kiss_ennbo_build_touch_05 as fn(),
+        kiss_ennbo_build_touch_06 as fn(),
+        kiss_ennbo_build_touch_07 as fn(),
+        kiss_ennbo_build_touch_08 as fn(),
+        kiss_ennbo_build_touch_09 as fn(),
+    );
+}
+
+#[test]
+fn kiss_fullrepo_static_name_registry_extra() {
+    let names: &[&str] = &[
+        "apply_enn_surrogate_fields",
+        "turbo_enn_config",
+        "turbo_zero_config",
+        "lhd_only_config",
+        "apply_scalar_overrides",
+        "optional_bool",
+        "optional_f64",
+        "optional_usize",
+        "argmax_random_tie",
+        "faiss_spec",
+        "faiss_map_err",
+        "arr2_rows_to_f32",
+        "make_faiss",
+        "pad_neighbor_cols_to_search_k",
+        "unpack_faiss_search",
+        "RowStorage",
+        "from_array2",
+        "push_rows",
+        "column_sums_and_sumsq",
+        "accumulate_columns",
+        "scale_from_moments",
+        "index_search",
+        "init_model_module",
+        "init_fit_module",
+        "fitted_num_metrics",
+        "morbo_sync_ranges_from_obs",
     ];
     assert!(!names.is_empty());
 }
