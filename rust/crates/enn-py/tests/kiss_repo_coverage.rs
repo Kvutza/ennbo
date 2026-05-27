@@ -2,7 +2,6 @@ use enn_rust::{
     enn_py_build, link_rpath, py_fit, py_fitter, py_hash, py_hypervolume, py_model, py_optimizer,
     py_util,
 };
-use ennbo::link_search::emit_blas_lapack_link_search_linux;
 
 #[test]
 fn kiss_pymodule_entrypoint_names_and_methods() {
