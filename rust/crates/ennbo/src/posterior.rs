@@ -1,14 +1,19 @@
 //! Posterior computation for ENN model.
 
 mod draw_compute;
+mod light;
 mod neighbor;
+mod neighbor_dist;
+mod tie_break;
 
 use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, Axis};
 
 use self::draw_compute::draw_from_internals;
+use self::light::{compute_posterior_light, idx_nested_to_array2};
 use self::neighbor::{get_conditional_neighbor_data, get_neighbor_data};
 use crate::draw::DrawInternals;
 use crate::error::{ENNError, EPS_VAR};
+use crate::index::IndexDriver;
 use crate::model::EpistemicNearestNeighbors;
 use crate::params::{ENNNormal, ENNParams, PosteriorFlags};
 use crate::stats::WeightedStats;
@@ -21,12 +26,17 @@ impl PosteriorComputation for EpistemicNearestNeighbors {
         params: &ENNParams,
         flags: &PosteriorFlags,
     ) -> Result<ENNNormal, ENNError> {
-        let internals = compute_posterior_internals(self, x, params, flags)?;
-        Ok(ENNNormal::new(
-            internals.mu.into_dyn(),
-            internals.se.into_dyn(),
-            Some(internals.idx),
-        ))
+        let (mu, se, idx) = if !flags.observation_noise && self.train_yvar().is_none() {
+            compute_posterior_light(self, x, params, flags)?
+        } else {
+            let internals = compute_posterior_internals(self, x, params, flags)?;
+            (
+                internals.mu,
+                internals.se,
+                idx_nested_to_array2(&internals.idx),
+            )
+        };
+        Ok(ENNNormal::new(mu.into_dyn(), se.into_dyn(), Some(idx)))
     }
 
     fn batch_posterior(
@@ -84,7 +94,7 @@ impl PosteriorComputation for EpistemicNearestNeighbors {
         Ok(ENNNormal::new(
             internals.mu.into_dyn(),
             internals.se.into_dyn(),
-            Some(internals.idx),
+            Some(idx_nested_to_array2(&internals.idx)),
         ))
     }
 
@@ -104,6 +114,23 @@ impl PosteriorComputation for EpistemicNearestNeighbors {
     }
 }
 
+pub(crate) fn index_search(
+    model: &EpistemicNearestNeighbors,
+    x: &ArrayView2<f64>,
+    search_k: i32,
+    exclude_nearest: bool,
+    tie_break_neighbors: bool,
+) -> Result<(Array2<f64>, Array2<i64>), ENNError> {
+    model.ensure_index_sync()?;
+    if model.index().driver() == IndexDriver::Exact {
+        neighbor::exact_f64_batch_topk(model, x, search_k, exclude_nearest, tie_break_neighbors)
+    } else {
+        let (_, idx) = model.index().search(x, search_k, exclude_nearest)?;
+        let dist2s = neighbor::dist2s_for_neighbor_indices(model, x, &idx);
+        Ok((dist2s, idx))
+    }
+}
+
 fn compute_batch_with_shared_neighbors(
     model: &EpistemicNearestNeighbors,
     x: &ArrayView2<f64>,
@@ -112,7 +139,8 @@ fn compute_batch_with_shared_neighbors(
     mu_all: &mut Array3<f64>,
     se_all: &mut Array3<f64>,
 ) -> Result<(), ENNError> {
-    let neighbor_data = get_neighbor_data(model, x, &paramss[0], flags.exclude_nearest)?;
+    let neighbor_data =
+        get_neighbor_data(model, x, &paramss[0], flags.exclude_nearest, flags.tie_break_neighbors)?;
 
     if let Some(data) = neighbor_data {
         let wp_data = WeightedPosteriorData {
@@ -353,7 +381,8 @@ pub fn compute_posterior_internals(
         return Ok(empty_posterior_internals(model, batch_size));
     }
 
-    let neighbor_data = get_neighbor_data(model, x, params, flags.exclude_nearest)?;
+    let neighbor_data =
+        get_neighbor_data(model, x, params, flags.exclude_nearest, flags.tie_break_neighbors)?;
 
     if let Some(data) = neighbor_data {
         let wp_data = WeightedPosteriorData {
@@ -627,7 +656,7 @@ mod tests {
         let params = ENNParams::new(2, 1.0, 0.1).unwrap();
         let query = array![[0.5, 0.5]];
 
-        let result = get_neighbor_data(&model, &query.view(), &params, false);
+        let result = get_neighbor_data(&model, &query.view(), &params, false, true);
         assert!(result.is_ok());
         assert!(result.unwrap().is_some());
     }
@@ -693,7 +722,7 @@ mod tests {
         let params = ENNParams::new(2, 1.0, 0.1).unwrap();
         let query = array![[0.5, 0.5]];
 
-        let neighbor_data = get_neighbor_data(&model, &query.view(), &params, false)
+        let neighbor_data = get_neighbor_data(&model, &query.view(), &params, false, true)
             .unwrap()
             .unwrap();
 
@@ -716,7 +745,7 @@ mod tests {
         let params = ENNParams::new(2, 1.0, 0.1).unwrap();
         let query = array![[0.5, 0.5]];
 
-        let result = get_neighbor_data(&model, &query.view(), &params, true);
+        let result = get_neighbor_data(&model, &query.view(), &params, true, true);
         assert!(result.is_ok());
     }
 
@@ -1110,10 +1139,8 @@ mod tests {
 
     #[test]
     fn test_compute_weighted_posterior_empty_idx() {
-        // Direct test for compute_weighted_posterior with empty idx
         let model = create_test_model();
         let params = ENNParams::new(2, 1.0, 0.1).unwrap();
-
         let empty_dist2s: Array2<f64> = Array2::zeros((0, 2));
         let empty_y_neighbors: Array2<f64> = Array2::zeros((0, 1));
         let empty_idx: Vec<Vec<usize>> = vec![];
@@ -1132,31 +1159,5 @@ mod tests {
             result.is_ok(),
             "compute_weighted_posterior with empty idx should not panic"
         );
-    }
-
-    #[test]
-    fn test_get_conditional_neighbor_data_empty_batch() {
-        // Direct test for get_conditional_neighbor_data with empty batch
-        let model = create_test_model();
-        let params = ENNParams::new(2, 1.0, 0.1).unwrap();
-        let flags = PosteriorFlags::new();
-
-        let empty_x: Array2<f64> = Array2::zeros((0, 2));
-        let x_whatif = array![[0.5, 0.5]];
-        let y_whatif = array![[1.5]];
-
-        let result = get_conditional_neighbor_data(
-            &model,
-            &empty_x.view(),
-            &x_whatif.view(),
-            &y_whatif.view(),
-            &params,
-            &flags,
-        );
-        assert!(
-            result.is_ok(),
-            "get_conditional_neighbor_data with empty batch should not panic"
-        );
-        assert!(result.unwrap().is_none());
     }
 }

@@ -1,6 +1,6 @@
 //! ENN parameter and configuration data structures.
 
-use ndarray::ArrayD;
+use ndarray::{Array2, ArrayD};
 use thiserror::Error;
 
 /// Errors that can occur when creating ENN parameters.
@@ -105,12 +105,17 @@ pub struct PosteriorFlags {
     pub exclude_nearest: bool,
     /// Include observation noise in uncertainty computation.
     pub observation_noise: bool,
+    /// Break distance ties by lower train index (Exact driver neighbor lookup).
+    pub tie_break_neighbors: bool,
 }
 
 impl PosteriorFlags {
-    /// Create new PosteriorFlags with default values (all false).
+    /// Create new PosteriorFlags with default values (all false except tie_break_neighbors).
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            tie_break_neighbors: true,
+            ..Self::default()
+        }
     }
 
     /// Set exclude_nearest flag.
@@ -122,6 +127,12 @@ impl PosteriorFlags {
     /// Set observation_noise flag.
     pub fn with_observation_noise(mut self, value: bool) -> Self {
         self.observation_noise = value;
+        self
+    }
+
+    /// Set tie_break_neighbors flag.
+    pub fn with_tie_break_neighbors(mut self, value: bool) -> Self {
+        self.tie_break_neighbors = value;
         self
     }
 }
@@ -142,13 +153,13 @@ pub struct ENNNormal {
     pub mu: ArrayD<f64>,
     /// Predictive standard errors.
     pub se: ArrayD<f64>,
-    /// Optional neighbor indices.
-    pub idx: Option<Vec<Vec<usize>>>,
+    /// Optional neighbor indices, shape `(n_query, k)`.
+    pub idx: Option<Array2<i64>>,
 }
 
 impl ENNNormal {
     /// Create a new ENNNormal instance.
-    pub fn new(mu: ArrayD<f64>, se: ArrayD<f64>, idx: Option<Vec<Vec<usize>>>) -> Self {
+    pub fn new(mu: ArrayD<f64>, se: ArrayD<f64>, idx: Option<Array2<i64>>) -> Self {
         Self { mu, se, idx }
     }
 
@@ -217,6 +228,7 @@ mod tests {
         let flags = PosteriorFlags::new();
         assert!(!flags.exclude_nearest);
         assert!(!flags.observation_noise);
+        assert!(flags.tie_break_neighbors);
     }
 
     #[test]
@@ -244,7 +256,7 @@ mod tests {
     fn test_enn_normal_with_idx() {
         let mu = array![[1.0], [2.0]].into_dyn();
         let se = array![[0.1], [0.2]].into_dyn();
-        let idx = Some(vec![vec![0, 1], vec![1, 2]]);
+        let idx = Some(array![[0, 1], [1, 2]]);
         let normal = ENNNormal::new(mu, se, idx.clone());
 
         assert_eq!(normal.idx, idx);
