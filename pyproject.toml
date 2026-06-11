@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "ennbo"
-version = "0.3.10"
+version = "0.3.11"
 description = "Epistemic Nearest Neighbors"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -78,6 +78,9 @@ exclude = [
 addopts = ""
 pythonpath = ["src", "."]
 testpaths = ["tests"]
+markers = [
+    "slow: optional long-running stress tests (deselect with '-m \"not slow\"')",
+]
 filterwarnings = [
     "ignore::DeprecationWarning:importlib._bootstrap",
 ]

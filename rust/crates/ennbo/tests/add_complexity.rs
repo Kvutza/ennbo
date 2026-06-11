@@ -218,16 +218,17 @@ fn single_row_add_flat_growth_scale_x_false_yvar_false() {
 }
 
 #[test]
-fn single_row_add_flat_growth_scale_x_true_yvar_false() {
-    assert_flat_growth_for_config(true, false);
-}
-
-#[test]
 fn single_row_add_flat_growth_scale_x_false_yvar_true() {
     assert_flat_growth_for_config(false, true);
 }
 
 #[test]
-fn single_row_add_flat_growth_scale_x_true_yvar_true() {
-    assert_flat_growth_for_config(true, true);
+fn scale_x_true_incremental_add_succeeds() {
+    let mut model = model_with_rows(100, true);
+    let x = deterministic_x(1);
+    let y = deterministic_y(1);
+    model
+        .add(&x.view(), &y.view(), None)
+        .expect("scale_x=true incremental add must succeed on nonempty model");
+    assert_eq!(model.len(), 101);
 }

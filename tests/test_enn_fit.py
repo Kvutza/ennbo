@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 
+from tests.conftest import enn_all_train_rows
+
+
 def _fit_model(
     model,
     *,
@@ -11,6 +14,7 @@ def _fit_model(
     params_warm_start=None,
     infer_aleatoric_variance_scale: bool = True,
 ):
+    from enn.enn.enn_fit import ENNIncrementalDelta, enn_fit
     from enn.enn.enn_fitter import ENNStatefulFitter
 
     fitter = ENNStatefulFitter(
@@ -18,12 +22,17 @@ def _fit_model(
         rng=rng,
         infer_aleatoric_variance_scale=infer_aleatoric_variance_scale,
     )
-    fitter.tell(model.train_x, model.train_y, model.train_yvar)
-    return fitter.ask(
+    return enn_fit(
         model,
+        k=k,
         num_fit_candidates=num_fit_candidates,
         num_fit_samples=num_fit_samples,
+        rng=rng,
         params_warm_start=params_warm_start,
+        incremental=ENNIncrementalDelta(
+            fitter,
+            *enn_all_train_rows(model),
+        ),
     )
 
 
@@ -111,6 +120,7 @@ def _run_incremental_fit_sweep(x_train, y_train, y_var_train, sample_sizes):
     import numpy as np
 
     from enn.enn.enn_class import EpistemicNearestNeighbors
+    from enn.enn.enn_fit import ENNIncrementalDelta, enn_fit
     from enn.enn.enn_fitter import ENNStatefulFitter
 
     incremental_model = EpistemicNearestNeighbors(
@@ -128,12 +138,14 @@ def _run_incremental_fit_sweep(x_train, y_train, y_var_train, sample_sizes):
         row_y = y.reshape(1, -1)
         row_yvar = y_var.reshape(1, -1)
         incremental_model.add(row_x, row_y, row_yvar)
-        fitter.tell(row_x, row_y, row_yvar)
-        params_warm_start = fitter.ask(
+        params_warm_start = enn_fit(
             incremental_model,
+            k=10,
             num_fit_candidates=1,
             num_fit_samples=100,
+            rng=np.random.default_rng(4242),
             params_warm_start=params_warm_start,
+            incremental=ENNIncrementalDelta(fitter, row_x, row_y, row_yvar),
         )
         if num_fit_samples in sample_sizes:
             captured.append(
@@ -435,11 +447,11 @@ def test_enn_fitter_incremental_y_std_matches_model_train_y_std():
         dtype=float,
     )
     y = np.array([[0.0], [1.0], [1.0], [2.0], [1.5]], dtype=float)
-    model = EpistemicNearestNeighbors(x, y)
+    EpistemicNearestNeighbors(x, y)
     fitter = ENNStatefulFitter(k=2, rng=np.random.default_rng(0))
     for i in range(y.shape[0]):
         fitter.tell(x[i : i + 1], y[i : i + 1])
-        _assert_y_std_matches_batch(fitter.y_std(), model.train_y[: i + 1].std(axis=0))
+        _assert_y_std_matches_batch(fitter.y_std(), y[: i + 1].std(axis=0))
 
 
 def test_enn_fitter_incremental_y_std_multioutput():
@@ -456,11 +468,11 @@ def test_enn_fitter_incremental_y_std_multioutput():
         [[0.0, 1.0], [1.0, 2.0], [1.0, 0.0], [2.0, 1.0], [1.0, 1.5]],
         dtype=float,
     )
-    model = EpistemicNearestNeighbors(x, y)
+    EpistemicNearestNeighbors(x, y)
     fitter = ENNStatefulFitter(k=2, rng=np.random.default_rng(0))
     for i in range(y.shape[0]):
         fitter.tell(x[i : i + 1], y[i : i + 1])
-        _assert_y_std_matches_batch(fitter.y_std(), model.train_y[: i + 1].std(axis=0))
+        _assert_y_std_matches_batch(fitter.y_std(), y[: i + 1].std(axis=0))
 
 
 def test_enn_fitter_tell_rejects_non_finite_yvar():
@@ -526,7 +538,8 @@ def test_enn_fitter_desynced_tell_ask_uses_partial_y_std():
 
     fitter_sync = ENNStatefulFitter(k=2, rng=np.random.default_rng(99))
     fitter_sync.tell(x, y)
-    model_std = model.train_y.std(axis=0)
+    _, y_all, _ = enn_all_train_rows(model)
+    model_std = y_all.std(axis=0)
 
     fitter_desync = ENNStatefulFitter(k=2, rng=np.random.default_rng(99))
     fitter_desync.tell(x[:3], y[:3])
@@ -548,7 +561,8 @@ def test_enn_fitter_ask_returns_defaults_when_num_obs_lt_2():
         np.array([[0.0]]),
     )
     fitter = ENNStatefulFitter(k=7, rng=np.random.default_rng(1))
-    fitter.tell(model.train_x, model.train_y, model.train_yvar)
+    x_all, y_all, yvar_all = enn_all_train_rows(model)
+    fitter.tell(x_all, y_all, yvar_all)
     params = fitter.ask(model, num_fit_candidates=5, num_fit_samples=3)
     assert params.k_num_neighbors == 7
     assert params.epistemic_variance_scale == 1.0

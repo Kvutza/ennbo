@@ -4,7 +4,6 @@ use ndarray::{Array1, ArrayView2, Axis};
 use rand::Rng;
 
 use crate::error::ENNError;
-use crate::fit::subsample_loglik;
 use crate::model::EpistemicNearestNeighbors;
 use crate::params::ENNParams;
 
@@ -201,13 +200,22 @@ impl ENNFitter {
             })?;
             paramss.push(warm_params);
         }
-        let train_x = model.train_x();
-        let train_y = model.train_y();
+        let indices: Vec<usize> = {
+            let n = model.len();
+            let p_actual = num_fit_samples.min(n);
+            if p_actual == n {
+                (0..n).collect()
+            } else {
+                use rand::seq::index::sample;
+                sample(rng, n, p_actual).into_iter().collect()
+            }
+        };
+        let (train_x, train_y, _) = model.rows().train_rows_at(&indices)?;
         let y_std = self.y_std();
-        let logliks = subsample_loglik(
+        let logliks = crate::fit::subsample_loglik(
             model,
-            &train_x,
-            &train_y,
+            &train_x.view(),
+            &train_y.view(),
             &paramss,
             num_fit_samples,
             rng,
@@ -287,7 +295,9 @@ mod tests {
             EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact)
                 .unwrap();
         let mut fitter = ENNFitter::new(2, false);
-        fitter.reset_y_stats(&model.train_y());
+        let all: Vec<usize> = (0..model.len()).collect();
+        let (_, ty, _) = model.rows().train_rows_at(&all).unwrap();
+        fitter.reset_y_stats(&ty.view());
         let warm = ENNParams::new(2, 2.5, 9.9).unwrap();
         let mut rng = StdRng::seed_from_u64(8);
         let p = fitter

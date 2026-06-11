@@ -12,10 +12,10 @@ endif
 all:
 	maturin build --release $(MATURIN_AUDITWHEEL)
 
-# Install the mixed Python/Rust package in editable mode.
+# Install the mixed Python/Rust package in editable mode (USearch always on; see pyproject [tool.maturin]).
 install:
 	@echo "Building and installing Python/Rust package (see pyproject [tool.maturin])..."
-	maturin develop --release
+	maturin develop --release --uv
 	@echo "Installation complete!"
 
 # Run all tests (Rust and Python)

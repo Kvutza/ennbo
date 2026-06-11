@@ -19,14 +19,32 @@ fn scale_x_false_index_not_stale_after_add() {
     let train_y = array![[0.0], [1.0]];
     let mut model =
         EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap();
-    model.sync_index().unwrap();
-    assert!(!model.is_index_stale());
+    model.ensure_index_sync().unwrap();
+    assert!(!model.index_access().is_stale());
     let x_add = array![[0.5, 0.5]];
     let y_add = array![[0.5]];
     model.add(&x_add.view(), &y_add.view(), None).unwrap();
-    assert!(!model.is_index_stale());
-    model.sync_index().unwrap();
+    assert!(!model.index_access().is_stale());
+    model.ensure_index_sync().unwrap();
     assert_eq!(model.num_obs(), 3);
+    assert_eq!(model.index_access().len(), 3);
+}
+
+#[test]
+fn scale_x_true_add_to_nonempty_succeeds() {
+    let train_x = array![[0.0, 0.0], [1.0, 0.0]];
+    let train_y = array![[0.0], [1.0]];
+    let mut model =
+        EpistemicNearestNeighbors::new(train_x, train_y, None, true, IndexDriver::Exact).unwrap();
+    model.ensure_index_sync().unwrap();
+    let x_add = array![[0.5, 0.5]];
+    let y_add = array![[0.5]];
+    model
+        .add(&x_add.view(), &y_add.view(), None)
+        .expect("scale_x=true append to non-empty model must succeed");
+    model.ensure_index_sync().unwrap();
+    assert_eq!(model.num_obs(), 3);
+    assert_eq!(model.index_access().len(), 3);
 }
 
 #[test]
@@ -35,11 +53,17 @@ fn scale_x_true_index_stale_after_add() {
     let train_y = array![[0.0], [1.0]];
     let mut model =
         EpistemicNearestNeighbors::new(train_x, train_y, None, true, IndexDriver::Exact).unwrap();
-    model.sync_index().unwrap();
+    model.ensure_index_sync().unwrap();
+    assert!(!model.index_access().is_stale());
     let x_add = array![[0.5, 0.5]];
     let y_add = array![[0.5]];
     model.add(&x_add.view(), &y_add.view(), None).unwrap();
-    assert!(model.is_index_stale());
+    assert!(
+        model.index_access().is_stale(),
+        "scale_x append must mark index stale before ensure_sync"
+    );
+    model.ensure_index_sync().unwrap();
+    assert!(!model.index_access().is_stale());
 }
 
 #[test]
@@ -49,7 +73,9 @@ fn enn_fitter_ask_always_fits_with_enough_obs() {
     let model =
         EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap();
     let mut fitter = ENNFitter::new(2, true);
-    fitter.reset_y_stats(&model.train_y());
+    let all: Vec<usize> = (0..model.len()).collect();
+    let (_, ty, _) = model.rows().train_rows_at(&all).unwrap();
+    fitter.reset_y_stats(&ty.view());
     let mut rng = StdRng::seed_from_u64(99);
     let p = fitter.ask(&model, 4, 3, None, &mut rng).unwrap();
     assert_eq!(p.k_num_neighbors, 2);
@@ -85,6 +111,26 @@ fn enn_surrogate_fit_append_grows_model() {
     let y1 = array![[1.5]];
     sur.fit_append(&x1.view(), &y1.view(), None, &mut rng).unwrap();
     assert_eq!(sur.model().unwrap().num_obs(), 3);
+}
+
+#[test]
+fn tell_rejects_changing_num_metrics() {
+    let bounds = array![[0.0, 1.0], [0.0, 1.0]];
+    let mut rng = StdRng::seed_from_u64(88);
+    let cfg = turbo_enn_config();
+    let mut opt = Optimizer::new(bounds, cfg, &mut rng).unwrap();
+    let x0 = array![[0.2, 0.3]];
+    let y0 = array![[1.0]];
+    opt.tell(&x0.view(), &y0.view(), &mut rng).unwrap();
+    let x1 = array![[0.4, 0.5], [0.6, 0.7]];
+    let y1 = array![[2.0, 3.0], [4.0, 5.0]];
+    let err = opt.tell(&x1.view(), &y1.view(), &mut rng);
+    assert!(err.is_err());
+    let msg = err.unwrap_err().to_string();
+    assert!(
+        msg.contains("unsupported"),
+        "expected unsupported metrics change error, got: {msg}"
+    );
 }
 
 #[test]

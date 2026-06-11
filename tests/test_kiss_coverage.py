@@ -120,6 +120,8 @@ def test_enn_index_driver_enum():
     from enn.turbo.config.enn_index_driver import ENNIndexDriver
 
     assert ENNIndexDriver.FLAT != ENNIndexDriver.HNSW
+    assert ENNIndexDriver.HNSW != ENNIndexDriver.HNSW_DISK
+    assert ENNIndexDriver.FLAT != ENNIndexDriver.HNSW_DISK
 
 
 def test_num_candidates_fn_protocol():
@@ -258,9 +260,9 @@ def _fit_gp_surrogate_for_kiss(rng):
 
 def test_enn_class_properties():
     enn = _enn_model()
-    # train_y / train_yvar / num_outputs
-    assert enn.train_y.shape == (2, 1)
-    assert enn.train_yvar is None
+    _, y_at, yvar_at = enn.train_rows_at([0, 1])
+    assert y_at.shape == (2, 1)
+    assert yvar_at is None
     assert enn.num_outputs == 1
 
 
@@ -355,8 +357,8 @@ def test_turbo_hybrid_strategy():
 
 
 def test_build_trust_region():
-    from enn.turbo.python_fallback.components.builder import build_trust_region
     from enn.turbo.config import NoTRConfig, TurboTRConfig
+    from enn.turbo.python_fallback.components.builder import build_trust_region
 
     rng = np.random.default_rng(0)
     tr = build_trust_region(TurboTRConfig(), num_dim=3, rng=rng)

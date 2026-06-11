@@ -1,113 +1,53 @@
 //! Epistemic Nearest Neighbors model implementation.
 
-use ndarray::{Array1, Array2, ArrayView2, Axis};
-use std::sync::Mutex;
+use ndarray::{Array1, Array2, ArrayView2};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
+use crate::backend::{DiskEnnBackend, EnnBackend, EnnStorage};
 use crate::error::ENNError;
-use crate::index::{ENNIndex, IndexDriver};
+use crate::index::IndexDriver;
 
-#[derive(Debug)]
-pub(crate) struct RowStorage {
-    buf: Vec<f64>,
-    nrows: usize,
-    ncols: usize,
-}
+type InitStats = (
+    Array1<f64>,
+    Array1<f64>,
+    Array1<f64>,
+    Array1<f64>,
+    Array1<f64>,
+    Array1<f64>,
+);
 
-impl RowStorage {
-    fn from_array2(a: Array2<f64>) -> Self {
-        let (nrows, ncols) = a.dim();
-        let a = a.as_standard_layout().into_owned();
-        let mut buf = Vec::with_capacity(nrows.saturating_mul(ncols));
-        buf.extend(a.iter());
-        let cur_elems = nrows.saturating_mul(ncols);
-        buf.reserve(cur_elems.max(ncols.saturating_mul(4096)));
-        Self { buf, nrows, ncols }
-    }
-
-    fn nrows(&self) -> usize {
-        self.nrows
-    }
-
-    fn view(&self) -> ArrayView2<'_, f64> {
-        ArrayView2::from_shape((self.nrows, self.ncols), &self.buf[..self.nrows * self.ncols])
-            .expect("row-major view")
-    }
-
-    fn push_rows(&mut self, extra: &ArrayView2<f64>) -> Result<(), ENNError> {
-        if extra.ncols() != self.ncols {
-            return Err(ENNError::InvalidShape {
-                expected: vec![self.nrows, self.ncols],
-                got: vec![extra.nrows(), extra.ncols()],
-            });
-        }
-        let n1 = extra.nrows();
-        if n1 == 0 {
-            return Ok(());
-        }
-        let cur_elems = self.nrows * self.ncols;
-        let add_elems = n1 * self.ncols;
-        let new_elems = cur_elems + add_elems;
-        if self.buf.capacity() < new_elems {
-            let growth = new_elems.saturating_sub(self.buf.capacity());
-            let slack = cur_elems.max(self.ncols.saturating_mul(4096));
-            self.buf.reserve(growth + slack);
-        }
-        for row in extra.axis_iter(Axis(0)) {
-            self.buf.extend(row.iter().copied());
-        }
-        self.nrows += n1;
-        Ok(())
-    }
-}
+mod access;
+pub use access::{EnnIndexAccess, EnnRowAccess};
 
 /// Epistemic Nearest Neighbors model.
-///
-/// This is the main ENN surrogate model that provides uncertainty-aware
-/// predictions using k-nearest neighbors with epistemic variance modeling.
 pub struct EpistemicNearestNeighbors {
-    /// Training inputs.
-    pub(crate) train_x_rows: RowStorage,
-    /// Training targets.
-    pub(crate) train_y_rows: RowStorage,
-    /// Observation noise variance (optional).
-    pub(crate) train_yvar_rows: Option<RowStorage>,
-    /// Number of observations.
+    pub(crate) backend: EnnBackend,
     pub(crate) num_obs: usize,
-    /// Number of input dimensions.
     pub(crate) num_dim: usize,
-    /// Number of output metrics.
     pub(crate) num_metrics: usize,
     pub(crate) scale_x: bool,
     pub(crate) x_scale: Array1<f64>,
-    /// Scale factors for outputs.
     pub(crate) y_scale: Array1<f64>,
-    /// KNN index.
-    pub(crate) index: ENNIndex,
     y_sum: Array1<f64>,
     y_sumsq: Array1<f64>,
     x_sum: Array1<f64>,
     x_sumsq: Array1<f64>,
-    index_stale: Mutex<bool>,
-    index_synced_obs: Mutex<usize>,
 }
 
 impl EpistemicNearestNeighbors {
-    /// Create a new ENN model.
-    pub fn new(
-        train_x: Array2<f64>,
-        train_y: Array2<f64>,
-        train_yvar: Option<Array2<f64>>,
-        scale_x: bool,
-        driver: IndexDriver,
-    ) -> Result<Self, ENNError> {
+    fn validate_shapes(
+        train_x: &Array2<f64>,
+        train_y: &Array2<f64>,
+        train_yvar: Option<&Array2<f64>>,
+    ) -> Result<(), ENNError> {
         if train_x.nrows() != train_y.nrows() {
             return Err(ENNError::InvalidShape {
                 expected: vec![train_y.nrows(), train_x.ncols()],
                 got: vec![train_x.nrows(), train_x.ncols()],
             });
         }
-
-        if let Some(ref yvar) = train_yvar {
+        if let Some(yvar) = train_yvar {
             if yvar.shape() != train_y.shape() {
                 return Err(ENNError::InvalidShape {
                     expected: train_y.shape().to_vec(),
@@ -115,203 +55,234 @@ impl EpistemicNearestNeighbors {
                 });
             }
         }
+        Ok(())
+    }
 
+    fn init_stats(train_x: &Array2<f64>, train_y: &Array2<f64>, scale_x: bool) -> InitStats {
         let num_obs = train_x.nrows();
         let num_dim = train_x.ncols();
         let num_metrics = train_y.ncols();
-
         let (y_sum, y_sumsq) = column_sums_and_sumsq(train_y.view());
         let y_scale = scale_from_moments(num_obs, num_metrics, &y_sum, &y_sumsq, 0.0);
-
-        let (x_scale, x_sum, x_sumsq) = if scale_x {
-            let (xs, xsq) = column_sums_and_sumsq(train_x.view());
-            let xscl = scale_from_moments(num_obs, num_dim, &xs, &xsq, 1e-12);
-            (xscl, xs, xsq)
+        if scale_x {
+            let (x_sum, x_sumsq) = column_sums_and_sumsq(train_x.view());
+            let x_scale = scale_from_moments(num_obs, num_dim, &x_sum, &x_sumsq, 1e-12);
+            (y_scale, y_sum, y_sumsq, x_scale, x_sum, x_sumsq)
         } else {
             (
+                y_scale,
+                y_sum,
+                y_sumsq,
                 Array1::ones(num_dim),
                 Array1::zeros(num_dim),
                 Array1::zeros(num_dim),
             )
-        };
+        }
+    }
 
-        let train_x_scaled = if scale_x {
-            (&train_x / &x_scale.view().insert_axis(Axis(0))).to_owned()
-        } else {
-            train_x.clone()
-        };
-
-        let index = ENNIndex::new(
-            train_x_scaled,
-            num_dim,
-            x_scale.clone(),
+    /// Create a new ENN model (in-memory backend).
+    pub fn new(
+        train_x: Array2<f64>,
+        train_y: Array2<f64>,
+        train_yvar: Option<Array2<f64>>,
+        scale_x: bool,
+        driver: IndexDriver,
+    ) -> Result<Self, ENNError> {
+        Self::new_with_storage(
+            train_x,
+            train_y,
+            train_yvar,
             scale_x,
             driver,
-        )?;
+            EnnStorage::InMemory,
+            None,
+        )
+    }
 
-        let train_x_rows = RowStorage::from_array2(train_x);
-        let train_y_rows = RowStorage::from_array2(train_y);
-        let train_yvar_rows = train_yvar.map(RowStorage::from_array2);
+    /// Create a new ENN model with explicit storage backend.
+    pub fn new_with_storage(
+        train_x: Array2<f64>,
+        train_y: Array2<f64>,
+        train_yvar: Option<Array2<f64>>,
+        scale_x: bool,
+        driver: IndexDriver,
+        storage: EnnStorage,
+        work_dir: Option<PathBuf>,
+    ) -> Result<Self, ENNError> {
+        Self::validate_shapes(&train_x, &train_y, train_yvar.as_ref())?;
+        let num_obs = train_x.nrows();
+        let num_dim = train_x.ncols();
+        let num_metrics = train_y.ncols();
+        let (y_scale, y_sum, y_sumsq, x_scale, x_sum, x_sumsq) =
+            Self::init_stats(&train_x, &train_y, scale_x);
 
-        Ok(Self {
-            train_x_rows,
-            train_y_rows,
-            train_yvar_rows,
+        let backend = match storage {
+            EnnStorage::InMemory => EnnBackend::new_in_memory(
+                train_x,
+                train_y,
+                train_yvar,
+                scale_x,
+                x_scale.clone(),
+                driver,
+            )?,
+            EnnStorage::Disk => {
+                if driver != IndexDriver::HNSWDisk {
+                    return Err(ENNError::InvalidParameter(
+                        "Disk storage requires IndexDriver::HNSWDisk".to_string(),
+                    ));
+                }
+                let dir = work_dir.or_else(EnnStorage::work_dir_from_env).ok_or_else(|| {
+                    ENNError::InvalidParameter(
+                        "Disk storage requires work_dir or ENN_WORK_DIR".to_string(),
+                    )
+                })?;
+                EnnBackend::new_disk(
+                    dir,
+                    train_x,
+                    train_y,
+                    train_yvar,
+                    scale_x,
+                    x_scale.clone(),
+                    driver,
+                )?
+            }
+        };
+
+        let mut model = Self {
+            backend,
             num_obs,
             num_dim,
             num_metrics,
             scale_x,
             x_scale,
             y_scale,
-            index,
             y_sum,
             y_sumsq,
             x_sum,
             x_sumsq,
-            index_stale: Mutex::new(false),
-            index_synced_obs: Mutex::new(num_obs),
+        };
+        if model.num_obs != model.backend.len() {
+            sync_obs_stats_from_backend(&mut model)?;
+        }
+        Ok(model)
+    }
+
+    /// Empty model for incremental construction (e.g. TuRBO from zero rows).
+    pub fn new_empty(
+        num_dim: usize,
+        num_metrics: usize,
+        driver: IndexDriver,
+        storage: EnnStorage,
+        work_dir: Option<PathBuf>,
+    ) -> Result<Self, ENNError> {
+        let backend = EnnBackend::new_empty(num_dim, num_metrics, driver, storage, work_dir)?;
+        Ok(Self {
+            backend,
+            num_obs: 0,
+            num_dim,
+            num_metrics,
+            scale_x: false,
+            x_scale: Array1::ones(num_dim),
+            y_scale: Array1::ones(num_metrics),
+            y_sum: Array1::zeros(num_metrics),
+            y_sumsq: Array1::zeros(num_metrics),
+            x_sum: Array1::zeros(num_dim),
+            x_sumsq: Array1::zeros(num_dim),
         })
     }
 
-    pub(crate) fn ensure_index_sync(&self) -> Result<(), ENNError> {
-        if self.scale_x {
-            let mut stale = self
-                .index_stale
-                .lock()
-                .expect("index_stale mutex poisoned");
-            if !*stale {
-                return Ok(());
-            }
-            let train_x_scaled =
-                (&self.train_x_rows.view() / &self.x_scale.view().insert_axis(Axis(0))).to_owned();
-            self.index
-                .rebuild_from_scaled(train_x_scaled, self.x_scale.clone())?;
-            *stale = false;
-            *self
-                .index_synced_obs
-                .lock()
-                .expect("index_synced_obs mutex poisoned") = self.num_obs;
-            return Ok(());
+    fn validate_add(
+        &self,
+        x: &ArrayView2<f64>,
+        y: &ArrayView2<f64>,
+        yvar: Option<&ArrayView2<f64>>,
+    ) -> Option<ENNError> {
+        if x.nrows() != y.nrows() || x.ncols() != self.num_dim || y.ncols() != self.num_metrics {
+            return Some(ENNError::InvalidShape {
+                expected: vec![y.nrows(), self.num_metrics],
+                got: vec![x.nrows(), x.ncols()],
+            });
         }
-        let mut synced = self
-            .index_synced_obs
-            .lock()
-            .expect("index_synced_obs mutex poisoned");
-        if *synced >= self.num_obs {
-            return Ok(());
+        if y.ncols() != self.num_metrics {
+            return Some(ENNError::InvalidParameter(format!(
+                "y has {} metric columns but model expects {}",
+                y.ncols(),
+                self.num_metrics
+            )));
         }
-        let train_view = self.train_x_rows.view();
-        let pending = train_view.slice(ndarray::s![*synced.., ..]);
-        if pending.nrows() > 0 {
-            self.index
-                .add(&pending)
-                .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+        match (yvar, self.rows().row_yvar(0).ok().flatten().is_some()) {
+            (Some(yv), _) if yv.shape() != y.shape() => Some(ENNError::InvalidShape {
+                expected: y.shape().to_vec(),
+                got: yv.shape().to_vec(),
+            }),
+            (Some(_), false) if self.num_obs > 0 => Some(ENNError::InvalidParameter(
+                "yvar provided but model has no existing yvar".to_string(),
+            )),
+            (None, true) if self.num_obs > 0 => Some(ENNError::InvalidParameter(
+                "yvar must be provided if model has existing yvar".to_string(),
+            )),
+            _ => None,
         }
-        *synced = self.num_obs;
-        Ok(())
     }
 
-    pub fn sync_index(&self) -> Result<(), ENNError> {
-        self.ensure_index_sync()
-    }
-
-    /// Whether the FAISS index is marked stale (full rebuild required on next sync).
-    pub fn is_index_stale(&self) -> bool {
-        *self
-            .index_stale
-            .lock()
-            .expect("index_stale mutex poisoned")
-    }
-
-    /// Add new observations to the model.
     pub fn add(
         &mut self,
         x: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
         yvar: Option<&ArrayView2<f64>>,
     ) -> Result<(), ENNError> {
-        if x.nrows() != y.nrows() {
-            return Err(ENNError::InvalidShape {
-                expected: vec![y.nrows(), x.ncols()],
-                got: vec![x.nrows(), x.ncols()],
-            });
-        }
-        if x.ncols() != self.num_dim {
-            return Err(ENNError::InvalidShape {
-                expected: vec![x.nrows(), self.num_dim],
-                got: vec![x.nrows(), x.ncols()],
-            });
-        }
-        if y.ncols() != self.num_metrics {
-            return Err(ENNError::InvalidShape {
-                expected: vec![y.nrows(), self.num_metrics],
-                got: vec![y.nrows(), y.ncols()],
-            });
-        }
-
-        if let Some(yv) = yvar {
-            if yv.shape() != y.shape() {
-                return Err(ENNError::InvalidShape {
-                    expected: y.shape().to_vec(),
-                    got: yv.shape().to_vec(),
-                });
-            }
-            if self.train_yvar_rows.is_none() && self.num_obs > 0 {
-                return Err(ENNError::InvalidParameter(
-                    "yvar provided but model has no existing yvar".to_string(),
-                ));
-            }
-        } else if self.train_yvar_rows.is_some() {
-            return Err(ENNError::InvalidParameter(
-                "yvar must be provided if model has existing yvar".to_string(),
-            ));
+        if let Some(err) = self.validate_add(x, y, yvar) {
+            return Err(err);
         }
         if x.nrows() > 0 {
-            self.train_x_rows.push_rows(x)?;
-            self.train_y_rows.push_rows(y)?;
-            match (&mut self.train_yvar_rows, yvar) {
-                (Some(yvar_rows), Some(yv)) => yvar_rows.push_rows(yv)?,
-                (None, Some(yv)) => {
-                    self.train_yvar_rows = Some(RowStorage::from_array2(yv.to_owned()));
-                }
-                (Some(_), None) | (None, None) => {}
-            }
-
+            self.backend.wait_for_flush()?;
+            self.backend.append_rows(x, y, yvar)?;
             accumulate_columns(&mut self.y_sum, &mut self.y_sumsq, y.view());
-            let n = self.train_y_rows.nrows();
+            let n = self.backend.len();
             self.y_scale = scale_from_moments(n, self.num_metrics, &self.y_sum, &self.y_sumsq, 0.0);
 
             if self.scale_x {
                 accumulate_columns(&mut self.x_sum, &mut self.x_sumsq, x.view());
-                self.x_scale = scale_from_moments(n, self.num_dim, &self.x_sum, &self.x_sumsq, 1e-12);
-                *self
-                    .index_stale
-                    .lock()
-                    .expect("index_stale mutex poisoned") = true;
+                self.x_scale =
+                    scale_from_moments(n, self.num_dim, &self.x_sum, &self.x_sumsq, 1e-12);
+                self.backend.mark_index_stale();
             }
 
-            self.num_obs = self.train_x_rows.nrows();
+            self.num_obs = n;
         }
-
         Ok(())
     }
 
-    /// Get the number of observations.
+    /// Schedule a background index flush when pending rows exceed the disk threshold.
+    pub fn schedule_background_flush(&self) -> Result<(), ENNError> {
+        self.backend.schedule_background_flush()
+    }
+
+    /// Hidden accessor for integration tests needing the disk backend handle.
+    #[doc(hidden)]
+    pub fn disk_backend_arc(&self) -> Option<Arc<Mutex<DiskEnnBackend>>> {
+        match &self.backend {
+            EnnBackend::Disk(arc) => Some(Arc::clone(arc)),
+            _ => None,
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.num_obs
     }
 
-    /// Check if model is empty.
     pub fn is_empty(&self) -> bool {
         self.num_obs == 0
     }
 
-    /// Get number of outputs.
     pub fn num_outputs(&self) -> usize {
         self.num_metrics
     }
 
-    /// Get k nearest neighbors for query points.
+    pub fn is_scale_x(&self) -> bool {
+        self.scale_x
+    }
+
     pub fn neighbors(
         &self,
         x: &ArrayView2<f64>,
@@ -324,38 +295,32 @@ impl EpistemicNearestNeighbors {
                 got: vec![x.nrows(), x.ncols()],
             });
         }
-
         if k < 0 {
             return Err(ENNError::InvalidParameter(format!(
-                "k must be non-negative, got {}",
-                k
+                "k must be non-negative, got {k}"
             )));
         }
-
         if self.num_obs == 0 {
             return Ok(Array2::zeros((x.nrows(), 0)));
         }
-
         if exclude_nearest && self.num_obs <= 1 {
             return Err(ENNError::InvalidParameter(format!(
                 "exclude_nearest=true requires at least 2 observations, got {}",
                 self.num_obs
             )));
         }
-
         let search_k = if exclude_nearest {
             ((k + 1) as usize).min(self.num_obs)
         } else {
             (k as usize).min(self.num_obs)
         };
-
         if search_k == 0 {
             return Ok(Array2::zeros((x.nrows(), 0)));
         }
-
-        self.ensure_index_sync()?;
-        let (_, idx_full) = self.index.search(x, search_k as i32, exclude_nearest)?;
-
+        if !self.backend.defer_index_sync_for_search() {
+            self.ensure_index_sync()?;
+        }
+        let (_, idx_full) = self.backend.search(x, search_k as i32, exclude_nearest)?;
         let k_out = (k as usize).min(idx_full.ncols());
         let mut result = Array2::zeros((x.nrows(), k_out));
         for i in 0..x.nrows() {
@@ -363,66 +328,19 @@ impl EpistemicNearestNeighbors {
                 result[[i, j]] = idx_full[[i, j]] as usize;
             }
         }
-
         Ok(result)
-    }
-
-    /// Training inputs (read-only).
-    pub fn train_x(&self) -> ArrayView2<'_, f64> {
-        self.train_x_rows.view()
-    }
-
-    /// Training targets (read-only).
-    pub fn train_y(&self) -> ArrayView2<'_, f64> {
-        self.train_y_rows.view()
-    }
-
-    pub fn train_yvar(&self) -> Option<ArrayView2<'_, f64>> {
-        self.train_yvar_rows.as_ref().map(|r| r.view())
     }
 
     pub(crate) fn y_scale(&self) -> &Array1<f64> {
         &self.y_scale
     }
 
-    /// Input scale as a single row `(1, num_dim)` for NumPy-style broadcasting.
     pub fn x_scale_row(&self) -> Array2<f64> {
-        self.x_scale.clone().insert_axis(Axis(0))
+        self.x_scale.clone().insert_axis(ndarray::Axis(0))
     }
 
-    /// Output scale as a single row `(1, num_metrics)` for NumPy-style broadcasting.
     pub fn y_scale_row(&self) -> Array2<f64> {
-        self.y_scale.clone().insert_axis(Axis(0))
-    }
-
-    /// Whether training inputs are divided by per-dimension std scales.
-    pub fn scale_x_enabled(&self) -> bool {
-        self.scale_x
-    }
-
-    pub(crate) fn index(&self) -> &ENNIndex {
-        &self.index
-    }
-
-    pub fn neighbor_distances_and_indices(
-        &self,
-        x: &ArrayView2<f64>,
-        search_k: i32,
-        exclude_nearest: bool,
-    ) -> Result<(Array2<f64>, Array2<i64>), ENNError> {
-        self.ensure_index_sync()?;
-        Ok(self.index.search(x, search_k, exclude_nearest)?)
-    }
-
-    /// Neighbor lookup via `index_search` (f64 exact ranking for Exact driver).
-    pub fn index_neighbor_distances_and_indices(
-        &self,
-        x: &ArrayView2<f64>,
-        search_k: i32,
-        exclude_nearest: bool,
-        tie_break_neighbors: bool,
-    ) -> Result<(Array2<f64>, Array2<i64>), ENNError> {
-        crate::posterior::index_search(self, x, search_k, exclude_nearest, tie_break_neighbors)
+        self.y_scale.clone().insert_axis(ndarray::Axis(0))
     }
 
     pub(crate) fn num_obs(&self) -> usize {
@@ -436,13 +354,67 @@ impl EpistemicNearestNeighbors {
     pub fn num_metrics(&self) -> usize {
         self.num_metrics
     }
+
+    pub fn has_yvar(&self) -> bool {
+        self.num_obs > 0 && self.rows().row_yvar(0).ok().flatten().is_some()
+    }
+
+    pub(crate) fn backend_driver(&self) -> IndexDriver {
+        self.backend.driver()
+    }
+
+    pub(crate) fn train_y_view_opt(&self) -> Option<ndarray::ArrayView2<'_, f64>> {
+        self.backend.in_memory_train_y_view()
+    }
+
+    pub(crate) fn train_x_view_opt(&self) -> Option<ndarray::ArrayView2<'_, f64>> {
+        self.backend.in_memory_train_x_view()
+    }
+
+    pub(crate) fn backend_search(
+        &self,
+        x: &ArrayView2<f64>,
+        search_k: i32,
+        exclude_nearest: bool,
+    ) -> Result<(Array2<f64>, Array2<i64>), ENNError> {
+        if !self.backend.defer_index_sync_for_search() {
+            self.ensure_index_sync()?;
+        }
+        self.backend.search(x, search_k, exclude_nearest)
+    }
+}
+
+/// Rebuild observation count and scale moments from persisted backend rows (disk reopen).
+fn sync_obs_stats_from_backend(model: &mut EpistemicNearestNeighbors) -> Result<(), ENNError> {
+    let n = model.backend.len();
+    model.num_obs = n;
+    if n == 0 {
+        return Ok(());
+    }
+    let indices: Vec<usize> = (0..n).collect();
+    let (x, y, _) = model.backend.train_rows_at(&indices)?;
+    let (y_sum, y_sumsq) = column_sums_and_sumsq(y.view());
+    model.y_sum = y_sum;
+    model.y_sumsq = y_sumsq;
+    model.y_scale = scale_from_moments(n, model.num_metrics, &model.y_sum, &model.y_sumsq, 0.0);
+    if model.scale_x {
+        let (x_sum, x_sumsq) = column_sums_and_sumsq(x.view());
+        model.x_sum = x_sum;
+        model.x_sumsq = x_sumsq;
+        model.x_scale =
+            scale_from_moments(n, model.num_dim, &model.x_sum, &model.x_sumsq, 1e-12);
+        // Disk reopen: backend x_scale starts at empty-init ones while the graph may
+        // have been built under a different scale. Force rebuild on first search.
+        model.backend.mark_index_stale();
+    }
+    Ok(())
 }
 
 fn column_sums_and_sumsq(a: ArrayView2<f64>) -> (Array1<f64>, Array1<f64>) {
     let ncol = a.ncols();
     let mut sum = Array1::zeros(ncol);
     let mut sumsq = Array1::zeros(ncol);
-    for row in a.axis_iter(Axis(0)) {
+    for row in a.axis_iter(ndarray::Axis(0)) {
         for j in 0..ncol {
             let v = row[j];
             sum[j] += v;
@@ -454,7 +426,7 @@ fn column_sums_and_sumsq(a: ArrayView2<f64>) -> (Array1<f64>, Array1<f64>) {
 
 fn accumulate_columns(sum: &mut Array1<f64>, sumsq: &mut Array1<f64>, extra: ArrayView2<f64>) {
     let ncol = extra.ncols();
-    for row in extra.axis_iter(Axis(0)) {
+    for row in extra.axis_iter(ndarray::Axis(0)) {
         for j in 0..ncol {
             let v = row[j];
             sum[j] += v;
@@ -463,7 +435,7 @@ fn accumulate_columns(sum: &mut Array1<f64>, sumsq: &mut Array1<f64>, extra: Arr
     }
 }
 
-fn scale_from_moments(
+pub(crate) fn scale_from_moments(
     n: usize,
     ncol: usize,
     sum: &Array1<f64>,
@@ -489,17 +461,16 @@ fn scale_from_moments(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::row_storage::RowStorage;
     use ndarray::array;
 
     #[test]
     fn test_enn_creation() {
         let train_x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
         let train_y = array![[0.0], [1.0], [1.0], [2.0]];
-
         let model =
             EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact)
                 .unwrap();
-
         assert_eq!(model.len(), 4);
         assert_eq!(model.num_outputs(), 1);
     }
@@ -508,16 +479,12 @@ mod tests {
     fn test_enn_add() {
         let train_x = array![[0.0, 0.0], [1.0, 0.0]];
         let train_y = array![[0.0], [1.0]];
-
         let mut model =
             EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact)
                 .unwrap();
-
-        let new_x = array![[0.0, 1.0]];
-        let new_y = array![[1.0]];
-
-        model.add(&new_x.view(), &new_y.view(), None).unwrap();
-
+        model
+            .add(&array![[0.0, 1.0]].view(), &array![[1.0]].view(), None)
+            .unwrap();
         assert_eq!(model.len(), 3);
     }
 
@@ -526,9 +493,7 @@ mod tests {
         let rows = array![[1.0, 2.0], [3.0, 4.0]];
         let mut storage = RowStorage::from_array2(rows.clone());
         assert_eq!(storage.nrows(), 2);
-        storage
-            .push_rows(&array![[5.0, 6.0]].view())
-            .unwrap();
+        storage.push_rows(&array![[5.0, 6.0]].view()).unwrap();
         assert_eq!(storage.nrows(), 3);
         let (sum, sumsq) = column_sums_and_sumsq(rows.view());
         let mut sum2 = sum.clone();
@@ -539,19 +504,102 @@ mod tests {
     }
 
     #[test]
-    fn test_sync_index_idempotent() {
+    fn test_new_empty_and_row_accessors() {
+        let mut model = EpistemicNearestNeighbors::new_empty(
+            2,
+            1,
+            IndexDriver::Exact,
+            EnnStorage::InMemory,
+            None,
+        )
+        .unwrap();
+        model
+            .add(&array![[1.0, 2.0]].view(), &array![[3.0]].view(), None)
+            .unwrap();
+        let x = model.rows().row_x(0).unwrap();
+        assert!((x[0] - 1.0).abs() < 1e-12);
+        let y = model.rows().row_y(0).unwrap();
+        assert!((y[0] - 3.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn internal_in_memory_views_and_index() {
         let train_x = array![[0.0, 0.0], [1.0, 0.0]];
         let train_y = array![[0.0], [1.0]];
-
-        let mut model =
+        let model =
             EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact)
                 .unwrap();
+        assert!(model.train_x_view_opt().is_some());
+        assert!(model.train_y_view_opt().is_some());
+        assert_eq!(model.index_access().len(), 2);
+    }
 
-        let new_x = array![[0.0, 1.0]];
-        let new_y = array![[1.0]];
-        model.add(&new_x.view(), &new_y.view(), None).unwrap();
+    #[test]
+    fn model_add_waits_for_inflight_flush() {
+        use crate::backend::{DiskEnnBackend, EnnBackend};
+        use std::sync::{Arc, Mutex};
+        use tempfile::TempDir;
 
-        model.sync_index().unwrap();
-        model.sync_index().unwrap();
+        let dir = TempDir::new().expect("tempdir");
+        let mut model = EpistemicNearestNeighbors::new_empty(
+            2,
+            1,
+            IndexDriver::HNSWDisk,
+            EnnStorage::Disk,
+            Some(dir.path().to_path_buf()),
+        )
+        .unwrap();
+        for i in 0..3 {
+            model
+                .add(
+                    &array![[i as f64, 0.0]].view(),
+                    &array![[i as f64]].view(),
+                    None,
+                )
+                .unwrap();
+        }
+        let (arc, flush_arc) = match &model.backend {
+            EnnBackend::Disk(a) => {
+                let guard = a.lock().expect("disk lock");
+                let DiskEnnBackend::Hnsw(ref b) = *guard;
+                let f = Arc::clone(&b.flush);
+                drop(guard);
+                (Arc::clone(a), f)
+            }
+            _ => panic!("expected disk backend"),
+        };
+        {
+            let guard = arc.lock().expect("disk lock");
+            let DiskEnnBackend::Hnsw(ref b) = *guard;
+            b.flush_test_barrier_hold(true);
+        }
+        crate::disk_hnsw::flush::try_schedule_background_flush(
+            &flush_arc,
+            Arc::clone(&arc),
+        )
+        .unwrap();
+        let model = Arc::new(Mutex::new(model));
+        let add_handle = {
+            let model = Arc::clone(&model);
+            std::thread::spawn(move || {
+                let mut m = model.lock().expect("model lock");
+                m.add(
+                    &array![[9.0, 9.0]].view(),
+                    &array![[9.0]].view(),
+                    None,
+                )
+                .unwrap();
+            })
+        };
+        flush_arc
+            .lock()
+            .expect("flush lock")
+            .barrier
+            .set_hold(false);
+        add_handle.join().expect("add thread");
+        let guard = arc.lock().expect("disk lock");
+        let DiskEnnBackend::Hnsw(ref b) = *guard;
+        assert_eq!(b.len(), 4);
+        assert_eq!(b.indexed_rows(), 3);
     }
 }
