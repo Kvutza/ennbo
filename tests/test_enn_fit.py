@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from tests.conftest import enn_all_train_rows
+from enn_helpers import enn_all_train_rows
 
 
 def _fit_model(

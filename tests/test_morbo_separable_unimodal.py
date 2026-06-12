@@ -15,7 +15,7 @@ from enn.turbo.config import (
     turbo_enn_config,
 )
 
-from tests.morbo_objectives import (
+from morbo_objectives import (
     separable_unimodal_objective as _separable_unimodal_objective,
 )
 

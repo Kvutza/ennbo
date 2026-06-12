@@ -46,7 +46,7 @@ def test_fallback_noise_aware_prefers_mu_over_observed_y():
         opt._incumbent_tracker.tell(i, y[i, 0])
     opt._update_incumbent()
     assert opt._incumbent_idx == 0
-    assert float(opt._incumbent_y_scalar[0]) == 10.0
+    assert float(opt._incumbent_y_scalar[0, 0]) == 10.0
     raw_y_best = int(np.argmax(y[:, 0]))
     assert raw_y_best == 2
     assert opt._incumbent_idx != raw_y_best

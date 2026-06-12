@@ -6,7 +6,7 @@ import pytest
 from enn.enn.enn_class import EpistemicNearestNeighbors
 from enn.enn.enn_params import ENNParams
 
-from tests.conftest import enn_all_train_rows
+from enn_helpers import enn_all_train_rows
 
 
 @pytest.mark.parametrize("scale_x", [False, True])

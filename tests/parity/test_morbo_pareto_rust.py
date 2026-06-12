@@ -16,7 +16,7 @@ from enn.turbo.config import (
 )
 from enn.turbo.rust_optimizer import RustOptimizer
 
-from tests.morbo_objectives import separable_unimodal_objective
+from morbo_objectives import separable_unimodal_objective
 
 try:
     from enn import _rust  # noqa: F401
