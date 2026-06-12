@@ -18,7 +18,7 @@ from enn.turbo.config.enn_index_driver import ENNIndexDriver
 
 def main() -> None:
     rng = np.random.default_rng(42)
-    dim, n = 8, 200
+    dim, n = 8, 80
     train_x = rng.standard_normal((n, dim))
     train_y = rng.standard_normal((n, 1))
     query = rng.standard_normal((1, dim))

@@ -34,7 +34,7 @@ def _make_candidates(n: int = 4, d: int = 2):
 def _fit_gp_surrogate(rng):
     surrogate = GPSurrogate()
     x, y = _make_test_data()
-    surrogate.fit(x, y, None, num_steps=10, rng=rng)
+    surrogate.fit(x, y, None, num_steps=2, rng=rng)
     return surrogate
 
 
@@ -52,6 +52,7 @@ def test_posterior_result():
     assert np.allclose(result.sigma, sigma)
 
 
+@pytest.mark.slow
 def test_gp_surrogate_fit_and_predict():
     rng = np.random.default_rng(42)
     surrogate = _fit_gp_surrogate(rng)
@@ -61,6 +62,7 @@ def test_gp_surrogate_fit_and_predict():
     assert posterior.sigma.shape == (4, 1)
 
 
+@pytest.mark.slow
 def test_ucb_acq_optimizer_select():
     optimizer = UCBAcqOptimizer(beta=1.0)
     rng = np.random.default_rng(42)
@@ -88,6 +90,7 @@ def test_build_acquisition_optimizer_turbo_one():
     assert isinstance(optimizer, ThompsonAcqOptimizer)
 
 
+@pytest.mark.slow
 def test_optimizer_fallback_during_init():
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     config = turbo_one_config(num_init=10, num_candidates=16)

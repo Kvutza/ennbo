@@ -6,21 +6,19 @@ outputs to the Python reference implementation.
 
 from __future__ import annotations
 
+import importlib.util
+
 import numpy as np
 import pytest
 
-from enn.enn.enn_hash import (
-    normal_hash_batch_multi_seed_fast,
-)
+RUST_AVAILABLE = importlib.util.find_spec("enn._rust") is not None
 
-# Try to import Rust implementation
-try:
+if RUST_AVAILABLE:
     from enn._rust import normal_hash_batch_multi_seed_fast as rust_hash_fast
-
-    RUST_AVAILABLE = True
-except ImportError:
-    RUST_AVAILABLE = False
-
+    from enn.enn.enn_hash import normal_hash_batch_multi_seed_fast
+else:
+    normal_hash_batch_multi_seed_fast = None
+    rust_hash_fast = None
 
 pytestmark = pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust not available")
 

@@ -72,7 +72,9 @@ pub fn open_or_append_yvar(
 ) -> Result<Option<MmapColumnStore>, ENNError> {
     if let Some(yv) = train_yvar {
         let yv_path = work_dir.join("train_yvar.bin");
-        let mut store = MmapColumnStore::mmap_open_or_create(yv_path, num_metrics, None)?;
+        let known_nrows = load_num_obs(work_dir);
+        let mut store =
+            MmapColumnStore::mmap_open_or_create(yv_path, num_metrics, known_nrows)?;
         if store.nrows == 0 {
             store.mmap_append(&yv.view())?;
         }
@@ -103,7 +105,9 @@ pub fn append_yvar_on_add(
         (Some(store), Some(yv)) => store.mmap_append(yv)?,
         (None, Some(yv)) => {
             let yv_path = work_dir.join("train_yvar.bin");
-            let mut store = MmapColumnStore::mmap_open_or_create(yv_path, num_metrics, None)?;
+            let known_nrows = load_num_obs(work_dir);
+            let mut store =
+                MmapColumnStore::mmap_open_or_create(yv_path, num_metrics, known_nrows)?;
             store.mmap_append(yv)?;
             *train_yvar = Some(store);
         }

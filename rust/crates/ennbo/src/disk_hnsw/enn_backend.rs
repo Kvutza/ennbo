@@ -75,10 +75,11 @@ impl DiskHnswEnnBackend {
         let num_metrics = train_y.ncols();
         let x_path = work_dir.join("train_x.bin");
         let y_path = work_dir.join("train_y.bin");
-        // Row counts come from train file bytes; disk_obs::load_num_obs is for metadata introspection.
-        let mut train_x_store = MmapColumnStore::mmap_open_or_create(x_path, num_dim, None)?;
+        let known_nrows = disk_obs::load_num_obs(&work_dir);
+        let mut train_x_store =
+            MmapColumnStore::mmap_open_or_create(x_path, num_dim, known_nrows)?;
         let mut train_y_store =
-            MmapColumnStore::mmap_open_or_create(y_path, num_metrics, None)?;
+            MmapColumnStore::mmap_open_or_create(y_path, num_metrics, known_nrows)?;
         if train_x_store.nrows == 0 && train_x.nrows() > 0 {
             train_x_store.mmap_append(&train_x.view())?;
             train_y_store.mmap_append(&train_y.view())?;
@@ -592,6 +593,15 @@ impl DiskHnswEnnBackend {
         )?;
         self.pending_unindexed
             .fetch_add(x.nrows(), Ordering::Relaxed);
+        disk_obs::write_metadata(
+            &self.work_dir,
+            self.len(),
+            self.num_dim,
+            self.num_metrics,
+            self.scale_x,
+            self.indexed_rows,
+            INDEX_BACKEND,
+        )?;
         if !self.defer_append_indexing
             && self.len().saturating_sub(self.indexed_rows) >= self.pending_flush_threshold
         {

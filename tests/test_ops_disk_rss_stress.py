@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+pytestmark = pytest.mark.slow
+
 
 def _run_disk_rss_stress(
     tmp_path, num_obs: int, *, num_dim: int = 10, query_n: int = 50

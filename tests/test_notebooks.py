@@ -2,10 +2,7 @@ import importlib.util
 import os
 from pathlib import Path
 
-import nbformat
 import pytest
-from jupyter_client import KernelManager
-from nbclient import NotebookClient
 
 FAST_TEST_SMOKE = {
     "examples/demo_enn.ipynb": """
@@ -80,8 +77,10 @@ def _run_fast_test_smoke(notebook_path: str) -> None:
 
 
 def _execute_with_kernel(
-    nb: nbformat.NotebookNode, repo_root: Path, kernel_manager: KernelManager
+    nb, repo_root: Path, kernel_manager
 ) -> None:
+    from nbclient import NotebookClient
+
     client = NotebookClient(
         nb,
         timeout=600,
@@ -99,6 +98,9 @@ def run_notebook(notebook_path: str) -> None:
 
     if importlib.util.find_spec("nbclient") is None:
         pytest.skip("nbclient is not installed")
+
+    import nbformat
+    from jupyter_client import KernelManager
 
     repo_root = Path(__file__).resolve().parent.parent
     nb_path = repo_root / notebook_path

@@ -84,6 +84,7 @@ def test_batch_posterior_matches_posterior_on_train_x():
         np.testing.assert_allclose(post_batch.se[i], post.se, rtol=0, atol=0)
 
 
+@pytest.mark.slow
 def test_batch_posterior_on_train_empty_neighbor_path_matches_posterior():
     """When neighbor lookup is empty, batch_posterior must use empty-posterior (se=1), not zeros.
 

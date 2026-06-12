@@ -9,7 +9,10 @@ try:
 except ImportError:
     RUST_AVAILABLE = False
 
-pytestmark = pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust not available")
+pytestmark = [
+    pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust not available"),
+    pytest.mark.slow,
+]
 
 
 def test_optimizer_quality_ci_subset():

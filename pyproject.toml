@@ -40,6 +40,7 @@ with-deps = [
 dev = [
     "pytest>=8.0",
     "pytest-testmon>=2.0",
+    "pytest-xdist>=3.0",
     "ruff>=0.4",
     "nbmake>=1.5",
     "nds>=0.4.3",

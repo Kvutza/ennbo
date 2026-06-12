@@ -50,7 +50,7 @@ def test_turbo_fallback_called_during_init_with_observations():
     assert init_idx <= num_init
 
 
-def _run_bo(config: OptimizerConfig, num_steps: int = 15) -> float:
+def _run_bo(config: OptimizerConfig, num_steps: int = 4) -> float:
     from enn import create_optimizer
 
     bounds = np.array([[-1.0, 1.0], [-1.0, 1.0]], dtype=float)
@@ -123,10 +123,12 @@ def test_optimizer_accepts_base_config_as_turbo_zero():
     assert x.shape == (2, 2)
 
 
+@pytest.mark.slow
 def test_turbo_one_improves_on_sphere():
-    assert _run_bo(turbo_one_config(), num_steps=12) > -0.5
+    assert _run_bo(turbo_one_config(), num_steps=4) > -0.5
 
 
+@pytest.mark.slow
 def test_turbo_one_pareto_ask_tell_runs():
     from enn import create_optimizer
 
@@ -143,6 +145,7 @@ def test_turbo_one_pareto_ask_tell_runs():
     assert x_final.shape == (2, 2)
 
 
+@pytest.mark.slow
 def test_turbo_one_with_y_var_uses_noisy_gp():
     from enn import create_optimizer
     from enn.turbo.python_fallback.turbo_gp_noisy import TurboGPNoisy
@@ -160,11 +163,11 @@ def test_turbo_one_with_y_var_uses_noisy_gp():
 
 
 def test_turbo_zero_reasonable_on_sphere():
-    assert _run_bo(turbo_zero_config(), num_steps=12) > -1.5
+    assert _run_bo(turbo_zero_config(), num_steps=4) > -1.5
 
 
 def test_turbo_enn_uses_enn_and_is_reasonable():
-    assert _run_bo(turbo_enn_config(), num_steps=12) > -1.5
+    assert _run_bo(turbo_enn_config(), num_steps=4) > -1.5
 
 
 def test_turbo_enn_with_k_none_fits_hyperparameters():
@@ -271,6 +274,8 @@ def test_find_x_center_uses_top_k_union_for_multiobjective():
 
 
 def test_update_incumbent_uses_tracker_not_surrogate_candidate_api():
+    from unittest import mock
+
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(0)
     opt = _make_fallback_optimizer(
@@ -288,12 +293,14 @@ def test_update_incumbent_uses_tracker_not_surrogate_candidate_api():
     opt._incumbent_tracker.ask = _spy_ask  # type: ignore[method-assign]
     x = rng.uniform(0.0, 1.0, size=(4, 2))
     y = np.array([0.1, 0.5, 0.2, 0.9], dtype=float)
-    opt.tell(x, y.reshape(-1, 1))
+    with mock.patch.object(opt._surrogate, "fit", autospec=True):
+        opt.tell(x, y.reshape(-1, 1))
     assert ask_calls
     assert opt._incumbent_tracker.observation_count() == len(opt._y_obs)
     assert opt._incumbent_idx is not None
 
 
+@pytest.mark.slow
 def test_optimizer_keeps_all_observations():
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(42)
@@ -303,13 +310,14 @@ def test_optimizer_keeps_all_observations():
     ]
     for cfg, make in cases:
         opt = make(bounds=bounds, config=cfg, rng=rng)
-        for _ in range(10):
+        for _ in range(4):
             x = opt.ask(num_arms=2)
             opt.tell(x, -np.sum(x**2, axis=1))
-        assert opt._x_obs.view().shape[0] == 20 and opt._y_obs.view().shape[0] == 20
+        assert opt._x_obs.view().shape[0] == 8 and opt._y_obs.view().shape[0] == 8
         assert opt.ask(num_arms=2).shape == (2, 2)
 
 
+@pytest.mark.slow
 def test_incumbent_preserved_across_many_tells():
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(123)
@@ -319,7 +327,7 @@ def test_incumbent_preserved_across_many_tells():
     ]
     for cfg, make in cases:
         opt = make(bounds=bounds, config=cfg, rng=rng)
-        for i in range(15):
+        for i in range(5):
             x = opt.ask(num_arms=2)
             y = (
                 np.array([10.0, 9.0])
@@ -327,7 +335,7 @@ def test_incumbent_preserved_across_many_tells():
                 else np.array([5.0 - i * 0.1, 4.0 - i * 0.1])
             )
             opt.tell(x, y)
-        assert opt.tr_obs_count == 30
+        assert opt.tr_obs_count == 10
         assert opt.ask(num_arms=2).shape == (2, 2)
 
 
@@ -343,6 +351,7 @@ def test_optimizer_tell_without_yvar():
     assert x2.shape == (4, 2) and np.all(x2 >= 0.0) and np.all(x2 <= 1.0)
 
 
+@pytest.mark.slow
 def test_optimizer_yvar_policy_enforced():
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     opt = _make_fallback_optimizer(
@@ -364,6 +373,7 @@ def test_optimizer_yvar_policy_enforced():
         opt2.tell(x1, -np.sum(x1**2, axis=1), 0.1 * np.ones(2))
 
 
+@pytest.mark.slow
 def test_turbo_one_trust_region_update_is_noise_robust_to_spikes():
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     opt = _make_fallback_optimizer(

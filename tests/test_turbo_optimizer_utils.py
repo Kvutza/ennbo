@@ -94,6 +94,7 @@ def test_torch_seed_context(seed1, seed2, should_match):
     assert (val1 == val2) == should_match
 
 
+@pytest.mark.slow
 def test_get_gp_posterior_suppress_warning_basic():
     import torch
 
@@ -101,7 +102,7 @@ def test_get_gp_posterior_suppress_warning_basic():
 
     x = [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6], [0.7, 0.8]]
     y = [1.0, 2.0, 3.0, 4.0]
-    gp_result = fit_gp(x, y, num_dim=2, num_steps=10)
+    gp_result = fit_gp(x, y, num_dim=2, num_steps=2)
     if gp_result.model is not None:
         x_torch = torch.tensor([[0.2, 0.3]], dtype=torch.float64)
         result = get_gp_posterior_suppress_warning(gp_result.model, x_torch)

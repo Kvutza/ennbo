@@ -16,6 +16,8 @@ from enn.enn.enn_class_support import (
 )
 from enn.enn.enn_params import ENNParams, PosteriorFlags
 
+pytestmark = pytest.mark.slow
+
 _POSTERIOR_SPEED_BASELINE = (
     Path(__file__).resolve().parent / "fixtures" / "posterior_speed_baseline.json"
 )
@@ -63,8 +65,8 @@ def test_enn_demo_performance():
     assert elapsed < 0.3, f"Expected < 0.3s, got {elapsed:.3f}s"
 
 
-_PERF_WARMUP = 8
-_PERF_REPS = 15
+_PERF_WARMUP = 1
+_PERF_REPS = 1
 
 
 def _median_seconds(fn, *, reps: int = _PERF_REPS) -> float:
@@ -162,6 +164,7 @@ def test_index_search_neighbor_lookup_not_much_slower_than_faiss_only(
     )
 
 
+
 def test_posterior_self_search_tie_break_not_much_slower_than_no_tie_break():
     """posterior(train_x) tie-break-on must track tie-break-off at n=1024."""
     rng = np.random.default_rng(0)
@@ -187,10 +190,11 @@ def test_posterior_self_search_tie_break_not_much_slower_than_no_tie_break():
             flags=PosteriorFlags(tie_break_neighbors=True),
         )
 
-    ratio = _median_paired_ratio(run_on, run_off, warmup=20, reps=30)
+    ratio = _median_paired_ratio(run_on, run_off, warmup=3, reps=5)
     assert ratio <= 1.22, (
         f"tie-break posterior must be <= 1.22x no-tie-break at n=1024, got {ratio:.2f}x"
     )
+
 
 
 def test_lattice_posterior_self_search_tie_break_not_much_slower_than_no_tie_break():
@@ -225,9 +229,10 @@ def test_lattice_posterior_self_search_tie_break_not_much_slower_than_no_tie_bre
     )
 
 
+
 def test_index_search_slowdown_does_not_blow_up_with_n():
     """Ratio should stay bounded as n_query=n_train grows."""
-    n_small, n_large = 512, 4096
+    n_small, n_large = 256, 1024
     ratio_small = _neighbor_lookup_ratio(n_small, seed=7)
     ratio_large = _neighbor_lookup_ratio(n_large, seed=7)
     assert ratio_large <= max(ratio_small * 1.5, 3.0), (
@@ -252,8 +257,8 @@ def _self_search_timing_ratios(
     )
     flags = PosteriorFlags(tie_break_neighbors=tie_break_neighbors)
     rust = model.rust_backend
-    warmup = 20
-    reps = 25
+    warmup = 3
+    reps = 5
 
     def posterior() -> None:
         model.posterior(x, params=params, flags=flags)

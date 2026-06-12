@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 
 from enn_helpers import enn_all_train_rows
 
@@ -160,6 +161,7 @@ def _run_incremental_fit_sweep(x_train, y_train, y_var_train, sample_sizes):
     return captured
 
 
+@pytest.mark.slow
 def test_enn_fit_num_fit_samples_sweep_prints_results():
     import json
 

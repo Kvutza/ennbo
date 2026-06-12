@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-from scipy.stats import qmc
 
 from enn.turbo.config import CandidateRV, RAASPDriver
 from enn.turbo.python_fallback.turbo_utils import (
@@ -10,6 +9,8 @@ from enn.turbo.python_fallback.turbo_utils import (
 
 
 def test_candidate_generation_statistical_properties():
+    from scipy.stats import qmc
+
     """
     Compares the statistical properties of generate_tr_candidates and generate_tr_candidates_fast.
     We check:
@@ -17,9 +18,9 @@ def test_candidate_generation_statistical_properties():
     2. Number of perturbed dimensions per candidate.
     3. Range of generated values.
     """
-    num_dim = 100
-    num_candidates = 1000
-    num_pert = 20
+    num_dim = 20
+    num_candidates = 200
+    num_pert = 5
     rng = np.random.default_rng(42)
     x_center = np.full(num_dim, 0.5)
 

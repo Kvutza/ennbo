@@ -11,6 +11,8 @@ from enn.turbo.config import CandidateRV
 from enn.turbo.python_fallback.optimizer import Optimizer
 from enn.turbo.optimizer_config import turbo_enn_config, turbo_zero_config
 
+pytestmark = pytest.mark.slow
+
 
 def test_turbo_enn_affine_invariance_under_dynamic_y_range() -> None:
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)

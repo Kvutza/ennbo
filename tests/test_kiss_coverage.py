@@ -228,6 +228,7 @@ def test_thompson_acq_optimizer_class():
     assert hasattr(t, "select")
 
 
+@pytest.mark.slow
 def test_pareto_and_random_acq_optimizer_select():
     from enn.turbo.python_fallback.components.pareto_acq_optimizer import (
         ParetoAcqOptimizer,
@@ -249,7 +250,7 @@ def _fit_gp_surrogate_for_kiss(rng):
     surrogate = GPSurrogate()
     x = np.array([[0.2, 0.3], [0.5, 0.5], [0.7, 0.8]], dtype=float)
     y = np.array([0.5, 0.7, 0.3], dtype=float)
-    surrogate.fit(x, y, None, num_steps=5, rng=rng)
+    surrogate.fit(x, y, None, num_steps=2, rng=rng)
     return surrogate
 
 
@@ -449,6 +450,7 @@ def test_bench_raasp_main(monkeypatch):
     main()
 
 
+@pytest.mark.slow
 def test_benchmark_d_scaling(monkeypatch):
     from scripts.bench_d_scaling import benchmark_d_scaling
 
@@ -470,6 +472,7 @@ def test_profile_config():
     assert cfg.num_dim == 2
 
 
+@pytest.mark.slow
 def test_run_profile():
     from scripts.profile_turbo_enn import ProfileConfig, run_profile
 

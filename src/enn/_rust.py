@@ -8,11 +8,6 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 try:
-    import torch  # noqa: F401
-except ImportError:
-    pass
-
-try:
     from . import enn_rust as _ext
 except ImportError as exc:  # pragma: no cover - exercised when extension unavailable
     raise ImportError(

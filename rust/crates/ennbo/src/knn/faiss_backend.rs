@@ -137,7 +137,7 @@ pub(crate) fn make_faiss_for_test(
 }
 
 /// Grow the backing file to the exact row count needed (no pre-allocation tail).
-const MMAP_GROW_ROWS: usize = 0;
+const MMAP_GROW_ROWS: usize = 64;
 
 pub struct MmapColumnStore {
     #[allow(dead_code)]

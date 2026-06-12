@@ -17,10 +17,16 @@ _TESTMON_DB = (
 )
 
 
-def _testmon_invalidation_key() -> str:
-    import enn.enn_rust as native
+def _native_extension_path() -> Path | None:
+    for entry in (_ROOT / "src" / "enn").glob("enn_rust*.so"):
+        return entry
+    return None
 
-    native_path = Path(native.__file__)
+
+def _testmon_invalidation_key() -> str:
+    native_path = _native_extension_path()
+    if native_path is None:
+        return "missing"
     native_stat = native_path.stat()
     return f"{native_path}:{native_stat.st_mtime_ns}:{native_stat.st_size}"
 

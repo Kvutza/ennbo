@@ -52,10 +52,17 @@ impl BpannBackend {
 
         let num_dim = train_x.ncols();
         let num_metrics = train_y.ncols();
-        let mut train_x_store =
-            MmapColumnStore::mmap_open_or_create(work_dir.join("train_x.bin"), num_dim, None)?;
-        let mut train_y_store =
-            MmapColumnStore::mmap_open_or_create(work_dir.join("train_y.bin"), num_metrics, None)?;
+        let known_nrows = obs::load_num_obs(&work_dir);
+        let mut train_x_store = MmapColumnStore::mmap_open_or_create(
+            work_dir.join("train_x.bin"),
+            num_dim,
+            known_nrows,
+        )?;
+        let mut train_y_store = MmapColumnStore::mmap_open_or_create(
+            work_dir.join("train_y.bin"),
+            num_metrics,
+            known_nrows,
+        )?;
         if train_x_store.nrows == 0 && train_x.nrows() > 0 {
             train_x_store.mmap_append(&train_x.view())?;
             train_y_store.mmap_append(&train_y.view())?;

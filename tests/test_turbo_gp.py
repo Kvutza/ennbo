@@ -16,6 +16,8 @@ from enn.turbo.python_fallback.turbo_gp_base import TurboGPBase
 from enn.turbo.python_fallback.turbo_gp_fit import fit_gp
 from enn.turbo.python_fallback.turbo_gp_noisy import TurboGPNoisy
 
+pytestmark = pytest.mark.slow
+
 
 def _make_turbo_gp_noisy(
     *,

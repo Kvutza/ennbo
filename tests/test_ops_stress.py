@@ -8,6 +8,8 @@ import pytest
 
 from enn.turbo.config.enn_index_driver import ENNIndexDriver
 
+pytestmark = pytest.mark.slow
+
 
 def _collect_synthetic_stream(
     *,

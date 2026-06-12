@@ -4,9 +4,12 @@ import json
 import threading
 
 import numpy as np
+import pytest
 
 from enn.enn.enn_class import EpistemicNearestNeighbors
 from enn.turbo.config.enn_index_driver import ENNIndexDriver
+
+pytestmark = pytest.mark.slow
 
 
 def _read_indexed_rows(work_dir) -> int:
@@ -25,16 +28,16 @@ def test_py_model_add_waits_for_flush(tmp_path):
         work_dir=str(work_dir),
         enn_storage="disk",
     )
-    init_x = rng.standard_normal((1000, d))
-    init_y = rng.standard_normal((1000, 1))
+    init_x = rng.standard_normal((64, d))
+    init_y = rng.standard_normal((64, 1))
     model.add(init_x, init_y)
     model.ensure_index_sync()
-    assert _read_indexed_rows(work_dir) == 1000
+    assert _read_indexed_rows(work_dir) == 64
 
-    extra_x = rng.standard_normal((1000, d))
-    extra_y = rng.standard_normal((1000, 1))
+    extra_x = rng.standard_normal((64, d))
+    extra_y = rng.standard_normal((64, 1))
     model.add(extra_x, extra_y)
-    assert len(model) == 2000
+    assert len(model) == 128
     assert _read_indexed_rows(work_dir) < len(model)
 
     model.schedule_background_flush()

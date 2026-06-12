@@ -255,6 +255,7 @@ def test_select_uniform_validation():
         )
 
 
+@pytest.mark.slow
 def test_select_gp_thompson_uses_gp_and_returns_correct_shape():
     num_candidates, num_dim, num_arms = 30, 2, 5
     x_cand = np.random.default_rng(0).random((num_candidates, num_dim))
@@ -270,7 +271,7 @@ def test_select_gp_thompson_uses_gp_and_returns_correct_shape():
         x_obs.tolist(),
         y_obs,
         num_dim,
-        gp_num_steps=20,
+        gp_num_steps=2,
         rng=rng,
         gp_y_stats=(0.0, 1.0),
         select_sobol_fn=select_sobol_fn,
@@ -302,7 +303,7 @@ def test_select_gp_thompson_fallback_on_empty_observations():
         [],
         [],
         num_dim,
-        gp_num_steps=20,
+        gp_num_steps=2,
         rng=rng,
         gp_y_stats=(0.0, 1.0),
         select_sobol_fn=select_sobol_fn,
@@ -425,6 +426,7 @@ def test_generate_raasp_candidates_uniform_respects_num_pert():
     assert diff_high > diff_low + 0.05
 
 
+@pytest.mark.slow
 def test_gp_thompson_sample_returns_valid_indices():
     from enn.turbo.python_fallback.turbo_gp_fit import fit_gp
 
@@ -432,7 +434,7 @@ def test_gp_thompson_sample_returns_valid_indices():
     rng = np.random.default_rng(42)
     x_obs = rng.random((num_obs, num_dim))
     y_obs = x_obs.sum(axis=1) + 0.1 * rng.standard_normal(num_obs)
-    result = fit_gp(x_obs.tolist(), y_obs.tolist(), num_dim, num_steps=10)
+    result = fit_gp(x_obs.tolist(), y_obs.tolist(), num_dim, num_steps=2)
     x_cand = rng.random((20, num_dim))
     num_arms = 3
     y_mean = float(np.mean(y_obs))

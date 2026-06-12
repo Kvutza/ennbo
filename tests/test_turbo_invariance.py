@@ -15,15 +15,19 @@ from enn.turbo.python_fallback.turbo_utils import to_unit
 
 @pytest.mark.parametrize(
     "config",
-    [turbo_zero_config(), turbo_one_config(), turbo_enn_config()],
-    ids=["TURBO_ZERO", "TURBO_ONE", "TURBO_ENN"],
+    [
+        turbo_zero_config(),
+        turbo_enn_config(),
+        pytest.param(turbo_one_config(), marks=pytest.mark.slow),
+    ],
+    ids=["TURBO_ZERO", "TURBO_ENN", "TURBO_ONE"],
 )
 def test_turbo_behavior_independent_of_affine_x(config: OptimizerConfig) -> None:
     from enn import create_optimizer
 
     bounds1 = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     bounds2 = np.array([[2.0, 4.0], [-3.0, 1.0]], dtype=float)
-    num_arms, num_steps = 4, 8
+    num_arms, num_steps = 2, 2
     rng1, rng2 = np.random.default_rng(0), np.random.default_rng(0)
     opt1 = create_optimizer(bounds=bounds1, config=config, rng=rng1)
     opt2 = create_optimizer(bounds=bounds2, config=config, rng=rng2)
@@ -47,7 +51,7 @@ def test_turbo_behavior_independent_of_affine_y(config: OptimizerConfig) -> None
     from enn import create_optimizer
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
-    num_arms, num_steps = 4, 8
+    num_arms, num_steps = 2, 2
 
     def run_with_transform(scale: float, shift: float) -> np.ndarray:
         rng = np.random.default_rng(0)

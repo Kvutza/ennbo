@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crate::error::BpannError;
 
-const MMAP_GROW_ROWS: usize = 0;
+const MMAP_GROW_ROWS: usize = 64;
 
 pub struct MmapColumnStore {
     pub path: PathBuf,

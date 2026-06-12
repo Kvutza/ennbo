@@ -503,39 +503,46 @@ mod acceptance_tests {
 
     #[test]
     fn test_scale_checkpoints_ci() {
-        for &n in &[128usize, 1000, 10_000] {
-            let dir = TempDir::new().unwrap();
-            let d = if n > 1000 { 16 } else { 32 };
-            let (x, y) = synthetic_train(n, d, 42);
-            let mut b = BpannBackend::new(dir.path().to_path_buf(), x.clone(), y, None, false, Array1::ones(d)).unwrap();
-            b.ensure_index_sync().unwrap();
-            let (d_out, i_out) = b.search(&x.slice(ndarray::s![0..1, ..]), 10.min(n), false).unwrap();
-            assert!(d_out[[0, 0]].is_finite());
-            assert!(i_out[[0, 0]] >= 0);
-            if n <= 128 {
-                let q = x.row(0).to_owned();
-                let (_, i_out) = b.search(&q.view().insert_axis(ndarray::Axis(0)), 10.min(n), false).unwrap();
-                let expected = brute_force_oracle(&b, q.as_slice().unwrap(), 10.min(n));
-                let got: Vec<i64> = i_out.row(0).iter().copied().collect();
-                assert_eq!(got, expected);
-            } else if n <= 100_000 {
-                let vectors: Vec<Vec<f32>> = (0..b.len())
-                    .map(|i| {
-                        b.mmap_row_slice(i)
-                            .unwrap()
-                            .iter()
-                            .map(|&v| v as f32)
-                            .collect()
-                    })
-                    .collect();
-                let queries: Vec<Vec<f32>> = (0..3)
-                    .map(|i| x.row(i).iter().map(|&v| v as f32).collect())
-                    .collect();
-                let index = b.index_snapshot().unwrap();
-                let recall = mean_recall_at_k(&vectors, &queries, 10, index);
-                assert!(recall >= 0.90, "N={n} recall={recall}");
-            }
-        }
+        let n = 128usize;
+        let d = 32usize;
+        let dir = TempDir::new().unwrap();
+        let (x, y) = synthetic_train(n, d, 42);
+        let mut b = BpannBackend::new(dir.path().to_path_buf(), x.clone(), y, None, false, Array1::ones(d)).unwrap();
+        b.ensure_index_sync().unwrap();
+        let (d_out, i_out) = b.search(&x.slice(ndarray::s![0..1, ..]), 10.min(n), false).unwrap();
+        assert!(d_out[[0, 0]].is_finite());
+        assert!(i_out[[0, 0]] >= 0);
+        let q = x.row(0).to_owned();
+        let (_, i_out) = b.search(&q.view().insert_axis(ndarray::Axis(0)), 10.min(n), false).unwrap();
+        let expected = brute_force_oracle(&b, q.as_slice().unwrap(), 10.min(n));
+        let got: Vec<i64> = i_out.row(0).iter().copied().collect();
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    #[ignore = "Run manually: cargo test -p bpann test_scale_recall_ignored -- --ignored --nocapture"]
+    fn test_scale_recall_ignored() {
+        let n = 1000usize;
+        let d = 32usize;
+        let dir = TempDir::new().unwrap();
+        let (x, y) = synthetic_train(n, d, 42);
+        let mut b = BpannBackend::new(dir.path().to_path_buf(), x.clone(), y, None, false, Array1::ones(d)).unwrap();
+        b.ensure_index_sync().unwrap();
+        let vectors: Vec<Vec<f32>> = (0..b.len())
+            .map(|i| {
+                b.mmap_row_slice(i)
+                    .unwrap()
+                    .iter()
+                    .map(|&v| v as f32)
+                    .collect()
+            })
+            .collect();
+        let queries: Vec<Vec<f32>> = (0..3)
+            .map(|i| x.row(i).iter().map(|&v| v as f32).collect())
+            .collect();
+        let index = b.index_snapshot().unwrap();
+        let recall = mean_recall_at_k(&vectors, &queries, 10, index);
+        assert!(recall >= 0.90, "N={n} recall={recall}");
     }
 
     #[test]

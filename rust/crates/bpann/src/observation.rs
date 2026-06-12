@@ -49,6 +49,11 @@ pub fn validate_index_backend(work_dir: &Path, expected: &str) -> Result<(), Bpa
     Ok(())
 }
 
+pub fn load_num_obs(work_dir: &Path) -> Option<usize> {
+    let text = fs::read_to_string(work_dir.join("metadata.json")).ok()?;
+    parse_json_usize_field(&text, "num_obs")
+}
+
 pub fn load_indexed_rows(work_dir: &Path) -> Option<usize> {
     let text = fs::read_to_string(work_dir.join("metadata.json")).ok()?;
     parse_json_usize_field(&text, "indexed_rows")
@@ -81,7 +86,8 @@ pub fn open_or_append_yvar(
 ) -> Result<Option<MmapColumnStore>, BpannError> {
     if let Some(yv) = train_yvar {
         let yv_path = work_dir.join("train_yvar.bin");
-        let mut store = MmapColumnStore::mmap_open_or_create(yv_path, num_metrics, None)?;
+        let known_nrows = load_num_obs(work_dir);
+        let mut store = MmapColumnStore::mmap_open_or_create(yv_path, num_metrics, known_nrows)?;
         if store.nrows == 0 {
             store.mmap_append(&yv.view())?;
         }
@@ -101,7 +107,9 @@ pub fn append_yvar_on_add(
         (Some(store), Some(yv)) => store.mmap_append(yv)?,
         (None, Some(yv)) => {
             let yv_path = work_dir.join("train_yvar.bin");
-            let mut store = MmapColumnStore::mmap_open_or_create(yv_path, num_metrics, None)?;
+            let known_nrows = load_num_obs(work_dir);
+            let mut store =
+                MmapColumnStore::mmap_open_or_create(yv_path, num_metrics, known_nrows)?;
             store.mmap_append(yv)?;
             *train_yvar = Some(store);
         }
