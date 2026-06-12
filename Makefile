@@ -15,7 +15,7 @@ all:
 # Install the mixed Python/Rust package in editable mode (USearch always on; see pyproject [tool.maturin]).
 install:
 	@echo "Building and installing Python/Rust package (see pyproject [tool.maturin])..."
-	maturin develop --release --uv
+	maturin develop --release
 	@echo "Installation complete!"
 
 # Run all tests (Rust and Python)
