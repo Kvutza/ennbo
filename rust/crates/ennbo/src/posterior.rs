@@ -3,7 +3,7 @@
 mod draw_compute;
 mod light;
 mod neighbor;
-mod neighbor_dist;
+pub mod neighbor_dist;
 mod tie_break;
 
 use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, Axis};

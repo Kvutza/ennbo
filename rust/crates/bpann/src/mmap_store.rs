@@ -1,0 +1,180 @@
+use memmap2::MmapMut;
+use ndarray::{Array2, ArrayView2, Axis};
+use std::fs::{File, OpenOptions};
+use std::path::PathBuf;
+
+use crate::error::BpannError;
+
+const MMAP_GROW_ROWS: usize = 0;
+
+pub struct MmapColumnStore {
+    pub path: PathBuf,
+    pub ncols: usize,
+    pub nrows: usize,
+    file: File,
+    mmap: MmapMut,
+}
+
+impl MmapColumnStore {
+    pub(crate) fn row_bytes(&self) -> usize {
+        self.ncols * std::mem::size_of::<f64>()
+    }
+
+    pub(crate) fn bytes_for_rows(&self, nrows: usize) -> usize {
+        nrows.saturating_mul(self.row_bytes())
+    }
+
+    pub(crate) fn ensure_capacity(&mut self, need_rows: usize) -> Result<(), BpannError> {
+        let need_bytes = self.bytes_for_rows(need_rows);
+        if need_bytes <= self.mmap.len() {
+            return Ok(());
+        }
+        let grow_rows = (need_rows - self.nrows).max(MMAP_GROW_ROWS);
+        let new_len = self.bytes_for_rows(self.nrows + grow_rows);
+        if !self.mmap.is_empty() {
+            self.mmap
+                .flush()
+                .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+        }
+        self.file
+            .set_len(new_len as u64)
+            .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+        self.mmap = unsafe {
+            MmapMut::map_mut(&self.file).map_err(|e| BpannError::InvalidParameter(e.to_string()))?
+        };
+        Ok(())
+    }
+
+    pub fn mmap_open_or_create(
+        path: PathBuf,
+        ncols: usize,
+        known_nrows: Option<usize>,
+    ) -> Result<Self, BpannError> {
+        if !path.exists() {
+            let file = OpenOptions::new()
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .open(&path)
+                .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+            drop(file);
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+        let len = file
+            .metadata()
+            .map_err(|e| BpannError::InvalidParameter(e.to_string()))?
+            .len();
+        let row_bytes = ncols * std::mem::size_of::<f64>();
+        let nrows = known_nrows.unwrap_or_else(|| {
+            if row_bytes > 0 {
+                (len as usize) / row_bytes
+            } else {
+                0
+            }
+        });
+        if known_nrows.is_some() && nrows * row_bytes > len as usize {
+            return Err(BpannError::InvalidParameter(format!(
+                "known_nrows {nrows} exceeds train file bytes {len}"
+            )));
+        }
+        let mmap = unsafe {
+            MmapMut::map_mut(&file).map_err(|e| BpannError::InvalidParameter(e.to_string()))?
+        };
+        Ok(Self {
+            path,
+            ncols,
+            nrows,
+            file,
+            mmap,
+        })
+    }
+
+    pub fn mmap_append(&mut self, rows: &ArrayView2<f64>) -> Result<(), BpannError> {
+        if rows.nrows() == 0 {
+            return Ok(());
+        }
+        if rows.ncols() != self.ncols {
+            return Err(BpannError::InvalidShape {
+                expected: vec![self.nrows, self.ncols],
+                got: vec![rows.nrows(), rows.ncols()],
+            });
+        }
+        let new_nrows = self.nrows + rows.nrows();
+        self.ensure_capacity(new_nrows)?;
+        let row_bytes = self.row_bytes();
+        for (i, row) in rows.axis_iter(Axis(0)).enumerate() {
+            let offset = (self.nrows + i) * row_bytes;
+            let dst = &mut self.mmap[offset..offset + row_bytes];
+            let bytes =
+                unsafe { std::slice::from_raw_parts(row.as_ptr() as *const u8, row_bytes) };
+            dst.copy_from_slice(bytes);
+        }
+        self.nrows = new_nrows;
+        Ok(())
+    }
+
+    pub fn mmap_row_slice(&self, i: usize) -> Result<&[f64], BpannError> {
+        if i >= self.nrows {
+            return Err(BpannError::InvalidParameter(format!(
+                "row {i} out of range [0, {})",
+                self.nrows
+            )));
+        }
+        let byte_start = i * self.row_bytes();
+        let byte_end = byte_start + self.row_bytes();
+        let bytes = &self.mmap[byte_start..byte_end];
+        let slice: &[f64] =
+            unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const f64, self.ncols) };
+        Ok(slice)
+    }
+
+    pub fn mmap_gather(&self, indices: &[usize]) -> Result<Array2<f64>, BpannError> {
+        let mut out = Array2::zeros((indices.len(), self.ncols));
+        for (new_i, &old_i) in indices.iter().enumerate() {
+            let row = self.mmap_row_slice(old_i)?;
+            for j in 0..self.ncols {
+                out[[new_i, j]] = row[j];
+            }
+        }
+        Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::array;
+    use tempfile::TempDir;
+
+    #[test]
+    fn row_bytes() {
+        let dir = TempDir::new().unwrap();
+        let store =
+            MmapColumnStore::mmap_open_or_create(dir.path().join("c.bin"), 2, None).unwrap();
+        assert_eq!(store.row_bytes(), 16);
+    }
+
+    #[test]
+    fn bytes_for_rows() {
+        let dir = TempDir::new().unwrap();
+        let store =
+            MmapColumnStore::mmap_open_or_create(dir.path().join("c.bin"), 2, None).unwrap();
+        assert_eq!(store.bytes_for_rows(5), 80);
+    }
+
+    #[test]
+    fn ensure_capacity() {
+        let dir = TempDir::new().unwrap();
+        let mut store =
+            MmapColumnStore::mmap_open_or_create(dir.path().join("c.bin"), 2, None).unwrap();
+        store.ensure_capacity(8).unwrap();
+        store
+            .mmap_append(&array![[1.0, 2.0], [3.0, 4.0]].view())
+            .unwrap();
+        assert_eq!(store.nrows, 2);
+    }
+}

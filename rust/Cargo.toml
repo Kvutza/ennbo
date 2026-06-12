@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/bpann",
     "crates/ennbo",
     "crates/enn-py",
 ]

@@ -233,7 +233,7 @@ pub fn brute_force_topk(vectors: &[Vec<f32>], query: &[f32], k: usize) -> Vec<(u
 }
 
 /// Brute-force top-k over mmap rows `[start, end)` with on-the-fly scaling.
-pub(crate) fn brute_force_topk_mmap(
+pub fn brute_force_topk_mmap(
     train_x: &MmapColumnStore,
     start: usize,
     end: usize,
@@ -279,7 +279,7 @@ pub(crate) fn brute_force_topk_mmap(
 
 /// Merge leg-A and leg-B candidates; rerank by f64 squared L2; apply exclude_nearest on merged pool.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn merge_topk_candidates(
+pub fn merge_topk_candidates(
     train_x: &MmapColumnStore,
     query: &[f64],
     leg_a: &[(u32, f32)],
@@ -526,6 +526,34 @@ mod hnsw_algo_tests {
         .unwrap();
         assert_eq!(with_excl.len(), 1);
         assert_ne!(with_excl[0].0, 0);
+    }
+
+    #[test]
+    fn search_respects_max_id_and_brute_force_k_gt_n() {
+        let mut graph = crate::disk_hnsw::store::RamGraph::new(2);
+        let mut header = HnswHeader {
+            entry_point: 0,
+            max_level: 0,
+            num_dim: 2,
+        };
+        let mut rng = StdRng::seed_from_u64(7);
+        for i in 0..5u32 {
+            insert(
+                &mut graph,
+                &mut header,
+                i,
+                &[i as f32, 0.0],
+                &mut rng,
+            );
+        }
+        let hits = search(&graph, &header, &[0.0, 0.0], 3, 16, 3);
+        assert!(hits.len() <= 3);
+        for (id, _) in &hits {
+            assert!(*id < 3);
+        }
+        let vecs: Vec<Vec<f32>> = (0..3).map(|i| vec![i as f32, 0.0]).collect();
+        let bf = brute_force_topk(&vecs, &[0.0, 0.0], 5);
+        assert_eq!(bf.len(), 3);
     }
 
     #[test]

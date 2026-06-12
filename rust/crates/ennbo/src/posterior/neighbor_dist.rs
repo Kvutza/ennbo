@@ -2,7 +2,7 @@ use ndarray::ArrayView1;
 
 use crate::model::EpistemicNearestNeighbors;
 
-pub(crate) fn row_sq_l2(
+pub fn row_sq_l2(
     x: ArrayView1<f64>,
     y: ArrayView1<f64>,
     scale_x: bool,
@@ -39,7 +39,6 @@ pub(crate) fn row_dist2s_for_query(
 
 #[cfg(test)]
 mod tests {
-    use super::row_sq_l2;
     use ndarray::array;
 
     #[test]
@@ -47,7 +46,7 @@ mod tests {
         let x = array![2.0, 0.0];
         let y = array![0.0, 0.0];
         let scale = array![2.0, 1.0];
-        let d = row_sq_l2(x.view(), y.view(), true, scale.view());
+        let d = super::row_sq_l2(x.view(), y.view(), true, scale.view());
         assert!((d - 1.0).abs() < 1e-12);
     }
 }

@@ -139,7 +139,7 @@ pub(crate) fn make_faiss_for_test(
 /// Grow the backing file to the exact row count needed (no pre-allocation tail).
 const MMAP_GROW_ROWS: usize = 0;
 
-pub(crate) struct MmapColumnStore {
+pub struct MmapColumnStore {
     #[allow(dead_code)]
     pub(crate) path: PathBuf,
     pub(crate) ncols: usize,
@@ -179,7 +179,7 @@ impl MmapColumnStore {
         Ok(())
     }
 
-    pub(crate) fn mmap_open_or_create(
+    pub fn mmap_open_or_create(
         path: PathBuf,
         ncols: usize,
         known_nrows: Option<usize>,
@@ -227,7 +227,7 @@ impl MmapColumnStore {
         })
     }
 
-    pub(crate) fn mmap_append(&mut self, rows: &ArrayView2<f64>) -> Result<(), ENNError> {
+    pub fn mmap_append(&mut self, rows: &ArrayView2<f64>) -> Result<(), ENNError> {
         if rows.nrows() == 0 {
             return Ok(());
         }
@@ -252,7 +252,7 @@ impl MmapColumnStore {
         Ok(())
     }
 
-    pub(crate) fn mmap_row_slice(&self, i: usize) -> Result<&[f64], ENNError> {
+    pub fn mmap_row_slice(&self, i: usize) -> Result<&[f64], ENNError> {
         if i >= self.nrows {
             return Err(ENNError::InvalidParameter(format!(
                 "row {i} out of range [0, {})",
@@ -345,16 +345,52 @@ mod faiss_backend_tests {
     }
 
     #[test]
-    fn mmap_column_store_kiss_names() {
-        let names = [
-            "MmapColumnStore",
-            "mmap_open_or_create",
-            "mmap_append",
-            "mmap_row_slice",
-            "mmap_gather",
-            "mmap_row_range",
-        ];
-        assert_eq!(names.len(), 6);
+    fn make_index() {
+        let train = array![[0.0, 0.0], [1.0, 0.0]];
+        let index = make_faiss_for_test(2, IndexDriver::Exact, &train.view()).unwrap();
+        assert_eq!(index.ntotal(), 2);
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn MmapColumnStore() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().expect("tempdir");
+        let store = MmapColumnStore::mmap_open_or_create(dir.path().join("c.bin"), 2, None).unwrap();
+        assert_eq!(store.ncols, 2);
+    }
+
+    #[test]
+    fn row_bytes() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().expect("tempdir");
+        let store = MmapColumnStore::mmap_open_or_create(dir.path().join("c.bin"), 2, None).unwrap();
+        assert_eq!(store.row_bytes(), 16);
+    }
+
+    #[test]
+    fn bytes_for_rows() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().expect("tempdir");
+        let store = MmapColumnStore::mmap_open_or_create(dir.path().join("c.bin"), 2, None).unwrap();
+        assert_eq!(store.bytes_for_rows(4), 64);
+    }
+
+    #[test]
+    fn ensure_capacity() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().expect("tempdir");
+        let mut store =
+            MmapColumnStore::mmap_open_or_create(dir.path().join("c.bin"), 2, None).unwrap();
+        store.ensure_capacity(3).unwrap();
+        store
+            .mmap_append(&array![[1.0, 2.0], [3.0, 4.0]].view())
+            .unwrap();
+        assert_eq!(store.nrows, 2);
     }
 
     #[test]

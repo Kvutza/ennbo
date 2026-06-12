@@ -1,6 +1,6 @@
 //! ENN storage and indexing backends.
 
-pub(crate) mod disk_observation;
+pub mod disk_observation;
 mod in_memory;
 pub(crate) mod row_storage;
 

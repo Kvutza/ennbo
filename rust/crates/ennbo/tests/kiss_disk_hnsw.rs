@@ -1,9 +1,16 @@
 //! Kiss static coverage: disk HNSW backend and graph module symbols.
 
+use ennbo::disk_hnsw::hnsw;
+
 const DISK_HNSW_SRC: &str = include_str!("../src/disk_hnsw/enn_backend.rs");
 const DISK_OBSERVATION_SRC: &str = include_str!("../src/backend/disk_observation.rs");
 const HNSW_GRAPH_SRC: &str = include_str!("../src/disk_hnsw/hnsw.rs");
 const HNSW_STORE_SRC: &str = include_str!("../src/disk_hnsw/store.rs");
+
+#[test]
+fn hnsw_module_imported() {
+    let _ = hnsw::assign_level;
+}
 
 #[test]
 fn kiss_disk_hnsw_backend_names_in_source() {

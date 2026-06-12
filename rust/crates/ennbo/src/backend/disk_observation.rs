@@ -271,7 +271,7 @@ pub fn validate_dim_limits(num_dim: usize, record_stride: usize) -> Result<(), E
     Ok(())
 }
 
-pub(crate) fn parse_json_usize_field(text: &str, field: &str) -> Option<usize> {
+pub fn parse_json_usize_field(text: &str, field: &str) -> Option<usize> {
     let key = format!("\"{field}\":");
     let pos = text.find(&key)? + key.len();
     let tail = text[pos..].trim_start();
@@ -281,7 +281,7 @@ pub(crate) fn parse_json_usize_field(text: &str, field: &str) -> Option<usize> {
     tail[..end].parse().ok()
 }
 
-pub(crate) fn parse_json_string_field(text: &str, field: &str) -> Option<String> {
+pub fn parse_json_string_field(text: &str, field: &str) -> Option<String> {
     let key = format!("\"{field}\":\"");
     let pos = text.find(&key)? + key.len();
     let tail = &text[pos..];

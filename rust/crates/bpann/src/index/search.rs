@@ -1,0 +1,250 @@
+use std::cmp::Ordering;
+use std::collections::{HashSet, VecDeque};
+
+use crate::distance::{batched_sq_l2_f32, l2_sq_f32};
+use crate::index::build::BpannIndex;
+    use crate::index::page::Page;
+
+pub struct TraversalLog {
+    pub visited_pages: Vec<u32>,
+}
+
+impl Default for TraversalLog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TraversalLog {
+    pub fn new() -> Self {
+        Self {
+            visited_pages: Vec::new(),
+        }
+    }
+}
+
+pub fn search_exhaustive_leaves(index: &BpannIndex, query: &[f32], k: usize) -> Vec<(u32, f32)> {
+    let mut scored = Vec::new();
+    for page in &index.pages {
+        if let Page::Leaf {
+            row_ids,
+            vectors,
+            ..
+        } = page
+        {
+            let dists = batched_sq_l2_f32(query, vectors);
+            for (&row_id, &dist) in row_ids.iter().zip(dists.iter()) {
+                scored.push((row_id, dist));
+            }
+        }
+    }
+    scored.sort_by(|a, b| {
+        a.1.partial_cmp(&b.1)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    scored.truncate(k);
+    scored
+}
+
+pub fn search_index(
+    index: &BpannIndex,
+    query: &[f32],
+    k: usize,
+    beam_width: usize,
+    use_skip_edges: bool,
+    visited_log: &mut Vec<u32>,
+) -> Vec<(u32, f32)> {
+    if index.pages.is_empty() || k == 0 {
+        return Vec::new();
+    }
+    let mut visited_leaves = HashSet::new();
+    let mut candidate_leaves = VecDeque::new();
+
+    let root_id = index.header.root_page_id;
+    if let Some(root) = index.page_by_id(root_id) {
+        collect_candidate_leaves(
+            root,
+            query,
+            index,
+            beam_width,
+            &mut visited_leaves,
+            &mut candidate_leaves,
+            visited_log,
+        );
+    }
+
+    if use_skip_edges {
+        let initial: Vec<u32> = candidate_leaves.iter().copied().collect();
+        for leaf_id in initial {
+            if let Some(edges) = index.skip_edges.get(&leaf_id) {
+                for &next in edges {
+                    if visited_leaves.insert(next) {
+                        candidate_leaves.push_back(next);
+                        visited_log.push(next);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut scored: Vec<(u32, f32)> = Vec::new();
+    for leaf_id in candidate_leaves {
+        if let Some(Page::Leaf {
+            row_ids,
+            vectors,
+            ..
+        }) = index.page_by_id(leaf_id)
+        {
+            let dists = batched_sq_l2_f32(query, vectors);
+            for (&row_id, &dist) in row_ids.iter().zip(dists.iter()) {
+                scored.push((row_id, dist));
+            }
+        }
+    }
+    scored.sort_by(|a, b| {
+        a.1.partial_cmp(&b.1)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    scored.truncate(k);
+    scored
+}
+
+fn collect_candidate_leaves(
+    page: &Page,
+    query: &[f32],
+    index: &BpannIndex,
+    beam_width: usize,
+    visited: &mut HashSet<u32>,
+    queue: &mut VecDeque<u32>,
+    visited_log: &mut Vec<u32>,
+) {
+    match page {
+        Page::Leaf { page_id, .. } => {
+            if visited.insert(*page_id) {
+                queue.push_back(*page_id);
+                visited_log.push(*page_id);
+            }
+        }
+        Page::Internal {
+            centroids,
+            child_page_ids,
+            ..
+        } => {
+            let mut ranked: Vec<(usize, f32)> = centroids
+                .iter()
+                .enumerate()
+                .map(|(i, c)| (i, l2_sq_f32(query, c)))
+                .collect();
+            ranked.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+            for (i, _) in ranked.into_iter().take(beam_width.max(1)) {
+                let child_id = child_page_ids[i];
+                if let Some(child) = index.page_by_id(child_id) {
+                    collect_candidate_leaves(
+                        child,
+                        query,
+                        index,
+                        beam_width,
+                        visited,
+                        queue,
+                        visited_log,
+                    );
+                }
+            }
+        }
+    }
+}
+
+pub fn search_greedy_blocks_only(
+    index: &BpannIndex,
+    query: &[f32],
+    k: usize,
+    beam_width: usize,
+) -> Vec<(u32, f32)> {
+    let mut log = Vec::new();
+    search_index(index, query, k, beam_width, false, &mut log)
+}
+
+pub fn search_with_skip_refinement(
+    index: &BpannIndex,
+    query: &[f32],
+    k: usize,
+    beam_width: usize,
+    visited_log: &mut Vec<u32>,
+) -> Vec<(u32, f32)> {
+    search_index(index, query, k, beam_width, true, visited_log)
+}
+
+pub fn mean_recall_at_k(
+    vectors: &[Vec<f32>],
+    queries: &[Vec<f32>],
+    k: usize,
+    index: &BpannIndex,
+) -> f64 {
+    if queries.is_empty() {
+        return 0.0;
+    }
+    let mut total = 0.0;
+    for q in queries {
+        let bf = brute_force_topk(vectors, q, k);
+        let bf_set: HashSet<u32> = bf.iter().map(|(id, _)| *id).collect();
+        let approx = search_exhaustive_leaves(index, q, k);
+        let hits = approx.iter().filter(|(id, _)| bf_set.contains(id)).count();
+        total += hits as f64 / k as f64;
+    }
+    total / queries.len() as f64
+}
+
+pub fn brute_force_topk(vectors: &[Vec<f32>], query: &[f32], k: usize) -> Vec<(u32, f32)> {
+    let mut scored: Vec<(u32, f32)> = vectors
+        .iter()
+        .enumerate()
+        .map(|(i, v)| (i as u32, l2_sq_f32(query, v)))
+        .collect();
+    scored.sort_by(|a, b| {
+        a.1.partial_cmp(&b.1)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    scored.truncate(k);
+    scored
+}
+
+pub fn brute_force_topk_mmap(
+    train_x: &crate::mmap_store::MmapColumnStore,
+    start: usize,
+    end: usize,
+    query: &[f64],
+    k: usize,
+    scale_x: bool,
+    x_scale: &[f64],
+) -> Result<Vec<(u32, f32)>, crate::error::BpannError> {
+    let mut scored = Vec::new();
+    let mut vec_buf = Vec::new();
+    for i in start..end {
+        let row = train_x.mmap_row_slice(i)?;
+        crate::distance::row_to_f32(row, scale_x, x_scale, &mut vec_buf);
+        let mut acc = 0.0f32;
+        if scale_x {
+            for j in 0..query.len() {
+                let sc = x_scale[j] as f32;
+                let d = query[j] as f32 / sc - vec_buf[j] / sc;
+                acc += d * d;
+            }
+        } else {
+            for (&q, &r) in query.iter().zip(vec_buf.iter()) {
+                let d = q as f32 - r;
+                acc += d * d;
+            }
+        }
+        scored.push((i as u32, acc));
+    }
+    scored.sort_by(|a, b| {
+        a.1.partial_cmp(&b.1)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    scored.truncate(k);
+    Ok(scored)
+}
