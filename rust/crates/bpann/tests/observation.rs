@@ -79,6 +79,18 @@ fn mark_index_dirty() {
 }
 
 #[test]
+fn num_obs_counter_and_sidecars() {
+    let dir = TempDir::new().unwrap();
+    let mut counter = observation::NumObsCounter::open(dir.path()).unwrap();
+    counter.set(42);
+    assert_eq!(observation::load_num_obs(dir.path()), Some(42));
+    observation::write_num_obs(dir.path(), 7).unwrap();
+    assert_eq!(observation::load_num_obs(dir.path()), Some(7));
+    observation::write_indexed_rows(dir.path(), 5).unwrap();
+    assert_eq!(observation::load_indexed_rows(dir.path()), Some(5));
+}
+
+#[test]
 fn parse_json_string_field() {
     assert_eq!(
         observation::parse_json_string_field("{\"index_backend\":\"bpann_disk\"}", "index_backend")

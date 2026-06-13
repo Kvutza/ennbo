@@ -1,11 +1,77 @@
 use std::cmp::Ordering;
 use std::collections::{HashSet, VecDeque};
 
-use crate::distance::{batched_sq_l2_f32, l2_sq_f32};
+use crate::distance::{batched_sq_l2_f32, l2_sq_f32, row_to_f32};
+use crate::error::BpannError;
 use crate::index::build::BpannIndex;
 use crate::index::page::Page;
+use crate::mmap_store::MmapColumnStore;
+
+pub struct MmapSearchStore<'a> {
+    pub train_x: &'a MmapColumnStore,
+    pub scale_x: bool,
+    pub x_scale: &'a [f64],
+}
+
+pub fn score_leaf_rows(
+    store: Option<&MmapSearchStore<'_>>,
+    query: &[f32],
+    row_ids: &[u32],
+    vectors: &[Vec<f32>],
+) -> Result<Vec<(u32, f32)>, BpannError> {
+    if !vectors.is_empty() {
+        let dists = batched_sq_l2_f32(query, vectors);
+        return Ok(row_ids
+            .iter()
+            .zip(dists.iter())
+            .map(|(&row_id, &dist)| (row_id, dist))
+            .collect());
+    }
+    let Some(store) = store else {
+        return Ok(Vec::new());
+    };
+    let mut scored = Vec::with_capacity(row_ids.len());
+    let mut vec_buf = Vec::new();
+    for &row_id in row_ids {
+        let row = store.train_x.mmap_row_slice(row_id as usize)?;
+        row_to_f32(row, store.scale_x, store.x_scale, &mut vec_buf);
+        scored.push((row_id, l2_sq_f32(query, &vec_buf)));
+    }
+    Ok(scored)
+}
 
 pub const MAX_CANDIDATE_LEAVES: usize = 384;
+
+pub fn search_exhaustive_leaves(index: &BpannIndex, query: &[f32], k: usize) -> Vec<(u32, f32)> {
+    search_exhaustive_leaves_with_store(index, query, k, None)
+        .expect("search_exhaustive_leaves")
+}
+
+pub fn search_exhaustive_leaves_with_store(
+    index: &BpannIndex,
+    query: &[f32],
+    k: usize,
+    store: Option<&MmapSearchStore<'_>>,
+) -> Result<Vec<(u32, f32)>, BpannError> {
+    let mut scored = Vec::new();
+    for page in &index.pages {
+        if let Page::Leaf {
+            row_ids,
+            vectors,
+            ..
+        } = page
+        {
+            scored.extend(score_leaf_rows(store, query, row_ids, vectors)?);
+        }
+    }
+    scored.sort_by(|a, b| {
+        a.1.partial_cmp(&b.1)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    scored.truncate(k);
+    Ok(scored)
+}
 
 pub struct TraversalLog {
     pub visited_pages: Vec<u32>,
@@ -25,30 +91,6 @@ impl TraversalLog {
     }
 }
 
-pub fn search_exhaustive_leaves(index: &BpannIndex, query: &[f32], k: usize) -> Vec<(u32, f32)> {
-    let mut scored = Vec::new();
-    for page in &index.pages {
-        if let Page::Leaf {
-            row_ids,
-            vectors,
-            ..
-        } = page
-        {
-            let dists = batched_sq_l2_f32(query, vectors);
-            for (&row_id, &dist) in row_ids.iter().zip(dists.iter()) {
-                scored.push((row_id, dist));
-            }
-        }
-    }
-    scored.sort_by(|a, b| {
-        a.1.partial_cmp(&b.1)
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| a.0.cmp(&b.0))
-    });
-    scored.truncate(k);
-    scored
-}
-
 pub fn search_index(
     index: &BpannIndex,
     query: &[f32],
@@ -56,9 +98,10 @@ pub fn search_index(
     beam_width: usize,
     use_skip_edges: bool,
     visited_log: &mut Vec<u32>,
-) -> Vec<(u32, f32)> {
+    store: Option<&MmapSearchStore<'_>>,
+) -> Result<Vec<(u32, f32)>, BpannError> {
     if index.pages.is_empty() || k == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let mut visited_leaves = HashSet::new();
     let mut candidate_leaves = VecDeque::new();
@@ -106,10 +149,7 @@ pub fn search_index(
             ..
         }) = index.page_by_id(leaf_id)
         {
-            let dists = batched_sq_l2_f32(query, vectors);
-            for (&row_id, &dist) in row_ids.iter().zip(dists.iter()) {
-                scored.push((row_id, dist));
-            }
+            scored.extend(score_leaf_rows(store, query, row_ids, vectors)?);
         }
     }
     scored.sort_by(|a, b| {
@@ -118,7 +158,7 @@ pub fn search_index(
             .then_with(|| a.0.cmp(&b.0))
     });
     scored.truncate(k);
-    scored
+    Ok(scored)
 }
 
 fn truncate_candidate_leaves(
@@ -196,8 +236,19 @@ pub fn search_greedy_blocks_only(
     k: usize,
     beam_width: usize,
 ) -> Vec<(u32, f32)> {
+    search_greedy_blocks_only_with_store(index, query, k, beam_width, None)
+        .expect("search_greedy_blocks_only")
+}
+
+pub fn search_greedy_blocks_only_with_store(
+    index: &BpannIndex,
+    query: &[f32],
+    k: usize,
+    beam_width: usize,
+    store: Option<&MmapSearchStore<'_>>,
+) -> Result<Vec<(u32, f32)>, BpannError> {
     let mut log = Vec::new();
-    search_index(index, query, k, beam_width, false, &mut log)
+    search_index(index, query, k, beam_width, false, &mut log, store)
 }
 
 pub fn search_with_skip_refinement(
@@ -207,7 +258,19 @@ pub fn search_with_skip_refinement(
     beam_width: usize,
     visited_log: &mut Vec<u32>,
 ) -> Vec<(u32, f32)> {
-    search_index(index, query, k, beam_width, true, visited_log)
+    search_with_skip_refinement_with_store(index, query, k, beam_width, visited_log, None)
+        .expect("search_with_skip_refinement")
+}
+
+pub fn search_with_skip_refinement_with_store(
+    index: &BpannIndex,
+    query: &[f32],
+    k: usize,
+    beam_width: usize,
+    visited_log: &mut Vec<u32>,
+    store: Option<&MmapSearchStore<'_>>,
+) -> Result<Vec<(u32, f32)>, BpannError> {
+    search_index(index, query, k, beam_width, true, visited_log, store)
 }
 
 pub fn mean_recall_at_k(

@@ -4,36 +4,60 @@ use crate::distance::{l2_sq_f32, row_to_f32};
 use crate::error::BpannError;
 use crate::index::build::BpannIndex;
 use crate::index::search::{
-    search_exhaustive_leaves, search_greedy_blocks_only, search_with_skip_refinement,
+    search_exhaustive_leaves_with_store, search_greedy_blocks_only_with_store,
+    search_with_skip_refinement_with_store, MmapSearchStore,
 };
 use crate::index::DEFAULT_LEAF_CAPACITY;
 use crate::mmap_store::MmapColumnStore;
 use crate::observation as obs;
 
 const INDEX_COMPACT_THRESHOLD_MIN: usize = 3;
-const INDEX_COMPACT_ROWS_PER_FRAGMENT: usize = 10_000;
-const INDEX_COMPACT_FRAGMENT_MAX: usize = 32;
-const SEARCH_ROWS_PER_FRAGMENT: usize = 80_000;
 const EXHAUSTIVE_SEARCH_ROW_LIMIT: usize = 2500;
-const MEDIUM_INDEX_COMPACT_ROWS: usize = 15_000;
 const SKIP_REFINEMENT_ROW_LIMIT: usize = 150_000;
-const SMALL_FRAGMENT_MERGE_ROWS: usize = 15_000;
-const SEARCH_FRAGMENT_BUDGET_MAX: usize = 3;
+
+fn env_usize(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(default)
+}
+
+fn index_compact_rows_per_fragment() -> usize {
+    env_usize("BPANN_INDEX_COMPACT_ROWS_PER_FRAGMENT", 10_000)
+}
+
+fn index_compact_fragment_max() -> usize {
+    env_usize("BPANN_INDEX_COMPACT_FRAGMENT_MAX", 32)
+}
+
+fn search_rows_per_fragment() -> usize {
+    env_usize("BPANN_SEARCH_ROWS_PER_FRAGMENT", 80_000)
+}
+
+fn small_fragment_merge_rows() -> usize {
+    env_usize("BPANN_SMALL_FRAGMENT_MERGE_ROWS", 15_000)
+}
+
+fn search_fragment_budget_max() -> usize {
+    env_usize("BPANN_SEARCH_FRAGMENT_BUDGET_MAX", 3)
+}
 
 fn index_compact_threshold(indexed_rows: usize) -> usize {
-    if indexed_rows <= MEDIUM_INDEX_COMPACT_ROWS {
+    if indexed_rows <= 1000 {
         return 1;
     }
-    (indexed_rows / INDEX_COMPACT_ROWS_PER_FRAGMENT)
-        .clamp(INDEX_COMPACT_THRESHOLD_MIN, INDEX_COMPACT_FRAGMENT_MAX)
+    (indexed_rows / index_compact_rows_per_fragment())
+        .clamp(INDEX_COMPACT_THRESHOLD_MIN, index_compact_fragment_max())
 }
 
 fn search_fragment_budget(fragment_count: usize, indexed_rows: usize) -> usize {
     if fragment_count <= 2 {
         return fragment_count;
     }
-    let scaled = (indexed_rows / SEARCH_ROWS_PER_FRAGMENT).max(2);
-    scaled.min(fragment_count).min(SEARCH_FRAGMENT_BUDGET_MAX)
+    let scaled = (indexed_rows / search_rows_per_fragment()).max(2);
+    scaled
+        .min(fragment_count)
+        .min(search_fragment_budget_max())
 }
 
 fn search_beam_width(_indexed_rows: usize) -> usize {
@@ -53,6 +77,8 @@ pub struct IncrementalIndex {
     pub indices: Vec<BpannIndex>,
     pub indexed_rows: usize,
     pub index_dir: PathBuf,
+    pending_centroid_sum: Vec<f64>,
+    pending_row_count: usize,
 }
 
 impl IncrementalIndex {
@@ -61,12 +87,58 @@ impl IncrementalIndex {
             indices: Vec::new(),
             indexed_rows: 0,
             index_dir,
+            pending_centroid_sum: Vec::new(),
+            pending_row_count: 0,
         }
+    }
+
+    pub fn note_pending_rows(
+        &mut self,
+        x: &ndarray::ArrayView2<f64>,
+        scale_x: bool,
+        x_scale: &[f64],
+    ) {
+        if x.nrows() == 0 {
+            return;
+        }
+        if self.pending_centroid_sum.len() != x.ncols() {
+            self.pending_centroid_sum = vec![0.0; x.ncols()];
+        }
+        for row in x.axis_iter(ndarray::Axis(0)) {
+            for (j, &v) in row.iter().enumerate() {
+                self.pending_centroid_sum[j] += if scale_x {
+                    v / x_scale[j]
+                } else {
+                    v
+                };
+            }
+            self.pending_row_count += 1;
+        }
+    }
+
+    fn take_pending_centroid(&mut self, num_dim: usize) -> Option<Vec<f32>> {
+        if self.pending_row_count == 0 {
+            return None;
+        }
+        if self.pending_centroid_sum.len() != num_dim {
+            return None;
+        }
+        let count = self.pending_row_count as f64;
+        let centroid = self
+            .pending_centroid_sum
+            .iter()
+            .map(|&s| (s / count) as f32)
+            .collect();
+        self.pending_centroid_sum.fill(0.0);
+        self.pending_row_count = 0;
+        Some(centroid)
     }
 
     pub fn reset(&mut self) {
         self.indices.clear();
         self.indexed_rows = 0;
+        self.pending_centroid_sum.clear();
+        self.pending_row_count = 0;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -97,17 +169,25 @@ impl IncrementalIndex {
         }
         self.build_batch(ctx, self.indexed_rows, end)?;
         self.maybe_compact_or_persist(ctx)?;
+        obs::write_indexed_rows(ctx.work_dir, self.indexed_rows)?;
         Ok(())
     }
 
     fn maybe_compact_or_persist(&mut self, ctx: &IndexBuildContext<'_>) -> Result<(), BpannError> {
         let max_fragments = index_compact_threshold(self.indexed_rows);
-        if self.indices.len() > max_fragments
-            || (self.indexed_rows <= MEDIUM_INDEX_COMPACT_ROWS && self.indices.len() > 1)
-        {
+        let compact_limit = max_fragments.saturating_mul(2).max(max_fragments + 1);
+        if self.indices.len() > compact_limit {
             self.compact(ctx)?;
         } else if self.indices.len() == 1 {
             self.indices[0].persist()?;
+            obs::write_metadata(
+                ctx.work_dir,
+                ctx.train_x.nrows,
+                ctx.num_dim,
+                ctx.num_metrics,
+                ctx.scale_x,
+                self.indexed_rows,
+            )?;
         }
         Ok(())
     }
@@ -119,55 +199,60 @@ impl IncrementalIndex {
         }
         let max_fragments = index_compact_threshold(self.indexed_rows);
         while self.indices.len() > max_fragments {
-            self.amalgamate_smallest_pair(ctx)?;
+            let over = self.indices.len() - max_fragments;
+            let merge_n = over.clamp(2, 4).min(self.indices.len());
+            self.amalgamate_smallest_run(ctx, merge_n)?;
         }
         if self.indices.len() == 1 {
             self.indices[0].persist()?;
+            obs::write_metadata(
+                ctx.work_dir,
+                ctx.train_x.nrows,
+                ctx.num_dim,
+                ctx.num_metrics,
+                ctx.scale_x,
+                self.indexed_rows,
+            )?;
         }
         Ok(())
     }
 
-    fn amalgamate_smallest_pair(&mut self, ctx: &IndexBuildContext<'_>) -> Result<(), BpannError> {
+    fn amalgamate_smallest_run(
+        &mut self,
+        _ctx: &IndexBuildContext<'_>,
+        merge_n: usize,
+    ) -> Result<(), BpannError> {
         if self.indices.len() < 2 {
             return Ok(());
         }
-        let mut best_i = None;
-        let mut best_size = usize::MAX;
-        let mut fallback_i = 0;
-        let mut fallback_size = usize::MAX;
-        for i in 0..self.indices.len().saturating_sub(1) {
-            let left_rows = self.indices[i].header.indexed_rows;
-            let right_rows = self.indices[i + 1].header.indexed_rows;
-            let size = left_rows + right_rows;
-            if size < fallback_size {
-                fallback_size = size;
-                fallback_i = i;
-            }
-            if left_rows <= SMALL_FRAGMENT_MERGE_ROWS
-                && right_rows <= SMALL_FRAGMENT_MERGE_ROWS
-                && size < best_size
-            {
-                best_size = size;
-                best_i = Some(i);
+        let merge_n = merge_n.min(self.indices.len());
+        let mut best_i = 0usize;
+        let mut best_rows = usize::MAX;
+        let small_limit = small_fragment_merge_rows();
+        for i in 0..=self.indices.len().saturating_sub(merge_n) {
+            let slice = &self.indices[i..i + merge_n];
+            let rows: usize = slice.iter().map(|index| index.header.indexed_rows).sum();
+            let all_small = slice
+                .windows(2)
+                .all(|pair| {
+                    pair[0].header.indexed_rows <= small_limit
+                        && pair[1].header.indexed_rows <= small_limit
+                });
+            let rank = if all_small { rows } else { rows + usize::MAX / 2 };
+            if rank < best_rows {
+                best_rows = rank;
+                best_i = i;
             }
         }
-        let merge_i = best_i.unwrap_or(fallback_i);
-        let right = self.indices.remove(merge_i + 1);
-        let left = &self.indices[merge_i];
-        let mut row_ids = left.leaf_row_ids();
-        row_ids.extend(right.leaf_row_ids());
-        row_ids.sort_unstable();
-        row_ids.dedup();
-        let seed = row_ids.first().copied().unwrap_or(0) as u64;
-        let merged = build_index_from_row_ids(
-            ctx,
-            &row_ids,
-            self.index_dir.clone(),
-            seed,
-            false,
-        )?;
-        self.indices[merge_i] = merged;
+        let removed: Vec<BpannIndex> = self.indices.drain(best_i..best_i + merge_n).collect();
+        let merged = BpannIndex::concat_merge(removed, self.index_dir.clone(), false)?;
+        self.indices.insert(best_i, merged);
         Ok(())
+    }
+
+    #[allow(dead_code)]
+    fn amalgamate_smallest_pair(&mut self, ctx: &IndexBuildContext<'_>) -> Result<(), BpannError> {
+        self.amalgamate_smallest_run(ctx, 2)
     }
 
     fn build_batch(
@@ -183,34 +268,42 @@ impl IncrementalIndex {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(start as u64);
-        let mut vectors = Vec::with_capacity(end - start);
-        let mut row_ids = Vec::with_capacity(end - start);
-        let mut vec_buf = Vec::with_capacity(ctx.num_dim);
-        for i in start..end {
-            let row = ctx.train_x.mmap_row_slice(i)?;
-            row_to_f32(row, ctx.scale_x, ctx.x_scale, &mut vec_buf);
-            row_ids.push(i as u32);
-            vectors.push(std::mem::take(&mut vec_buf));
-        }
-        let index = BpannIndex::build_from_rows_with_persist(
-            &row_ids,
-            &vectors,
-            ctx.num_dim,
-            DEFAULT_LEAF_CAPACITY,
-            seed,
-            self.index_dir.clone(),
-            false,
-        )?;
+        let row_ids: Vec<u32> = (start..end).map(|i| i as u32).collect();
+        let batch_len = end - start;
+        let index = if batch_len <= 1024 {
+            let centroid = self
+                .take_pending_centroid(ctx.num_dim)
+                .unwrap_or_else(|| {
+                    centroid_from_mmap_rows(ctx, start, end)
+                        .expect("centroid_from_mmap_rows")
+                });
+            BpannIndex::build_row_ids_leaf_with_persist(
+                &row_ids,
+                centroid,
+                ctx.num_dim,
+                self.index_dir.clone(),
+                false,
+            )?
+        } else {
+            let mut vectors = Vec::with_capacity(batch_len);
+            let mut vec_buf = Vec::with_capacity(ctx.num_dim);
+            for i in start..end {
+                let row = ctx.train_x.mmap_row_slice(i)?;
+                row_to_f32(row, ctx.scale_x, ctx.x_scale, &mut vec_buf);
+                vectors.push(std::mem::take(&mut vec_buf));
+            }
+            BpannIndex::build_from_rows_with_persist(
+                &row_ids,
+                &vectors,
+                ctx.num_dim,
+                DEFAULT_LEAF_CAPACITY,
+                seed,
+                self.index_dir.clone(),
+                false,
+            )?
+        };
         self.indices.push(index);
         self.indexed_rows = end;
-        obs::write_metadata(
-            ctx.work_dir,
-            ctx.train_x.nrows,
-            ctx.num_dim,
-            ctx.num_metrics,
-            ctx.scale_x,
-            self.indexed_rows,
-        )?;
         Ok(())
     }
 
@@ -218,7 +311,8 @@ impl IncrementalIndex {
         &self,
         query_f32: &[f32],
         k: usize,
-    ) -> Vec<(u32, f32)> {
+        store: Option<&MmapSearchStore<'_>>,
+    ) -> Result<Vec<(u32, f32)>, BpannError> {
         let budget = search_fragment_budget(self.indices.len(), self.indexed_rows);
         let indices_to_search: Vec<&BpannIndex> = if self.indices.len() <= budget {
             self.indices.iter().collect()
@@ -249,7 +343,8 @@ impl IncrementalIndex {
                 index,
                 query_f32,
                 per_fragment_k,
-            ));
+                store,
+            )?);
         }
         merged.sort_by(|a, b| {
             a.1.partial_cmp(&b.1)
@@ -257,7 +352,7 @@ impl IncrementalIndex {
                 .then_with(|| a.0.cmp(&b.0))
         });
         merged.truncate(k);
-        merged
+        Ok(merged)
     }
 
     pub fn index_memory_bytes(&self) -> usize {
@@ -265,46 +360,49 @@ impl IncrementalIndex {
     }
 }
 
-fn build_index_from_row_ids(
+fn centroid_from_mmap_rows(
     ctx: &IndexBuildContext<'_>,
-    row_ids: &[u32],
-    index_dir: PathBuf,
-    seed: u64,
-    persist: bool,
-) -> Result<BpannIndex, BpannError> {
-    let mut vectors = Vec::with_capacity(row_ids.len());
-    let mut vec_buf = Vec::with_capacity(ctx.num_dim);
-    for &id in row_ids {
-        let row = ctx.train_x.mmap_row_slice(id as usize)?;
-        row_to_f32(row, ctx.scale_x, ctx.x_scale, &mut vec_buf);
-        vectors.push(std::mem::take(&mut vec_buf));
+    start: usize,
+    end: usize,
+) -> Result<Vec<f32>, BpannError> {
+    let dim = ctx.num_dim;
+    let mut acc = vec![0.0f64; dim];
+    let count = end.saturating_sub(start);
+    if count == 0 {
+        return Ok(Vec::new());
     }
-    BpannIndex::build_from_rows_with_persist(
-        row_ids,
-        &vectors,
-        ctx.num_dim,
-        DEFAULT_LEAF_CAPACITY,
-        seed,
-        index_dir,
-        persist,
-    )
+    for i in start..end {
+        let row = ctx.train_x.mmap_row_slice(i)?;
+        for (j, &v) in row.iter().enumerate() {
+            acc[j] += if ctx.scale_x {
+                v / ctx.x_scale[j]
+            } else {
+                v
+            };
+        }
+    }
+    Ok(acc
+        .iter()
+        .map(|&s| (s / count as f64) as f32)
+        .collect())
 }
 
 fn search_index_candidates(
     index: &BpannIndex,
     query: &[f32],
     k: usize,
-) -> Vec<(u32, f32)> {
+    store: Option<&MmapSearchStore<'_>>,
+) -> Result<Vec<(u32, f32)>, BpannError> {
     let rows = index.header.indexed_rows;
     if rows <= EXHAUSTIVE_SEARCH_ROW_LIMIT {
-        search_exhaustive_leaves(index, query, k)
+        search_exhaustive_leaves_with_store(index, query, k, store)
     } else {
         let beam = search_beam_width(rows);
         let mut visited = Vec::new();
         if rows <= SKIP_REFINEMENT_ROW_LIMIT {
-            search_with_skip_refinement(index, query, k, beam, &mut visited)
+            search_with_skip_refinement_with_store(index, query, k, beam, &mut visited, store)
         } else {
-            search_greedy_blocks_only(index, query, k, beam)
+            search_greedy_blocks_only_with_store(index, query, k, beam, store)
         }
     }
 }
@@ -320,7 +418,7 @@ mod tests {
         fn build_index_batch() {}
         fn build_batch() {}
         fn amalgamate_smallest_pair() {}
-        fn build_index_from_row_ids() {}
+        fn concat_merge() {}
         fn compact_indices() {}
         fn compact() {}
         fn search_index_candidates() {}
@@ -334,7 +432,7 @@ mod tests {
             build_index_batch,
             build_batch,
             amalgamate_smallest_pair,
-            build_index_from_row_ids,
+            concat_merge,
             compact_indices,
             compact,
             search_index_candidates,

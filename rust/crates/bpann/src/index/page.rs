@@ -15,6 +15,7 @@ pub enum Page {
         page_id: u32,
         row_ids: Vec<u32>,
         vectors: Vec<Vec<f32>>,
+        stored_centroid: Option<Vec<f32>>,
     },
 }
 
@@ -41,7 +42,14 @@ impl Page {
                 let n = centroids.len() as f32;
                 acc.iter().map(|&s| s / n).collect()
             }
-            Page::Leaf { vectors, .. } => {
+            Page::Leaf {
+                vectors,
+                stored_centroid,
+                ..
+            } => {
+                if let Some(c) = stored_centroid {
+                    return c.clone();
+                }
                 if vectors.is_empty() {
                     return Vec::new();
                 }
@@ -82,7 +90,22 @@ impl Page {
                 page_id,
                 row_ids,
                 vectors,
+                stored_centroid,
             } => {
+                if vectors.is_empty() {
+                    buf.push(2u8);
+                    buf.extend_from_slice(&page_id.to_le_bytes());
+                    buf.extend_from_slice(&(num_dim as u32).to_le_bytes());
+                    buf.extend_from_slice(&(row_ids.len() as u32).to_le_bytes());
+                    for &row_id in row_ids {
+                        buf.extend_from_slice(&row_id.to_le_bytes());
+                    }
+                    let centroid = stored_centroid.as_deref().unwrap_or(&[]);
+                    for j in 0..num_dim {
+                        buf.extend_from_slice(&centroid.get(j).copied().unwrap_or(0.0).to_le_bytes());
+                    }
+                    return buf;
+                }
                 buf.push(1u8);
                 buf.extend_from_slice(&page_id.to_le_bytes());
                 buf.extend_from_slice(&(num_dim as u32).to_le_bytes());
@@ -103,6 +126,7 @@ impl Page {
         match kind {
             0 => Self::deserialize_internal(data, page_id, num_dim, off),
             1 => Self::deserialize_leaf(data, page_id, num_dim, off),
+            2 => Self::deserialize_row_id_leaf(data, page_id, num_dim, off),
             _ => Err(format!("unknown page kind {kind}")),
         }
     }
@@ -179,6 +203,27 @@ impl Page {
             page_id,
             row_ids,
             vectors,
+            stored_centroid: None,
+        })
+    }
+
+    fn deserialize_row_id_leaf(
+        data: &[u8],
+        page_id: u32,
+        num_dim: usize,
+        mut off: usize,
+    ) -> Result<Self, String> {
+        let n = Self::read_u32(data, &mut off)? as usize;
+        let mut row_ids = Vec::with_capacity(n);
+        for _ in 0..n {
+            row_ids.push(Self::read_u32(data, &mut off)?);
+        }
+        let centroid = Self::read_f32_vec(data, &mut off, num_dim)?;
+        Ok(Page::Leaf {
+            page_id,
+            row_ids,
+            vectors: Vec::new(),
+            stored_centroid: Some(centroid),
         })
     }
 }
@@ -241,11 +286,13 @@ mod tests {
                 page_id: 1,
                 row_ids: vec![0, 1],
                 vectors: vec![vec![1.0, 2.0], vec![1.1, 2.1]],
+                stored_centroid: None,
             },
             Page::Leaf {
                 page_id: 2,
                 row_ids: vec![2],
                 vectors: vec![vec![3.0, 4.0]],
+                stored_centroid: None,
             },
         ];
         let mut buf = Vec::new();

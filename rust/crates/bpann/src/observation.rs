@@ -1,7 +1,8 @@
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::path::Path;
 use std::sync::Mutex;
 
+use memmap2::MmapMut;
 use ndarray::{Array2, ArrayView2};
 
 use crate::error::BpannError;
@@ -50,11 +51,75 @@ pub fn validate_index_backend(work_dir: &Path, expected: &str) -> Result<(), Bpa
 }
 
 pub fn load_num_obs(work_dir: &Path) -> Option<usize> {
+    let sidecar = work_dir.join("num_obs.bin");
+    if let Ok(data) = fs::read(&sidecar) {
+        if data.len() == 8 {
+            return Some(u64::from_le_bytes(data.try_into().ok()?) as usize);
+        }
+    }
     let text = fs::read_to_string(work_dir.join("metadata.json")).ok()?;
     parse_json_usize_field(&text, "num_obs")
 }
 
+pub fn write_num_obs(work_dir: &Path, num_obs: usize) -> Result<(), BpannError> {
+    fs::write(
+        work_dir.join("num_obs.bin"),
+        (num_obs as u64).to_le_bytes(),
+    )
+    .map_err(|e| BpannError::InvalidParameter(e.to_string()))
+}
+
+pub struct NumObsCounter {
+    mmap: MmapMut,
+}
+
+impl NumObsCounter {
+    pub fn open(work_dir: &Path) -> Result<Self, BpannError> {
+        let path = work_dir.join("num_obs.bin");
+        if !path.exists() {
+            fs::write(&path, 0u64.to_le_bytes())
+                .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+        if file
+            .metadata()
+            .map_err(|e| BpannError::InvalidParameter(e.to_string()))?
+            .len()
+            < 8
+        {
+            file.set_len(8)
+                .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+        }
+        let mmap = unsafe {
+            MmapMut::map_mut(&file).map_err(|e| BpannError::InvalidParameter(e.to_string()))?
+        };
+        Ok(Self { mmap })
+    }
+
+    pub fn set(&mut self, num_obs: usize) {
+        self.mmap[0..8].copy_from_slice(&(num_obs as u64).to_le_bytes());
+    }
+}
+
+pub fn write_indexed_rows(work_dir: &Path, indexed_rows: usize) -> Result<(), BpannError> {
+    fs::write(
+        work_dir.join("indexed_rows.bin"),
+        (indexed_rows as u64).to_le_bytes(),
+    )
+    .map_err(|e| BpannError::InvalidParameter(e.to_string()))
+}
+
 pub fn load_indexed_rows(work_dir: &Path) -> Option<usize> {
+    let sidecar = work_dir.join("indexed_rows.bin");
+    if let Ok(data) = fs::read(&sidecar) {
+        if data.len() == 8 {
+            return Some(u64::from_le_bytes(data.try_into().ok()?) as usize);
+        }
+    }
     let text = fs::read_to_string(work_dir.join("metadata.json")).ok()?;
     parse_json_usize_field(&text, "indexed_rows")
 }

@@ -4,10 +4,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use ndarray::{Array1, Array2, ArrayView2};
+use rayon::prelude::*;
 
 use crate::distance::row_to_f32;
 use crate::error::BpannError;
-use crate::index::{brute_force_topk_mmap, BpannIndex, IncrementalIndex};
+use crate::index::{brute_force_topk_mmap, BpannIndex, IncrementalIndex, MmapSearchStore};
 use crate::merge::{merge_topk_candidates, merge_topk_precomputed_dist};
 use crate::mmap_store::MmapColumnStore;
 use crate::observation::{
@@ -31,6 +32,7 @@ pub struct BpannBackend {
     defer_append_indexing: bool,
     pending_unindexed: AtomicUsize,
     index_dirty: Mutex<bool>,
+    num_obs_counter: obs::NumObsCounter,
 }
 
 impl BpannBackend {
@@ -45,6 +47,7 @@ impl BpannBackend {
         obs::validate_dim_limits(train_x.ncols())?;
         fs::create_dir_all(&work_dir).map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
         obs::validate_index_backend(&work_dir, INDEX_BACKEND)?;
+        let num_obs_counter = obs::NumObsCounter::open(&work_dir)?;
 
         let num_dim = train_x.ncols();
         let num_metrics = train_y.ncols();
@@ -95,6 +98,7 @@ impl BpannBackend {
             defer_append_indexing: true,
             pending_unindexed: AtomicUsize::new(n.saturating_sub(indexed_rows)),
             index_dirty: Mutex::new(indexed_rows < n),
+            num_obs_counter,
         };
         if persisted_rows < indexed_rows {
             backend.index.ensure_sync_for_backend(
@@ -235,17 +239,12 @@ impl BpannBackend {
             &mut self.train_yvar,
             yvar,
         )?;
+        self.index
+            .note_pending_rows(x, self.scale_x, self.x_scale.as_slice().unwrap());
         self.pending_unindexed
             .fetch_add(x.nrows(), Ordering::Relaxed);
         *self.index_dirty.lock().expect("index_dirty") = true;
-        obs::write_metadata(
-            &self.work_dir,
-            self.len(),
-            self.num_dim,
-            self.num_metrics,
-            self.scale_x,
-            self.index.indexed_rows,
-        )?;
+        self.num_obs_counter.set(self.len());
         if !self.defer_append_indexing
             && self.pending_rows() >= self.pending_flush_threshold
         {
@@ -301,98 +300,121 @@ impl BpannBackend {
         let mut dist2s = Array2::zeros((n_query, k_eff));
         let mut indices = Array2::zeros((n_query, k_eff));
         let scale_x = self.scale_x;
-        let x_scale = self.x_scale.view();
+        let x_scale_vec = self.x_scale.as_slice().unwrap().to_vec();
         let pending_start = indexed;
         let has_pending = pending_start < total;
-        let mut query_buf = vec![0.0f64; self.num_dim];
-        let mut query_f32 = Vec::with_capacity(self.num_dim);
-
         let index_k = if exclude_nearest {
             pool_k.max(k_eff * 2)
         } else {
             k_eff
         };
+        let num_dim = self.num_dim;
+        let train_x = &self.train_x;
+        let query_rows: Vec<Vec<f64>> = (0..n_query)
+            .map(|q| queries.row(q).to_vec())
+            .collect();
+        let per_query: Vec<(Vec<f64>, Vec<i64>)> = query_rows
+            .par_iter()
+            .map(|query_buf| {
+                let mut query_f32 = Vec::with_capacity(num_dim);
+                row_to_f32(
+                    query_buf,
+                    scale_x,
+                    &x_scale_vec,
+                    &mut query_f32,
+                );
+                let store = MmapSearchStore {
+                    train_x,
+                    scale_x,
+                    x_scale: &x_scale_vec,
+                };
 
-        for q in 0..n_query {
-            let query_row = queries.slice(ndarray::s![q, ..]);
-            query_row.assign_to(&mut query_buf);
-            row_to_f32(
-                &query_buf,
-                scale_x,
-                x_scale.as_slice().unwrap(),
-                &mut query_f32,
-            );
+                let leg_a = if indexed > 0 && !self.index.indices.is_empty() {
+                    self.index
+                        .search_candidates(&query_f32, index_k.max(1), Some(&store))
+                        .expect("search_candidates")
+                } else {
+                    Vec::new()
+                };
 
-            let leg_a = if indexed > 0 && !self.index.indices.is_empty() {
-                self.index.search_candidates(&query_f32, index_k.max(1))
-            } else {
-                Vec::new()
-            };
+                if !has_pending {
+                    let merged = if scale_x {
+                        merge_topk_candidates(
+                            &self.train_x,
+                            query_buf,
+                            &leg_a,
+                            &[],
+                            k_eff,
+                            pool_k,
+                            exclude_nearest,
+                            scale_x,
+                            &x_scale_vec,
+                        )
+                        .expect("merge_topk_candidates")
+                    } else {
+                        merge_topk_precomputed_dist(
+                            &leg_a,
+                            &[],
+                            k_eff,
+                            pool_k,
+                            exclude_nearest,
+                        )
+                    };
+                    let mut dist_row = vec![0.0; k_eff];
+                    let mut idx_row = vec![0; k_eff];
+                    for (j, (id, dist)) in merged.into_iter().enumerate() {
+                        dist_row[j] = dist;
+                        idx_row[j] = id as i64;
+                    }
+                    return (dist_row, idx_row);
+                }
 
-            if !has_pending {
+                let leg_b = brute_force_topk_mmap(
+                    &self.train_x,
+                    pending_start,
+                    total,
+                    query_buf,
+                    k_eff,
+                    scale_x,
+                    &x_scale_vec,
+                )
+                .expect("brute_force_topk_mmap");
+
                 let merged = if scale_x {
                     merge_topk_candidates(
                         &self.train_x,
-                        &query_buf,
+                        query_buf,
                         &leg_a,
-                        &[],
+                        &leg_b,
                         k_eff,
                         pool_k,
                         exclude_nearest,
                         scale_x,
-                        x_scale.as_slice().unwrap(),
-                    )?
+                        &x_scale_vec,
+                    )
+                    .expect("merge_topk_candidates")
                 } else {
                     merge_topk_precomputed_dist(
                         &leg_a,
-                        &[],
+                        &leg_b,
                         k_eff,
                         pool_k,
                         exclude_nearest,
                     )
                 };
+                let mut dist_row = vec![0.0; k_eff];
+                let mut idx_row = vec![0; k_eff];
                 for (j, (id, dist)) in merged.into_iter().enumerate() {
-                    dist2s[[q, j]] = dist;
-                    indices[[q, j]] = id as i64;
+                    dist_row[j] = dist;
+                    idx_row[j] = id as i64;
                 }
-                continue;
-            }
-
-            let leg_b = brute_force_topk_mmap(
-                &self.train_x,
-                pending_start,
-                total,
-                &query_buf,
-                k_eff,
-                scale_x,
-                x_scale.as_slice().unwrap(),
-            )?;
-
-            let merged = if scale_x {
-                merge_topk_candidates(
-                    &self.train_x,
-                    &query_buf,
-                    &leg_a,
-                    &leg_b,
-                    k_eff,
-                    pool_k,
-                    exclude_nearest,
-                    scale_x,
-                    x_scale.as_slice().unwrap(),
-                )?
-            } else {
-                merge_topk_precomputed_dist(
-                    &leg_a,
-                    &leg_b,
-                    k_eff,
-                    pool_k,
-                    exclude_nearest,
-                )
-            };
-
-            for (j, (id, dist)) in merged.into_iter().enumerate() {
-                dist2s[[q, j]] = dist;
-                indices[[q, j]] = id as i64;
+                (dist_row, idx_row)
+            })
+            .collect();
+        for (q, (dist_row, idx_row)) in per_query.into_iter().enumerate() {
+            for j in 0..k_eff {
+                dist2s[[q, j]] = dist_row[j];
+                indices[[q, j]] = idx_row[j];
             }
         }
         Ok((dist2s, indices))

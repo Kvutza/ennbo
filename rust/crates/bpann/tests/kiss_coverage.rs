@@ -9,8 +9,9 @@ use bpann::index::{BpannIndex, DEFAULT_LEAF_CAPACITY};
 use bpann::merge::{merge_topk_candidates, merge_topk_precomputed_dist};
 use bpann::mmap_store::MmapColumnStore;
 use bpann::observation::{
-    append_yvar_on_add, check_append_row_limit, mark_index_dirty, open_or_append_yvar,
-    validate_dim_limits, validate_index_backend, write_metadata, INDEX_BACKEND,
+    append_yvar_on_add, check_append_row_limit, load_num_obs, mark_index_dirty,
+    open_or_append_yvar, validate_dim_limits, validate_index_backend, write_indexed_rows,
+    write_metadata, write_num_obs, NumObsCounter, INDEX_BACKEND,
 };
 use bpann::BpannBackend;
 use ndarray::array;
@@ -23,6 +24,11 @@ fn observation_helpers_called() {
     validate_dim_limits(4).unwrap();
     check_append_row_limit(10).unwrap();
     write_metadata(dir.path(), 0, 4, 1, false, 0).unwrap();
+    write_num_obs(dir.path(), 0).unwrap();
+    write_indexed_rows(dir.path(), 0).unwrap();
+    let mut counter = NumObsCounter::open(dir.path()).unwrap();
+    counter.set(0);
+    assert_eq!(load_num_obs(dir.path()), Some(0));
     validate_index_backend(dir.path(), INDEX_BACKEND).unwrap();
     let yv = array![[0.1]];
     let mut yvar = open_or_append_yvar(dir.path(), 1, Some(&yv)).unwrap();
@@ -207,7 +213,7 @@ fn kiss_incremental_index_module_symbols() {
         "build_index_batch",
         "build_batch",
         "amalgamate_smallest_pair",
-        "build_index_from_row_ids",
+        "concat_merge",
         "compact_indices",
         "compact",
         "search_index_candidates",

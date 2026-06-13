@@ -93,7 +93,7 @@ fn search_index_returns_neighbors() {
     )
     .unwrap();
     let mut visited = Vec::new();
-    let results = search::search_index(&index, &vectors[0], 5, 2, true, &mut visited);
+    let results = search::search_index(&index, &vectors[0], 5, 2, true, &mut visited, None).unwrap();
     assert!(!results.is_empty());
     assert_eq!(results.len(), 5);
     assert!(!visited.is_empty());

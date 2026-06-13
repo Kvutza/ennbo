@@ -23,7 +23,51 @@ pub struct BpannIndex {
     pub header: IndexHeader,
     pub pages: Vec<Page>,
     pub skip_edges: HashMap<u32, Vec<u32>>,
+    page_map: HashMap<u32, usize>,
     pub index_dir: PathBuf,
+}
+
+const EXHAUSTIVE_SEARCH_ROW_LIMIT: usize = 2500;
+const SKIP_REFINEMENT_ROW_LIMIT: usize = 150_000;
+
+fn needs_skip_edges(row_count: usize) -> bool {
+    row_count > EXHAUSTIVE_SEARCH_ROW_LIMIT && row_count <= SKIP_REFINEMENT_ROW_LIMIT
+}
+
+fn remap_page(page: &Page, id_map: &HashMap<u32, u32>) -> Page {
+    match page {
+        Page::Internal {
+            page_id,
+            centroids,
+            child_page_ids,
+        } => Page::Internal {
+            page_id: id_map[page_id],
+            centroids: centroids.clone(),
+            child_page_ids: child_page_ids
+                .iter()
+                .map(|id| id_map[id])
+                .collect(),
+        },
+            Page::Leaf {
+                page_id,
+                row_ids,
+                vectors,
+                stored_centroid,
+            } => Page::Leaf {
+                page_id: id_map[page_id],
+                row_ids: row_ids.clone(),
+                vectors: vectors.clone(),
+                stored_centroid: stored_centroid.clone(),
+            },
+    }
+}
+
+fn build_page_map(pages: &[Page]) -> HashMap<u32, usize> {
+    pages
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (p.page_id(), i))
+        .collect()
 }
 
 impl BpannIndex {
@@ -57,6 +101,159 @@ impl BpannIndex {
         )
     }
 
+    pub fn build_single_leaf_from_rows_with_persist(
+        row_ids: &[u32],
+        vectors: &[Vec<f32>],
+        num_dim: usize,
+        index_dir: PathBuf,
+        persist: bool,
+    ) -> Result<Self, BpannError> {
+        let page = Page::Leaf {
+            page_id: 0,
+            row_ids: row_ids.to_vec(),
+            vectors: vectors.to_vec(),
+            stored_centroid: None,
+        };
+        let leaf_capacity = row_ids.len().max(1);
+        let header = IndexHeader {
+            num_dim,
+            indexed_rows: row_ids.len(),
+            root_page_id: 0,
+            leaf_capacity,
+            skip_neighbors: DEFAULT_SKIP_NEIGHBORS,
+        };
+        let pages = vec![page];
+        let page_map = build_page_map(&pages);
+        let index = Self {
+            header,
+            pages,
+            skip_edges: HashMap::new(),
+            page_map,
+            index_dir,
+        };
+        if persist {
+            index.persist()?;
+        }
+        Ok(index)
+    }
+
+    pub fn build_row_ids_leaf_with_persist(
+        row_ids: &[u32],
+        centroid: Vec<f32>,
+        num_dim: usize,
+        index_dir: PathBuf,
+        persist: bool,
+    ) -> Result<Self, BpannError> {
+        let page = Page::Leaf {
+            page_id: 0,
+            row_ids: row_ids.to_vec(),
+            vectors: Vec::new(),
+            stored_centroid: Some(centroid),
+        };
+        let leaf_capacity = row_ids.len().max(1);
+        let header = IndexHeader {
+            num_dim,
+            indexed_rows: row_ids.len(),
+            root_page_id: 0,
+            leaf_capacity,
+            skip_neighbors: DEFAULT_SKIP_NEIGHBORS,
+        };
+        let pages = vec![page];
+        let page_map = build_page_map(&pages);
+        let index = Self {
+            header,
+            pages,
+            skip_edges: HashMap::new(),
+            page_map,
+            index_dir,
+        };
+        if persist {
+            index.persist()?;
+        }
+        Ok(index)
+    }
+
+    pub fn concat_merge(
+        parts: Vec<BpannIndex>,
+        index_dir: PathBuf,
+        persist: bool,
+    ) -> Result<Self, BpannError> {
+        if parts.is_empty() {
+            return Err(BpannError::InvalidParameter(
+                "concat_merge requires at least one index".to_string(),
+            ));
+        }
+        if parts.len() == 1 {
+            let mut single = parts.into_iter().next().expect("one index");
+            single.index_dir = index_dir;
+            if persist {
+                single.persist()?;
+            }
+            return Ok(single);
+        }
+        let num_dim = parts[0].header.num_dim;
+        let leaf_capacity = parts[0].header.leaf_capacity;
+        let skip_neighbors = parts[0].header.skip_neighbors;
+        let mut pages = Vec::new();
+        let mut child_page_ids = Vec::new();
+        let mut child_centroids = Vec::new();
+        let mut skip_edges = HashMap::new();
+        let mut total_rows = 0usize;
+        let mut next_id = 1u32;
+        for part in &parts {
+            total_rows += part.header.indexed_rows;
+            let id_map: HashMap<u32, u32> = part
+                .pages
+                .iter()
+                .map(|page| {
+                    let new_id = next_id;
+                    next_id += 1;
+                    (page.page_id(), new_id)
+                })
+                .collect();
+            child_page_ids.push(id_map[&part.header.root_page_id]);
+            child_centroids.push(part.root_centroid());
+            for page in &part.pages {
+                pages.push(remap_page(page, &id_map));
+            }
+            for (&from, tos) in &part.skip_edges {
+                if let Some(&new_from) = id_map.get(&from) {
+                    let new_tos: Vec<u32> = tos
+                        .iter()
+                        .filter_map(|to| id_map.get(to).copied())
+                        .collect();
+                    if !new_tos.is_empty() {
+                        skip_edges.insert(new_from, new_tos);
+                    }
+                }
+            }
+        }
+        pages.push(Page::Internal {
+            page_id: 0,
+            centroids: child_centroids,
+            child_page_ids,
+        });
+        let page_map = build_page_map(&pages);
+        let header = IndexHeader {
+            num_dim,
+            indexed_rows: total_rows,
+            root_page_id: 0,
+            leaf_capacity,
+            skip_neighbors,
+        };
+        let index = Self {
+            header,
+            pages,
+            skip_edges,
+            page_map,
+            index_dir,
+        };
+        if persist {
+            index.persist()?;
+        }
+        Ok(index)
+    }
+
     pub fn build_from_rows_with_persist(
         row_ids: &[u32],
         vectors: &[Vec<f32>],
@@ -66,9 +263,23 @@ impl BpannIndex {
         index_dir: PathBuf,
         persist: bool,
     ) -> Result<Self, BpannError> {
+        if row_ids.len() <= leaf_capacity {
+            return Self::build_single_leaf_from_rows_with_persist(
+                row_ids,
+                vectors,
+                num_dim,
+                index_dir,
+                persist,
+            );
+        }
         let partition = PartitionTree::build(row_ids, vectors, leaf_capacity, seed);
         let (pages, root_page_id) = partition_to_pages(&partition.root);
-        let skip_edges = build_skip_edges(&pages, DEFAULT_SKIP_NEIGHBORS);
+        let skip_edges = if needs_skip_edges(row_ids.len()) {
+            build_skip_edges(&pages, DEFAULT_SKIP_NEIGHBORS)
+        } else {
+            HashMap::new()
+        };
+        let page_map = build_page_map(&pages);
         let header = IndexHeader {
             num_dim,
             indexed_rows: row_ids.len(),
@@ -80,6 +291,7 @@ impl BpannIndex {
             header: header.clone(),
             pages,
             skip_edges,
+            page_map,
             index_dir: index_dir.clone(),
         };
         if persist {
@@ -100,10 +312,12 @@ impl BpannIndex {
         let pages = crate::index::page::read_pages_index(&mut reader)
             .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
         let skip_edges = read_skip_edges(&index_dir.join("skip_edges.bin"))?;
+        let page_map = build_page_map(&pages);
         Ok(Self {
             header,
             pages,
             skip_edges,
+            page_map,
             index_dir,
         })
     }
@@ -125,7 +339,7 @@ impl BpannIndex {
     }
 
     pub fn page_by_id(&self, page_id: u32) -> Option<&Page> {
-        self.pages.iter().find(|p| p.page_id() == page_id)
+        self.page_map.get(&page_id).map(|&i| &self.pages[i])
     }
 
     pub fn root_centroid(&self) -> Vec<f32> {
@@ -187,6 +401,7 @@ fn partition_to_pages_id(node: &PartitionNode, next_id: u32) -> (Vec<Page>, u32)
                 page_id: next_id,
                 row_ids,
                 vectors: vecs,
+                stored_centroid: None,
             };
             (vec![page], next_id)
         }
