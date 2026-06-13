@@ -159,8 +159,10 @@ pub fn run_flush_body(
     let mut guard = disk_arc.lock().map_err(|_| {
         ENNError::InvalidParameter("disk backend mutex poisoned".to_string())
     })?;
-    let DiskEnnBackend::Hnsw(ref mut backend) = *guard;
-    backend.flush_pending_index_rows()
+    match &mut *guard {
+        DiskEnnBackend::Hnsw(ref mut backend) => backend.flush_pending_index_rows(),
+        DiskEnnBackend::BpAnn(_) => Ok(()),
+    }
 }
 
 pub fn try_schedule_background_flush(
@@ -240,13 +242,13 @@ mod flush_inline_tests {
         let disk_arc = Arc::new(Mutex::new(DiskEnnBackend::Hnsw(backend)));
         let flush = {
             let guard = disk_arc.lock().expect("disk lock");
-            let DiskEnnBackend::Hnsw(ref b) = *guard;
+            let DiskEnnBackend::Hnsw(ref b) = *guard else { panic!("expected HNSW disk backend"); };
             b.flush_arc()
         };
         try_schedule_background_flush(&flush, Arc::clone(&disk_arc)).expect("inline flush");
         wait_for_background_flush(&flush).expect("wait after inline");
         let guard = disk_arc.lock().expect("disk lock");
-        let DiskEnnBackend::Hnsw(ref b) = *guard;
+        let DiskEnnBackend::Hnsw(ref b) = *guard else { panic!("expected HNSW disk backend"); };
         assert_eq!(b.indexed_rows(), b.len());
     }
 
@@ -267,7 +269,7 @@ mod flush_inline_tests {
         let disk_arc = Arc::new(Mutex::new(DiskEnnBackend::Hnsw(backend)));
         let flush = {
             let guard = disk_arc.lock().expect("disk lock");
-            let DiskEnnBackend::Hnsw(ref b) = *guard;
+            let DiskEnnBackend::Hnsw(ref b) = *guard else { panic!("expected HNSW disk backend"); };
             b.flush_test_barrier_hold(true);
             b.flush_arc()
         };
@@ -276,7 +278,7 @@ mod flush_inline_tests {
         flush.lock().expect("flush lock").barrier.set_hold(false);
         wait_for_background_flush(&flush).expect("wait");
         let guard = disk_arc.lock().expect("disk lock");
-        let DiskEnnBackend::Hnsw(ref b) = *guard;
+        let DiskEnnBackend::Hnsw(ref b) = *guard else { panic!("expected HNSW disk backend"); };
         assert_eq!(b.indexed_rows(), b.len());
     }
 
@@ -298,7 +300,7 @@ mod flush_inline_tests {
         let disk_arc = Arc::new(Mutex::new(DiskEnnBackend::Hnsw(backend)));
         let flush = {
             let guard = disk_arc.lock().expect("disk lock");
-            let DiskEnnBackend::Hnsw(ref b) = *guard;
+            let DiskEnnBackend::Hnsw(ref b) = *guard else { panic!("expected HNSW disk backend"); };
             b.flush_arc()
         };
         try_schedule_background_flush(&flush, Arc::clone(&disk_arc)).expect("schedule");

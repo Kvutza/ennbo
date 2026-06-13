@@ -110,6 +110,7 @@ name = "ennbo"
 version = "0.2.5"
 dependencies = [
  "approx",
+ "bpann",
  "faiss",
  "memmap2",
  "ndarray",

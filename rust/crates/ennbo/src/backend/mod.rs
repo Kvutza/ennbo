@@ -6,6 +6,7 @@ pub(crate) mod row_storage;
 
 pub use in_memory::InMemoryEnnBackend;
 pub use crate::disk_hnsw::DiskHnswEnnBackend;
+pub use crate::disk_bpann::DiskBpannEnnBackend;
 
 use ndarray::{Array1, Array2, ArrayView2};
 use std::path::PathBuf;
@@ -39,6 +40,7 @@ impl EnnStorage {
 
 pub enum DiskEnnBackend {
     Hnsw(DiskHnswEnnBackend),
+    BpAnn(DiskBpannEnnBackend),
 }
 
 pub enum EnnBackend {
@@ -56,6 +58,7 @@ fn disk_lock<'a>(
 fn disk_driver(d: &DiskEnnBackend) -> IndexDriver {
     match d {
         DiskEnnBackend::Hnsw(b) => b.driver(),
+        DiskEnnBackend::BpAnn(b) => b.driver(),
     }
 }
 
@@ -92,9 +95,19 @@ impl EnnBackend {
                 x_scale,
                 driver,
             )?),
+            IndexDriver::BpAnnDisk => DiskEnnBackend::BpAnn(DiskBpannEnnBackend::new(
+                work_dir,
+                train_x,
+                train_y,
+                train_yvar,
+                scale_x,
+                x_scale,
+                driver,
+            )?),
             _ => {
                 return Err(ENNError::InvalidParameter(
-                    "Disk storage requires IndexDriver::HNSWDisk".to_string(),
+                    "Disk storage requires IndexDriver::HNSWDisk or IndexDriver::BpAnnDisk"
+                        .to_string(),
                 ));
             }
         };
@@ -122,9 +135,15 @@ impl EnnBackend {
                     IndexDriver::HNSWDisk => DiskEnnBackend::Hnsw(DiskHnswEnnBackend::new_empty(
                         dir, num_dim, num_metrics,
                     )?),
+                    IndexDriver::BpAnnDisk => {
+                        DiskEnnBackend::BpAnn(DiskBpannEnnBackend::new_empty(
+                            dir, num_dim, num_metrics,
+                        )?)
+                    }
                     _ => {
                         return Err(ENNError::InvalidParameter(
-                            "Disk storage requires IndexDriver::HNSWDisk".to_string(),
+                            "Disk storage requires IndexDriver::HNSWDisk or IndexDriver::BpAnnDisk"
+                                .to_string(),
                         ));
                     }
                 };
@@ -140,8 +159,15 @@ impl EnnBackend {
                 let flush_arc = {
                     let g = disk_lock(arc)?;
                     match &*g {
-                        DiskEnnBackend::Hnsw(x) => Arc::clone(&x.flush),
+                        DiskEnnBackend::Hnsw(x) => Some(Arc::clone(&x.flush)),
+                        DiskEnnBackend::BpAnn(x) => {
+                            x.wait_for_flush()?;
+                            None
+                        }
                     }
+                };
+                let Some(flush_arc) = flush_arc else {
+                    return Ok(());
                 };
                 let st = flush_arc.lock().map_err(|_| {
                     ENNError::InvalidParameter("flush state mutex poisoned".to_string())
@@ -162,37 +188,35 @@ impl EnnBackend {
         match self {
             Self::InMemory(_) => Ok(()),
             Self::Disk(arc) => {
-                let (should, flush_arc) = {
-                    let g = disk_lock(arc)?;
-                    match &*g {
-                        DiskEnnBackend::Hnsw(x) => {
-                            let pending = x.pending_unindexed_count();
-                            let threshold = x.pending_flush_threshold();
-                            (
-                                !x.append_syncs_at_threshold()
-                                    && !x.is_index_stale()
-                                    && pending >= threshold,
-                                Arc::clone(&x.flush),
-                            )
+                let mut g = disk_lock(arc)?;
+                match &mut *g {
+                    DiskEnnBackend::BpAnn(xb) => xb.schedule_background_flush(),
+                    DiskEnnBackend::Hnsw(x) => {
+                        let pending = x.pending_unindexed_count();
+                        let threshold = x.pending_flush_threshold();
+                        let should = !x.append_syncs_at_threshold()
+                            && !x.is_index_stale()
+                            && pending >= threshold;
+                        let flush_arc = Arc::clone(&x.flush);
+                        drop(g);
+                        if !should {
+                            return Ok(());
                         }
+                        if flush_arc
+                            .lock()
+                            .map_err(|_| {
+                                ENNError::InvalidParameter("flush state mutex poisoned".to_string())
+                            })?
+                            .in_progress
+                        {
+                            return Ok(());
+                        }
+                        crate::disk_hnsw::flush::try_schedule_background_flush(
+                            &flush_arc,
+                            Arc::clone(arc),
+                        )
                     }
-                };
-                if !should {
-                    return Ok(());
                 }
-                if flush_arc
-                    .lock()
-                    .map_err(|_| {
-                        ENNError::InvalidParameter("flush state mutex poisoned".to_string())
-                    })?
-                    .in_progress
-                {
-                    return Ok(());
-                }
-                crate::disk_hnsw::flush::try_schedule_background_flush(
-                    &flush_arc,
-                    Arc::clone(arc),
-                )
             }
         }
     }
@@ -203,6 +227,7 @@ impl EnnBackend {
             Self::Disk(b) => disk_lock(b)
                 .map(|g| match &*g {
                     DiskEnnBackend::Hnsw(x) => x.len(),
+                    DiskEnnBackend::BpAnn(x) => x.len(),
                 })
                 .unwrap_or(0),
         }
@@ -218,6 +243,7 @@ impl EnnBackend {
             Self::Disk(b) => disk_lock(b)
                 .map(|g| match &*g {
                     DiskEnnBackend::Hnsw(x) => x.num_dim(),
+                    DiskEnnBackend::BpAnn(x) => x.num_dim(),
                 })
                 .unwrap_or(0),
         }
@@ -229,6 +255,7 @@ impl EnnBackend {
             Self::Disk(b) => disk_lock(b)
                 .map(|g| match &*g {
                     DiskEnnBackend::Hnsw(x) => x.num_metrics(),
+                    DiskEnnBackend::BpAnn(x) => x.num_metrics(),
                 })
                 .unwrap_or(0),
         }
@@ -250,6 +277,7 @@ impl EnnBackend {
                 if let Ok(mut g) = disk_lock(b) {
                     match &mut *g {
                         DiskEnnBackend::Hnsw(x) => x.mark_index_stale(),
+                        DiskEnnBackend::BpAnn(x) => x.mark_index_stale(),
                     }
                 }
             }
@@ -262,6 +290,7 @@ impl EnnBackend {
             Self::Disk(b) => disk_lock(b)
                 .map(|g| match &*g {
                     DiskEnnBackend::Hnsw(x) => x.is_index_stale(),
+                    DiskEnnBackend::BpAnn(x) => x.is_index_stale(),
                 })
                 .unwrap_or(false),
         }
@@ -279,6 +308,7 @@ impl EnnBackend {
                 let mut g = disk_lock(b)?;
                 match &mut *g {
                     DiskEnnBackend::Hnsw(xb) => xb.append_rows(x, y, yvar),
+                    DiskEnnBackend::BpAnn(xb) => xb.append_rows(x, y, yvar),
                 }
             }
         }
@@ -290,6 +320,7 @@ impl EnnBackend {
             Self::Disk(b) => disk_lock(b)
                 .map(|g| match &*g {
                     DiskEnnBackend::Hnsw(x) => x.defer_index_sync_for_search(),
+                    DiskEnnBackend::BpAnn(x) => x.defer_index_sync_for_search(),
                 })
                 .unwrap_or(false),
         }
@@ -307,6 +338,7 @@ impl EnnBackend {
                 let mut g = disk_lock(b)?;
                 match &mut *g {
                     DiskEnnBackend::Hnsw(xb) => xb.ensure_index_sync(scale_x, x_scale),
+                    DiskEnnBackend::BpAnn(xb) => xb.ensure_index_sync(scale_x, x_scale),
                 }
             }
         }
@@ -322,6 +354,7 @@ impl EnnBackend {
                 let g = disk_lock(b)?;
                 match &*g {
                     DiskEnnBackend::Hnsw(xb) => xb.train_rows_at(indices),
+                    DiskEnnBackend::BpAnn(xb) => xb.train_rows_at(indices),
                 }
             }
         }
@@ -334,6 +367,7 @@ impl EnnBackend {
                 let g = disk_lock(b)?;
                 match &*g {
                     DiskEnnBackend::Hnsw(xb) => xb.row_x(i),
+                    DiskEnnBackend::BpAnn(xb) => xb.row_x(i),
                 }
             }
         }
@@ -346,6 +380,7 @@ impl EnnBackend {
                 let g = disk_lock(b)?;
                 match &*g {
                     DiskEnnBackend::Hnsw(xb) => xb.row_y(i),
+                    DiskEnnBackend::BpAnn(xb) => xb.row_y(i),
                 }
             }
         }
@@ -358,6 +393,7 @@ impl EnnBackend {
                 let g = disk_lock(b)?;
                 match &*g {
                     DiskEnnBackend::Hnsw(xb) => xb.row_yvar(i),
+                    DiskEnnBackend::BpAnn(xb) => xb.row_yvar(i),
                 }
             }
         }
@@ -375,6 +411,7 @@ impl EnnBackend {
                 let g = disk_lock(b)?;
                 match &*g {
                     DiskEnnBackend::Hnsw(xb) => xb.search(x, search_k, exclude_nearest),
+                    DiskEnnBackend::BpAnn(xb) => xb.search(x, search_k, exclude_nearest),
                 }
             }
         }
@@ -387,6 +424,7 @@ impl EnnBackend {
                 let g = disk_lock(b)?;
                 match &*g {
                     DiskEnnBackend::Hnsw(xb) => xb.index_memory_bytes(),
+                    DiskEnnBackend::BpAnn(xb) => xb.index_memory_bytes(),
                 }
             }
         }
@@ -398,6 +436,7 @@ impl EnnBackend {
             Self::Disk(b) => disk_lock(b)
                 .map(|g| match &*g {
                     DiskEnnBackend::Hnsw(x) => x.len(),
+                    DiskEnnBackend::BpAnn(x) => x.len(),
                 })
                 .unwrap_or(0),
         }
@@ -470,6 +509,25 @@ mod backend_dispatch_tests {
         .unwrap();
         backend.ensure_index_sync(false, &Array1::ones(2)).unwrap();
         assert_eq!(backend.driver(), IndexDriver::HNSWDisk);
+        assert!(backend.in_memory_index().is_none());
+    }
+
+    #[test]
+    fn disk_bpann_enum_dispatch() {
+        use tempfile::TempDir;
+        let dir = TempDir::new().expect("tempdir");
+        let backend = EnnBackend::new_disk(
+            dir.path().to_path_buf(),
+            array![[0.0, 0.0], [1.0, 0.0]],
+            array![[0.0], [1.0]],
+            None,
+            false,
+            Array1::ones(2),
+            IndexDriver::BpAnnDisk,
+        )
+        .unwrap();
+        backend.ensure_index_sync(false, &Array1::ones(2)).unwrap();
+        assert_eq!(backend.driver(), IndexDriver::BpAnnDisk);
         assert!(backend.in_memory_index().is_none());
     }
 

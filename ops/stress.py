@@ -16,8 +16,11 @@ from enn.enn.enn_class import EpistemicNearestNeighbors
 from enn.enn.enn_params import ENNParams
 from enn.turbo.config.enn_index_driver import ENNIndexDriver
 
-INDEX_TYPE_CHOICES: tuple[str, ...] = ("flat", "hnsw", "hnsw_disk")
-DISK_INDEX_TYPE_CHOICES: frozenset[str] = frozenset({"hnsw_disk"})
+INDEX_TYPE_CHOICES: tuple[str, ...] = ("flat", "hnsw", "hnsw_disk", "bpann_disk")
+DISK_INDEX_TYPE_CHOICES: frozenset[str] = frozenset({"hnsw_disk", "bpann_disk"})
+DISK_DEFER_SYNC_DRIVERS: frozenset[ENNIndexDriver] = frozenset(
+    {ENNIndexDriver.HNSW_DISK, ENNIndexDriver.BPANN_DISK}
+)
 DEFAULT_NUM_DIM = 10
 STRESS_OBS_BATCH_SIZE = 100
 DEFAULT_HEARTBEAT_SECONDS = 10.0
@@ -152,6 +155,7 @@ def parse_index_driver(name: str) -> ENNIndexDriver:
         "flat": ENNIndexDriver.FLAT,
         "hnsw": ENNIndexDriver.HNSW,
         "hnsw_disk": ENNIndexDriver.HNSW_DISK,
+        "bpann_disk": ENNIndexDriver.BPANN_DISK,
     }
     if name not in mapping:
         raise ValueError(f"Unknown index type: {name}")
@@ -289,7 +293,7 @@ def run_enn_add_stress(
         start=1,
     ):
         model.add(x_row, y_row)
-        if index_driver == ENNIndexDriver.HNSW_DISK:
+        if index_driver in DISK_DEFER_SYNC_DRIVERS:
             model.schedule_background_flush()
         if cfg.progress_every and (n % cfg.progress_every == 0):
             click.echo(f"progress n={n}", err=True)
@@ -299,7 +303,7 @@ def run_enn_add_stress(
             click.echo(f"heartbeat n={n}", err=True)
             last_heartbeat_t = time.perf_counter()
         if n in checkpoints:
-            if index_driver != ENNIndexDriver.HNSW_DISK:
+            if index_driver not in DISK_DEFER_SYNC_DRIVERS:
                 model.ensure_index_sync()
             segment_s = time.perf_counter() - last_checkpoint_t
             query_s = _time_query_s(model, x_query)
@@ -356,7 +360,7 @@ def cli() -> None:
             ["--work-dir"],
             type=click.Path(file_okay=False, dir_okay=True, path_type=str),
             default=None,
-            help="Disk-backed ENN work directory (requires hnsw_disk).",
+            help="Disk-backed ENN work directory (requires hnsw_disk or bpann_disk).",
         ),
     ],
 )

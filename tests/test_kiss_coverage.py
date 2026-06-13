@@ -122,6 +122,7 @@ def test_enn_index_driver_enum():
     assert ENNIndexDriver.FLAT != ENNIndexDriver.HNSW
     assert ENNIndexDriver.HNSW != ENNIndexDriver.HNSW_DISK
     assert ENNIndexDriver.FLAT != ENNIndexDriver.HNSW_DISK
+    assert ENNIndexDriver.BPANN_DISK != ENNIndexDriver.HNSW_DISK
 
 
 def test_num_candidates_fn_protocol():

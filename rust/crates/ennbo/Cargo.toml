@@ -12,6 +12,7 @@ readme = "README.md"
 build = "src/ennbo_build.rs"
 
 [dependencies]
+bpann = { path = "../bpann" }
 faiss = { version = "0.13.0" }
 ndarray = { workspace = true }
 ndarray-linalg = { workspace = true }

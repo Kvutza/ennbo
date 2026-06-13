@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::backend::{DiskEnnBackend, EnnBackend, EnnStorage};
 use crate::error::ENNError;
-use crate::index::IndexDriver;
+use crate::index::{IndexDriver, is_disk_index_driver};
 
 type InitStats = (
     Array1<f64>,
@@ -126,9 +126,10 @@ impl EpistemicNearestNeighbors {
                 driver,
             )?,
             EnnStorage::Disk => {
-                if driver != IndexDriver::HNSWDisk {
+                if !is_disk_index_driver(driver) {
                     return Err(ENNError::InvalidParameter(
-                        "Disk storage requires IndexDriver::HNSWDisk".to_string(),
+                        "Disk storage requires IndexDriver::HNSWDisk or IndexDriver::BpAnnDisk"
+                            .to_string(),
                     ));
                 }
                 let dir = work_dir.or_else(EnnStorage::work_dir_from_env).ok_or_else(|| {
@@ -561,7 +562,7 @@ mod tests {
         let (arc, flush_arc) = match &model.backend {
             EnnBackend::Disk(a) => {
                 let guard = a.lock().expect("disk lock");
-                let DiskEnnBackend::Hnsw(ref b) = *guard;
+                let DiskEnnBackend::Hnsw(ref b) = *guard else { panic!("expected HNSW disk backend"); };
                 let f = Arc::clone(&b.flush);
                 drop(guard);
                 (Arc::clone(a), f)
@@ -570,7 +571,7 @@ mod tests {
         };
         {
             let guard = arc.lock().expect("disk lock");
-            let DiskEnnBackend::Hnsw(ref b) = *guard;
+            let DiskEnnBackend::Hnsw(ref b) = *guard else { panic!("expected HNSW disk backend"); };
             b.flush_test_barrier_hold(true);
         }
         crate::disk_hnsw::flush::try_schedule_background_flush(
@@ -598,7 +599,7 @@ mod tests {
             .set_hold(false);
         add_handle.join().expect("add thread");
         let guard = arc.lock().expect("disk lock");
-        let DiskEnnBackend::Hnsw(ref b) = *guard;
+        let DiskEnnBackend::Hnsw(ref b) = *guard else { panic!("expected HNSW disk backend"); };
         assert_eq!(b.len(), 4);
         assert_eq!(b.indexed_rows(), 3);
     }

@@ -10,14 +10,18 @@ pub fn hnsw_arc(backend: DiskHnswEnnBackend) -> Arc<Mutex<DiskEnnBackend>> {
 
 pub fn flush_arc(arc: &Arc<Mutex<DiskEnnBackend>>) -> Arc<Mutex<BackgroundFlushState>> {
     let guard = arc.lock().expect("disk lock");
-    let DiskEnnBackend::Hnsw(b) = &*guard;
+    let DiskEnnBackend::Hnsw(b) = &*guard else {
+        panic!("expected HNSW disk backend");
+    };
     b.flush_arc()
 }
 
 pub fn schedule_background_flush(arc: &Arc<Mutex<DiskEnnBackend>>) {
     let (flush, should) = {
         let guard = arc.lock().expect("disk lock");
-        let DiskEnnBackend::Hnsw(b) = &*guard;
+        let DiskEnnBackend::Hnsw(b) = &*guard else {
+            panic!("expected HNSW disk backend");
+        };
         (
             b.flush_arc(),
             !b.is_index_stale() && b.pending_rows() >= b.pending_flush_threshold(),

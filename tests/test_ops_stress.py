@@ -61,7 +61,7 @@ def test_checkpoint_ns_metamorphic_doubling_preserves_prefix():
         assert small == large[: len(small)]
 
 
-@pytest.mark.parametrize("name", ["flat", "hnsw", "hnsw_disk"])
+@pytest.mark.parametrize("name", ["flat", "hnsw", "hnsw_disk", "bpann_disk"])
 def test_parse_index_driver(name: str):
     from ops.stress import parse_index_driver
 
@@ -121,7 +121,16 @@ def test_run_enn_add_stress_syncs_at_checkpoints(monkeypatch):
     assert sync_calls == [1] * len(checkpoint_ns(num_obs))
 
 
-def test_run_enn_add_stress_hnsw_disk_no_checkpoint_sync(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    "driver,subdir",
+    [
+        (ENNIndexDriver.HNSW_DISK, "hnsw"),
+        (ENNIndexDriver.BPANN_DISK, "bpann"),
+    ],
+)
+def test_run_enn_add_stress_disk_no_checkpoint_sync(
+    monkeypatch, tmp_path, driver, subdir
+):
     from ops.stress import EnnAddStressConfig, checkpoint_ns, run_enn_add_stress
 
     sync_calls: list[int] = []
@@ -138,14 +147,14 @@ def test_run_enn_add_stress_hnsw_disk_no_checkpoint_sync(monkeypatch, tmp_path):
     num_obs = 30
     list(
         run_enn_add_stress(
-            index_driver=ENNIndexDriver.HNSW_DISK,
+            index_driver=driver,
             num_obs=num_obs,
             config=EnnAddStressConfig(
                 num_dim=4,
                 seed=0,
                 query_n=5,
                 query_seed=1,
-                work_dir=str(tmp_path),
+                work_dir=str(tmp_path / subdir),
             ),
         )
     )
@@ -335,15 +344,16 @@ def test_enn_stress_cli_rejects_disk_driver_without_work_dir():
     assert "hnsw_disk requires --work-dir" in result.output
 
 
-def test_enn_stress_cli_hnsw_disk(tmp_path):
+@pytest.mark.parametrize("index_type,subdir", [("hnsw_disk", "enn_cli_disk"), ("bpann_disk", "enn_cli_bpann")])
+def test_enn_stress_cli_disk(tmp_path, index_type, subdir):
     from click.testing import CliRunner
 
     from ops.stress import cli
 
-    work_dir = tmp_path / "enn_cli_disk"
+    work_dir = tmp_path / subdir
     result = CliRunner().invoke(
         cli,
-        ["enn", "hnsw_disk", "10", "--work-dir", str(work_dir)],
+        ["enn", index_type, "10", "--work-dir", str(work_dir)],
     )
     assert result.exit_code == 0, result.output
     lines = result.output.strip().splitlines()

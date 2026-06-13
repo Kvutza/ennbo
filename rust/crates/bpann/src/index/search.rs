@@ -3,7 +3,9 @@ use std::collections::{HashSet, VecDeque};
 
 use crate::distance::{batched_sq_l2_f32, l2_sq_f32};
 use crate::index::build::BpannIndex;
-    use crate::index::page::Page;
+use crate::index::page::Page;
+
+pub const MAX_CANDIDATE_LEAVES: usize = 384;
 
 pub struct TraversalLog {
     pub visited_pages: Vec<u32>,
@@ -77,8 +79,14 @@ pub fn search_index(
     if use_skip_edges {
         let initial: Vec<u32> = candidate_leaves.iter().copied().collect();
         for leaf_id in initial {
+            if candidate_leaves.len() >= MAX_CANDIDATE_LEAVES {
+                break;
+            }
             if let Some(edges) = index.skip_edges.get(&leaf_id) {
                 for &next in edges {
+                    if candidate_leaves.len() >= MAX_CANDIDATE_LEAVES {
+                        break;
+                    }
                     if visited_leaves.insert(next) {
                         candidate_leaves.push_back(next);
                         visited_log.push(next);
@@ -87,6 +95,8 @@ pub fn search_index(
             }
         }
     }
+
+    truncate_candidate_leaves(index, query, &mut candidate_leaves, MAX_CANDIDATE_LEAVES);
 
     let mut scored: Vec<(u32, f32)> = Vec::new();
     for leaf_id in candidate_leaves {
@@ -109,6 +119,30 @@ pub fn search_index(
     });
     scored.truncate(k);
     scored
+}
+
+fn truncate_candidate_leaves(
+    index: &BpannIndex,
+    query: &[f32],
+    leaves: &mut VecDeque<u32>,
+    max: usize,
+) {
+    if leaves.len() <= max {
+        return;
+    }
+    let mut ranked: Vec<(u32, f32)> = leaves
+        .iter()
+        .filter_map(|&leaf_id| {
+            index
+                .page_by_id(leaf_id)
+                .map(|page| (leaf_id, l2_sq_f32(query, &page.centroid())))
+        })
+        .collect();
+    ranked.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+    leaves.clear();
+    for (leaf_id, _) in ranked.into_iter().take(max) {
+        leaves.push_back(leaf_id);
+    }
 }
 
 fn collect_candidate_leaves(

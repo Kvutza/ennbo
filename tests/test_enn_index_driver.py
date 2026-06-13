@@ -22,6 +22,7 @@ def test_enn_index_driver_to_rust_maps_all():
     assert ENN_INDEX_DRIVER_TO_RUST[ENNIndexDriver.FLAT] == "exact"
     assert ENN_INDEX_DRIVER_TO_RUST[ENNIndexDriver.HNSW] == "hnsw"
     assert ENN_INDEX_DRIVER_TO_RUST[ENNIndexDriver.HNSW_DISK] == "hnsw_disk"
+    assert ENN_INDEX_DRIVER_TO_RUST[ENNIndexDriver.BPANN_DISK] == "bpann_disk"
 
 
 def test_enn_hnsw_disk_in_memory_raises():
@@ -72,7 +73,7 @@ def test_enn_index_driver_neighbor_indices_fuzz(seed: int):
 def test_enn_work_dir_requires_disk_driver():
     train_x = np.array([[0.0, 0.0], [1.0, 1.0]], dtype=float)
     train_y = np.zeros((2, 1), dtype=float)
-    with pytest.raises(ValueError, match="Disk storage requires IndexDriver::HNSWDisk"):
+    with pytest.raises(ValueError, match="Disk storage requires IndexDriver::HNSWDisk|BpAnnDisk"):
         EpistemicNearestNeighbors(
             train_x,
             train_y,
@@ -225,9 +226,9 @@ def test_enn_disk_hnsw_posterior_scale_x_pending_matches_fresh(tmp_path):
     np.testing.assert_allclose(post_inc.se, post_fresh.se, rtol=1e-5)
 
 
-@pytest.mark.parametrize("driver", [ENNIndexDriver.HNSW_DISK])
+@pytest.mark.parametrize("driver", [ENNIndexDriver.HNSW_DISK, ENNIndexDriver.BPANN_DISK])
 def test_enn_disk_backend_incremental_add_and_search_hnsw_disk(tmp_path, driver):
-    work_dir = tmp_path / "enn_disk_hnsw"
+    work_dir = tmp_path / f"enn_disk_{driver.name.lower()}"
     rng = np.random.default_rng(42)
     n, d, init = 60, 4, 50
     train_x = rng.standard_normal((n, d))
@@ -255,9 +256,9 @@ def test_enn_disk_backend_incremental_add_and_search_hnsw_disk(tmp_path, driver)
         assert int(idx[0, 0]) == int(flat_idx[0, 0]), f"query row {qi}"
 
 
-@pytest.mark.parametrize("driver", [ENNIndexDriver.HNSW_DISK])
+@pytest.mark.parametrize("driver", [ENNIndexDriver.HNSW_DISK, ENNIndexDriver.BPANN_DISK])
 def test_enn_disk_backend_train_rows_at_matches_memory_hnsw_disk(tmp_path, driver):
-    work_dir = tmp_path / "enn_disk_rows_hnsw"
+    work_dir = tmp_path / f"enn_disk_rows_{driver.name.lower()}"
     rng = np.random.default_rng(7)
     n, d = 30, 3
     train_x = rng.standard_normal((n, d))

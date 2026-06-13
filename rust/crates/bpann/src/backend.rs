@@ -7,10 +7,8 @@ use ndarray::{Array1, Array2, ArrayView2};
 
 use crate::distance::row_to_f32;
 use crate::error::BpannError;
-use crate::index::{
-    brute_force_topk_mmap, search_exhaustive_leaves, BpannIndex, DEFAULT_LEAF_CAPACITY,
-};
-use crate::merge::merge_topk_candidates;
+use crate::index::{brute_force_topk_mmap, BpannIndex, IncrementalIndex};
+use crate::merge::{merge_topk_candidates, merge_topk_precomputed_dist};
 use crate::mmap_store::MmapColumnStore;
 use crate::observation::{
     self as obs, TrainRowsAt, INDEX_BACKEND, MAX_NUM_DIM, MAX_RECORD_STRIDE,
@@ -28,9 +26,7 @@ pub struct BpannBackend {
     num_metrics: usize,
     scale_x: bool,
     x_scale: Array1<f64>,
-    index_dir: PathBuf,
-    index: Option<BpannIndex>,
-    indexed_rows: usize,
+    index: IncrementalIndex,
     pending_flush_threshold: usize,
     defer_append_indexing: bool,
     pending_unindexed: AtomicUsize,
@@ -73,22 +69,19 @@ impl BpannBackend {
         let n = train_x_store.nrows;
         let index_dir = work_dir.join("index");
         let indexed_rows = obs::load_indexed_rows(&work_dir).unwrap_or(0).min(n);
-        let index = if index_dir.join("header.json").exists() && indexed_rows > 0 {
-            Some(BpannIndex::open(index_dir.clone())?)
+        let indices = if index_dir.join("header.json").exists() && indexed_rows > 0 {
+            vec![BpannIndex::open(index_dir.clone())?]
         } else {
-            None
+            Vec::new()
         };
-
-        obs::write_metadata(
-            &work_dir,
-            n,
-            num_dim,
-            num_metrics,
-            scale_x,
-            indexed_rows,
-        )?;
-
-        Ok(Self {
+        let persisted_rows = indices
+            .first()
+            .map(|i| i.header.indexed_rows)
+            .unwrap_or(0);
+        let mut index = IncrementalIndex::new(index_dir);
+        index.indices = indices;
+        index.indexed_rows = persisted_rows.min(indexed_rows);
+        let mut backend = Self {
             work_dir,
             train_x: train_x_store,
             train_y: train_y_store,
@@ -97,14 +90,35 @@ impl BpannBackend {
             num_metrics,
             scale_x,
             x_scale,
-            index_dir,
             index,
-            indexed_rows,
             pending_flush_threshold: DEFAULT_PENDING_FLUSH_THRESHOLD,
             defer_append_indexing: true,
             pending_unindexed: AtomicUsize::new(n.saturating_sub(indexed_rows)),
             index_dirty: Mutex::new(indexed_rows < n),
-        })
+        };
+        if persisted_rows < indexed_rows {
+            backend.index.ensure_sync_for_backend(
+                &backend.train_x,
+                backend.num_dim,
+                backend.scale_x,
+                backend.x_scale.as_slice().unwrap(),
+                &backend.work_dir,
+                backend.num_metrics,
+                indexed_rows,
+            )?;
+        }
+        backend.pending_unindexed
+            .store(n.saturating_sub(indexed_rows), Ordering::Relaxed);
+        backend.index.indexed_rows = indexed_rows;
+        obs::write_metadata(
+            &backend.work_dir,
+            n,
+            num_dim,
+            num_metrics,
+            scale_x,
+            indexed_rows,
+        )?;
+        Ok(backend)
     }
 
     pub fn new_empty(work_dir: PathBuf, num_dim: usize, num_metrics: usize) -> Result<Self, BpannError> {
@@ -149,12 +163,36 @@ impl BpannBackend {
         self.num_dim
     }
 
+    pub fn mark_index_stale(&mut self) {
+        self.reset_index();
+    }
+
+    pub fn ensure_index_sync_with_scale(
+        &mut self,
+        scale_x: bool,
+        x_scale: &Array1<f64>,
+    ) -> Result<(), BpannError> {
+        if self.scale_x != scale_x || self.x_scale != *x_scale {
+            self.scale_x = scale_x;
+            self.x_scale = x_scale.to_owned();
+            self.reset_index();
+        }
+        self.ensure_index_sync()
+    }
+
+    fn reset_index(&mut self) {
+        self.index.reset();
+        self.pending_unindexed
+            .store(self.len(), Ordering::Relaxed);
+        *self.index_dirty.lock().expect("index_dirty") = true;
+    }
+
     pub fn indexed_rows(&self) -> usize {
-        self.indexed_rows
+        self.index.indexed_rows
     }
 
     pub fn index_dir(&self) -> &Path {
-        &self.index_dir
+        &self.index.index_dir
     }
 
     pub fn append_row(
@@ -206,7 +244,7 @@ impl BpannBackend {
             self.num_dim,
             self.num_metrics,
             self.scale_x,
-            self.indexed_rows,
+            self.index.indexed_rows,
         )?;
         if !self.defer_append_indexing
             && self.pending_rows() >= self.pending_flush_threshold
@@ -218,44 +256,17 @@ impl BpannBackend {
 
     pub fn ensure_index_sync(&mut self) -> Result<(), BpannError> {
         let end = self.len();
-        if self.indexed_rows >= end {
-            return Ok(());
-        }
-        self.build_index_range(0, end)?;
-        *self.index_dirty.lock().expect("index_dirty") = false;
-        Ok(())
-    }
-
-    fn build_index_range(&mut self, start: usize, end: usize) -> Result<(), BpannError> {
-        if start >= end {
-            return Ok(());
-        }
-        let seed = std::env::var("BPANN_BUILD_SEED")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(start as u64);
-        let mut vectors = Vec::with_capacity(end - start);
-        let mut row_ids = Vec::with_capacity(end - start);
-        let mut vec_buf = Vec::with_capacity(self.num_dim);
-        for i in start..end {
-            let row = self.train_x.mmap_row_slice(i)?;
-            row_to_f32(row, self.scale_x, self.x_scale.as_slice().unwrap(), &mut vec_buf);
-            row_ids.push(i as u32);
-            vectors.push(vec_buf.clone());
-        }
-        let index = BpannIndex::build_from_rows(&row_ids, &vectors, self.num_dim, DEFAULT_LEAF_CAPACITY, seed, self.index_dir.clone())?;
-        self.index = Some(index);
-        self.indexed_rows = end;
-        self.pending_unindexed
-            .store(0, Ordering::Relaxed);
-        obs::write_metadata(
-            &self.work_dir,
-            self.len(),
+        self.index.ensure_sync_for_backend(
+            &self.train_x,
             self.num_dim,
-            self.num_metrics,
             self.scale_x,
-            self.indexed_rows,
+            self.x_scale.as_slice().unwrap(),
+            &self.work_dir,
+            self.num_metrics,
+            end,
         )?;
+        self.pending_unindexed.store(0, Ordering::Relaxed);
+        *self.index_dirty.lock().expect("index_dirty") = false;
         Ok(())
     }
 
@@ -280,7 +291,7 @@ impl BpannBackend {
         if total == 0 {
             return Ok((Array2::zeros((n_query, 0)), Array2::zeros((n_query, 0))));
         }
-        let indexed = self.indexed_rows;
+        let indexed = self.index.indexed_rows;
         let k_eff = search_k.min(total);
         let pool_k = if exclude_nearest {
             (search_k + 1).min(total)
@@ -312,28 +323,34 @@ impl BpannBackend {
                 &mut query_f32,
             );
 
-            let leg_a: Vec<(u32, f32)> = if indexed > 0 {
-                if let Some(ref index) = self.index {
-                    search_exhaustive_leaves(index, &query_f32, index_k.max(1))
-                } else {
-                    Vec::new()
-                }
+            let leg_a = if indexed > 0 && !self.index.indices.is_empty() {
+                self.index.search_candidates(&query_f32, index_k.max(1))
             } else {
                 Vec::new()
             };
 
             if !has_pending {
-                let merged = merge_topk_candidates(
-                    &self.train_x,
-                    &query_buf,
-                    &leg_a,
-                    &[],
-                    k_eff,
-                    pool_k,
-                    exclude_nearest,
-                    scale_x,
-                    x_scale.as_slice().unwrap(),
-                )?;
+                let merged = if scale_x {
+                    merge_topk_candidates(
+                        &self.train_x,
+                        &query_buf,
+                        &leg_a,
+                        &[],
+                        k_eff,
+                        pool_k,
+                        exclude_nearest,
+                        scale_x,
+                        x_scale.as_slice().unwrap(),
+                    )?
+                } else {
+                    merge_topk_precomputed_dist(
+                        &leg_a,
+                        &[],
+                        k_eff,
+                        pool_k,
+                        exclude_nearest,
+                    )
+                };
                 for (j, (id, dist)) in merged.into_iter().enumerate() {
                     dist2s[[q, j]] = dist;
                     indices[[q, j]] = id as i64;
@@ -351,17 +368,27 @@ impl BpannBackend {
                 x_scale.as_slice().unwrap(),
             )?;
 
-            let merged = merge_topk_candidates(
-                &self.train_x,
-                &query_buf,
-                &leg_a,
-                &leg_b,
-                k_eff,
-                pool_k,
-                exclude_nearest,
-                scale_x,
-                x_scale.as_slice().unwrap(),
-            )?;
+            let merged = if scale_x {
+                merge_topk_candidates(
+                    &self.train_x,
+                    &query_buf,
+                    &leg_a,
+                    &leg_b,
+                    k_eff,
+                    pool_k,
+                    exclude_nearest,
+                    scale_x,
+                    x_scale.as_slice().unwrap(),
+                )?
+            } else {
+                merge_topk_precomputed_dist(
+                    &leg_a,
+                    &leg_b,
+                    k_eff,
+                    pool_k,
+                    exclude_nearest,
+                )
+            };
 
             for (j, (id, dist)) in merged.into_iter().enumerate() {
                 dist2s[[q, j]] = dist;
@@ -372,11 +399,15 @@ impl BpannBackend {
     }
 
     pub fn index_snapshot(&self) -> Option<&BpannIndex> {
-        self.index.as_ref()
+        self.index.indices.first()
     }
 
     pub fn page_bytes(&self) -> Vec<u8> {
-        self.index.as_ref().map(|i| i.page_bytes()).unwrap_or_default()
+        self.index
+            .indices
+            .first()
+            .map(|i| i.page_bytes())
+            .unwrap_or_default()
     }
 
     pub fn mmap_row_slice(&self, i: usize) -> Result<&[f64], BpannError> {
@@ -384,10 +415,7 @@ impl BpannBackend {
     }
 
     pub fn index_memory_bytes(&self) -> usize {
-        self.index
-            .as_ref()
-            .map(|i| i.index_memory_bytes())
-            .unwrap_or(0)
+        self.index.index_memory_bytes()
     }
 
     pub fn reopen(work_dir: PathBuf) -> Result<Self, BpannError> {

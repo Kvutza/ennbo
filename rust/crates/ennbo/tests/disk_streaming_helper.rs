@@ -34,7 +34,9 @@ fn random_batch(
 fn configure_low_flush_threshold(model: &EpistemicNearestNeighbors, threshold: usize) {
     let arc = model.disk_backend_arc().expect("disk backend");
     let mut guard = arc.lock().expect("disk lock");
-    let DiskEnnBackend::Hnsw(backend) = &mut *guard;
+    let DiskEnnBackend::Hnsw(backend) = &mut *guard else {
+        panic!("expected HNSW disk backend");
+    };
     backend.set_pending_flush_threshold(threshold);
     backend.set_defer_append_indexing(true);
 }

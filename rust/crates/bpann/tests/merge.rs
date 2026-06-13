@@ -24,3 +24,16 @@ fn merge_topk_candidates() {
     .unwrap();
     assert_eq!(merged[0].0, 1);
 }
+
+#[test]
+fn merge_topk_precomputed_dist_excludes_nearest() {
+    let merged = merge::merge_topk_precomputed_dist(
+        &[(0, 0.0), (1, 1.0), (2, 4.0)],
+        &[],
+        1,
+        3,
+        true,
+    );
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0].0, 1);
+}

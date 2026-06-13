@@ -76,6 +76,7 @@ fn with_hnsw<T>(arc: &Arc<Mutex<DiskEnnBackend>>, f: impl FnOnce(&DiskHnswEnnBac
     let guard = arc.lock().expect("disk lock");
     match &*guard {
         DiskEnnBackend::Hnsw(b) => f(b),
+        DiskEnnBackend::BpAnn(_) => panic!("expected HNSW disk backend"),
     }
 }
 
@@ -86,6 +87,7 @@ fn with_hnsw_mut<T>(
     let mut guard = arc.lock().expect("disk lock");
     match &mut *guard {
         DiskEnnBackend::Hnsw(b) => f(b),
+        DiskEnnBackend::BpAnn(_) => panic!("expected HNSW disk backend"),
     }
 }
 
@@ -129,7 +131,9 @@ fn flush_arc_from(
     arc: &Arc<Mutex<DiskEnnBackend>>,
 ) -> Arc<Mutex<ennbo::disk_hnsw::flush::BackgroundFlushState>> {
     let guard = arc.lock().expect("disk lock");
-    let DiskEnnBackend::Hnsw(ref b) = *guard;
+    let DiskEnnBackend::Hnsw(ref b) = *guard else {
+        panic!("expected HNSW disk backend");
+    };
     b.flush_arc()
 }
 

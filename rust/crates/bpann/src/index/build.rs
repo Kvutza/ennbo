@@ -46,6 +46,26 @@ impl BpannIndex {
         seed: u64,
         index_dir: PathBuf,
     ) -> Result<Self, BpannError> {
+        Self::build_from_rows_with_persist(
+            row_ids,
+            vectors,
+            num_dim,
+            leaf_capacity,
+            seed,
+            index_dir,
+            true,
+        )
+    }
+
+    pub fn build_from_rows_with_persist(
+        row_ids: &[u32],
+        vectors: &[Vec<f32>],
+        num_dim: usize,
+        leaf_capacity: usize,
+        seed: u64,
+        index_dir: PathBuf,
+        persist: bool,
+    ) -> Result<Self, BpannError> {
         let partition = PartitionTree::build(row_ids, vectors, leaf_capacity, seed);
         let (pages, root_page_id) = partition_to_pages(&partition.root);
         let skip_edges = build_skip_edges(&pages, DEFAULT_SKIP_NEIGHBORS);
@@ -62,7 +82,9 @@ impl BpannIndex {
             skip_edges,
             index_dir: index_dir.clone(),
         };
-        index.persist()?;
+        if persist {
+            index.persist()?;
+        }
         Ok(index)
     }
 
@@ -104,6 +126,24 @@ impl BpannIndex {
 
     pub fn page_by_id(&self, page_id: u32) -> Option<&Page> {
         self.pages.iter().find(|p| p.page_id() == page_id)
+    }
+
+    pub fn root_centroid(&self) -> Vec<f32> {
+        self.page_by_id(self.header.root_page_id)
+            .map(Page::centroid)
+            .unwrap_or_default()
+    }
+
+    pub fn leaf_row_ids(&self) -> Vec<u32> {
+        let mut row_ids = Vec::new();
+        for page in &self.pages {
+            if let Page::Leaf { row_ids: ids, .. } = page {
+                row_ids.extend_from_slice(ids);
+            }
+        }
+        row_ids.sort_unstable();
+        row_ids.dedup();
+        row_ids
     }
 
     pub fn leaf_page_ids(&self) -> Vec<u32> {

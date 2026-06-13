@@ -23,6 +23,9 @@ fn faiss_spec(driver: IndexDriver) -> &'static str {
         IndexDriver::HNSWDisk => {
             panic!("HNSWDisk must not be routed to FaissBackend")
         }
+        IndexDriver::BpAnnDisk => {
+            panic!("BpAnnDisk must not be routed to FaissBackend")
+        }
     }
 }
 
@@ -84,6 +87,9 @@ impl FaissBackend {
             }
             IndexDriver::HNSWDisk => {
                 panic!("HNSWDisk must not be routed to FaissBackend")
+            }
+            IndexDriver::BpAnnDisk => {
+                panic!("BpAnnDisk must not be routed to FaissBackend")
             }
         }
     }

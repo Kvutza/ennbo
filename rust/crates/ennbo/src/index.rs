@@ -19,6 +19,12 @@ pub enum IndexDriver {
     HNSW,
     /// In-tree HNSW on disk (`EnnStorage::Disk` + `work_dir`).
     HNSWDisk,
+    /// B+ANN disk index (`EnnStorage::Disk` + `work_dir`).
+    BpAnnDisk,
+}
+
+pub fn is_disk_index_driver(driver: IndexDriver) -> bool {
+    matches!(driver, IndexDriver::HNSWDisk | IndexDriver::BpAnnDisk)
 }
 
 use std::sync::Mutex;

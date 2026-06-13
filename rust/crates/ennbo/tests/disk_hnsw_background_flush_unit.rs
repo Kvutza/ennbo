@@ -12,6 +12,15 @@ use ennbo::disk_hnsw::DiskHnswEnnBackend;
 use std::sync::Arc;
 use tempfile::TempDir;
 
+fn wait_for_flush_and_assert_indexed(arc: &Arc<std::sync::Mutex<DiskEnnBackend>>) {
+    wait_for_background_flush(&flush_arc(arc)).unwrap();
+    let guard = arc.lock().expect("disk lock");
+    let DiskEnnBackend::Hnsw(ref b) = *guard else {
+        panic!("expected HNSW disk backend");
+    };
+    assert_eq!(b.indexed_rows(), b.len());
+}
+
 #[test]
 fn flush_inline_completes_without_barrier() {
     let dir = TempDir::new().expect("tempdir");
@@ -30,7 +39,7 @@ fn flush_inline_completes_without_barrier() {
     assert!(st.join_handle.is_none());
     drop(st);
     let guard = arc.lock().expect("disk lock");
-    let DiskEnnBackend::Hnsw(ref b) = *guard;
+    let DiskEnnBackend::Hnsw(ref b) = *guard else { panic!("expected HNSW disk backend"); };
     assert_eq!(b.indexed_rows(), b.len());
 }
 
@@ -58,13 +67,13 @@ fn flush_schedule_respects_barrier_hold() {
     let arc = hnsw_arc(backend);
     {
         let guard = arc.lock().expect("disk lock");
-        let DiskEnnBackend::Hnsw(ref b) = *guard;
+        let DiskEnnBackend::Hnsw(ref b) = *guard else { panic!("expected HNSW disk backend"); };
         b.flush_test_barrier_hold(true);
     }
     schedule_background_flush(&arc);
     {
         let guard = arc.lock().expect("disk lock");
-        let DiskEnnBackend::Hnsw(ref b) = *guard;
+        let DiskEnnBackend::Hnsw(ref b) = *guard else { panic!("expected HNSW disk backend"); };
         let indexed_before = b.indexed_rows();
         assert_eq!(b.indexed_rows(), indexed_before);
     }
@@ -75,7 +84,7 @@ fn flush_schedule_respects_barrier_hold() {
         .set_hold(false);
     wait_for_background_flush(&flush_arc(&arc)).unwrap();
     let guard = arc.lock().expect("disk lock");
-    let DiskEnnBackend::Hnsw(ref b) = *guard;
+    let DiskEnnBackend::Hnsw(ref b) = *guard else { panic!("expected HNSW disk backend"); };
     assert_eq!(b.indexed_rows(), b.len());
 }
 
@@ -97,10 +106,7 @@ fn flush_schedule_indexes_pending_rows() {
     }
     let arc = hnsw_arc(backend);
     schedule_background_flush(&arc);
-    wait_for_background_flush(&flush_arc(&arc)).unwrap();
-    let guard = arc.lock().expect("disk lock");
-    let DiskEnnBackend::Hnsw(ref b) = *guard;
-    assert_eq!(b.indexed_rows(), b.len());
+    wait_for_flush_and_assert_indexed(&arc);
 }
 
 #[test]
@@ -152,7 +158,7 @@ fn background_flush_clears_join_handle_when_idle() {
     let arc = hnsw_arc(backend);
     {
         let guard = arc.lock().expect("disk lock");
-        let DiskEnnBackend::Hnsw(ref b) = *guard;
+        let DiskEnnBackend::Hnsw(ref b) = *guard else { panic!("expected HNSW disk backend"); };
         b.flush_test_barrier_hold(true);
     }
     schedule_background_flush(&arc);
@@ -191,10 +197,7 @@ fn flush_schedule_coalesces_when_in_progress() {
     let arc = hnsw_arc(backend);
     schedule_background_flush(&arc);
     schedule_background_flush(&arc);
-    wait_for_background_flush(&flush_arc(&arc)).unwrap();
-    let guard = arc.lock().expect("disk lock");
-    let DiskEnnBackend::Hnsw(ref b) = *guard;
-    assert_eq!(b.indexed_rows(), b.len());
+    wait_for_flush_and_assert_indexed(&arc);
 }
 
 #[test]
@@ -211,7 +214,7 @@ fn disk_hnsw_stale_skips_background_schedule() {
     let arc = hnsw_arc(backend);
     {
         let guard = arc.lock().expect("disk lock");
-        let DiskEnnBackend::Hnsw(ref b) = *guard;
+        let DiskEnnBackend::Hnsw(ref b) = *guard else { panic!("expected HNSW disk backend"); };
         b.schedule_background_flush(Arc::clone(&arc)).unwrap();
     }
     let flush = flush_arc(&arc);
@@ -240,7 +243,7 @@ fn disk_hnsw_drop_joins_background_flush() {
     };
     {
         let mut guard = arc.lock().expect("disk lock");
-        let DiskEnnBackend::Hnsw(ref mut b) = *guard;
+        let DiskEnnBackend::Hnsw(ref mut b) = *guard else { panic!("expected HNSW disk backend"); };
         b.set_pending_flush_threshold(3);
         b.set_defer_append_indexing(true);
         for i in 0..3 {
@@ -259,7 +262,7 @@ fn disk_hnsw_drop_joins_background_flush() {
     drop_handle.join().expect("drop thread");
     wait_for_background_flush(&flush).unwrap();
     let guard = arc.lock().expect("disk lock");
-    let DiskEnnBackend::Hnsw(ref b) = *guard;
+    let DiskEnnBackend::Hnsw(ref b) = *guard else { panic!("expected HNSW disk backend"); };
     assert_eq!(b.indexed_rows(), b.len());
 }
 
@@ -284,7 +287,7 @@ fn ensure_index_sync_propagates_background_flush_error() {
     };
     {
         let mut guard = arc.lock().expect("disk lock");
-        let DiskEnnBackend::Hnsw(ref mut b) = *guard;
+        let DiskEnnBackend::Hnsw(ref mut b) = *guard else { panic!("expected HNSW disk backend"); };
         b.set_pending_flush_threshold(3);
         b.set_defer_append_indexing(true);
         for i in 0..3 {
