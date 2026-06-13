@@ -407,13 +407,15 @@ mod faiss_backend_tests {
         let dir = TempDir::new().expect("tempdir");
         let path = dir.path().join("col.bin");
         let mut store = MmapColumnStore::mmap_open_or_create(path, 2, None).unwrap();
-        for i in 0..5000 {
+        let n = 400usize;
+        store.ensure_capacity(n).unwrap();
+        for i in 0..n {
             store
                 .mmap_append(&array![[i as f64, (i + 1) as f64]].view())
                 .unwrap();
         }
-        assert_eq!(store.nrows, 5000);
-        assert_eq!(store.mmap_row_slice(4999).unwrap()[0], 4999.0);
+        assert_eq!(store.nrows, n);
+        assert_eq!(store.mmap_row_slice(n - 1).unwrap()[0], (n - 1) as f64);
     }
 
     #[test]

@@ -24,7 +24,7 @@ test:
 
 # Run Rust tests only
 rust-test:
-	cd rust && cargo nextest run
+	cd rust && cargo nextest run --test-threads=8
 
 # Run Python tests only (fast gate: skips modules collected only for slow/integration coverage).
 PYTHON_FAST_PLUGINS = \

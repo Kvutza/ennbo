@@ -6,8 +6,14 @@ use rand::Rng;
 use rand::RngCore;
 use sobol::params::JoeKuoD6;
 use sobol::Sobol;
+use std::sync::OnceLock;
 
 use crate::error::ENNError;
+
+fn sobol_params() -> &'static JoeKuoD6 {
+    static PARAMS: OnceLock<JoeKuoD6> = OnceLock::new();
+    PARAMS.get_or_init(JoeKuoD6::extended)
+}
 
 /// Candidate random variable type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -205,8 +211,7 @@ impl SobolEngine {
                 dimension
             )));
         }
-        let params = JoeKuoD6::extended();
-        let sequence = Sobol::<f64>::new(dimension, &params);
+        let sequence = Sobol::<f64>::new(dimension, sobol_params());
 
         Ok(Self {
             dimension,

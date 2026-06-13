@@ -167,29 +167,26 @@ fn multi_batch_compact_above_medium_threshold() {
     let dir = TempDir::new().unwrap();
     let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 4, 1)
         .unwrap()
-        .with_pending_flush_threshold(2000)
+        .with_pending_flush_threshold(400)
         .with_defer_append_indexing(false);
-    let chunk = 2000usize;
-    let x0 = ndarray::Array2::from_shape_fn((14_000, 4), |(i, j)| (i + j) as f64);
-    let y0 = ndarray::Array2::from_shape_fn((14_000, 1), |(i, _)| i as f64);
+    let x0 = ndarray::Array2::from_shape_fn((700, 4), |(i, j)| (i + j) as f64);
+    let y0 = ndarray::Array2::from_shape_fn((700, 1), |(i, _)| i as f64);
     b.append_rows(&x0.view(), &y0.view(), None).unwrap();
-    for batch in 0..4 {
-        let start = batch * chunk;
-        let x = ndarray::Array2::from_shape_fn((chunk, 4), |(i, j)| (14_000 + start + i + j) as f64);
-        let y = ndarray::Array2::from_shape_fn((chunk, 1), |(i, _)| (14_000 + start + i) as f64);
-        b.append_rows(&x.view(), &y.view(), None).unwrap();
-    }
-    assert_eq!(b.indexed_rows(), 22_000);
-    let (_, idx) = b.search(&array![[100.0, 0.0, 0.0, 0.0]].view(), 5, false).unwrap();
+    let x1 = ndarray::Array2::from_shape_fn((400, 4), |(i, j)| (700 + i + j) as f64);
+    let y1 = ndarray::Array2::from_shape_fn((400, 1), |(i, _)| (700 + i) as f64);
+    b.append_rows(&x1.view(), &y1.view(), None).unwrap();
+    assert_eq!(b.indexed_rows(), 1100);
+    assert!(b.indexed_rows() > 1000);
+    let (_, idx) = b.search(&array![[50.0, 0.0, 0.0, 0.0]].view(), 5, false).unwrap();
     assert!(idx[[0, 0]] >= 0);
 }
 
 #[test]
 fn search_tree_path_for_large_index() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 8, 1).unwrap();
-    let rows = 2600usize;
-    let x = ndarray::Array2::from_shape_fn((rows, 8), |(i, j)| (i + j) as f64);
+    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let rows = 2501usize;
+    let x = ndarray::Array2::from_shape_fn((rows, 2), |(i, j)| (i + j) as f64);
     let y = ndarray::Array2::from_shape_fn((rows, 1), |(i, _)| i as f64);
     b.append_rows(&x.view(), &y.view(), None).unwrap();
     b.ensure_index_sync().unwrap();

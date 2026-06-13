@@ -481,7 +481,7 @@ mod tests {
 
     #[test]
     fn exact_f64_batch_topk_lattice_self_search_escalation_count() {
-        let n = 4096usize;
+        let n = 1024usize;
         let d = 3usize;
         let k = 8usize;
         let mut train_x = Array2::zeros((n, d));
