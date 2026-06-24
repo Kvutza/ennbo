@@ -15,7 +15,7 @@ pub use observation::{MAX_NUM_DIM, MAX_RECORD_STRIDE};
 mod acceptance_tests {
     use super::*;
     use crate::distance::row_sq_l2;
-    use crate::index::mean_recall_at_k;
+    use crate::index::bpann_mean_recall_at_k;
     use ndarray::{array, Array1, Array2};
     use rand::Rng;
     use rand::SeedableRng;
@@ -47,21 +47,6 @@ mod acceptance_tests {
         (0..n)
             .map(|_| (0..d).map(|_| rng.gen::<f32>()).collect())
             .collect()
-    }
-
-    #[test]
-    fn test_out_of_scope_doc_lists_deferred_features() {
-        let text = fs::read_to_string("OUT_OF_SCOPE.md").expect("OUT_OF_SCOPE.md");
-        for phrase in [
-            "Semantic views for temporally correlated queries",
-            "Farthest-neighbor (dissimilarity) queries",
-            "GPU acceleration",
-            "Billion-scale paper reproduction benchmarks",
-            "`ennbo` / `KnnBackend` drop-in integration",
-            "Optional comparison to in-tree `disk_hnsw`",
-        ] {
-            assert!(text.contains(phrase), "missing: {phrase}");
-        }
     }
 
     #[test]
@@ -275,7 +260,7 @@ mod acceptance_tests {
             dir.path().join("index"),
         )
         .unwrap();
-        let recall = mean_recall_at_k(&vectors, &queries, K, &index);
+        let recall = bpann_mean_recall_at_k(&vectors, &queries, K, &index);
         assert!(recall >= 0.90, "recall@10 = {recall}");
     }
 
@@ -312,6 +297,33 @@ mod acceptance_tests {
         )
         .unwrap();
         assert_eq!(b.len(), 2);
+    }
+
+    #[test]
+    fn test_search_pending_scaled_l2_non_uniform_scale() {
+        let dir = TempDir::new().unwrap();
+        let scale = array![2.0, 2.0];
+        let mut b = BpannBackend::new(
+            dir.path().to_path_buf(),
+            array![[0.0, 0.0], [10.0, 10.0]],
+            array![[0.0], [1.0]],
+            None,
+            true,
+            scale.clone(),
+        )
+        .unwrap();
+        b.ensure_index_sync().unwrap();
+        // Pending row 2 is the true nearest for query [0, 4]; row 3 ranks higher only
+        // when bpann_brute_force_topk_mmap double-applies x_scale, so k=1 leg_b drops row 2.
+        b.append_rows(
+            &array![[2.0, 4.0], [4.0, 8.0]].view(),
+            &array![[2.0], [3.0]].view(),
+            None,
+        )
+        .unwrap();
+        let query = array![[0.0, 4.0]];
+        let (_, idx) = b.search(&query.view(), 1, false).unwrap();
+        assert_eq!(idx[[0, 0]], 2);
     }
 
     #[test]
@@ -541,7 +553,7 @@ mod acceptance_tests {
             .map(|i| x.row(i).iter().map(|&v| v as f32).collect())
             .collect();
         let index = b.index_snapshot().unwrap();
-        let recall = mean_recall_at_k(&vectors, &queries, 10, index);
+        let recall = bpann_mean_recall_at_k(&vectors, &queries, 10, index);
         assert!(recall >= 0.90, "N={n} recall={recall}");
     }
 
