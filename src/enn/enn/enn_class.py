@@ -105,6 +105,9 @@ class EpistemicNearestNeighbors:
     def schedule_background_flush(self) -> None:
         self._rust_model.schedule_background_flush()
 
+    def persist_index_to_disk(self) -> None:
+        self._rust_model.persist_index_to_disk()
+
     def train_rows_at(
         self, indices: list[int] | np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
@@ -176,7 +179,7 @@ class EpistemicNearestNeighbors:
             self._rust_model.set_tie_break_neighbors(flags.tie_break_neighbors)
             self._tie_break_neighbors = flags.tie_break_neighbors
 
-        mu, se, idx = self._rust_model.posterior(
+        mu, se, se_epi, se_ale, idx = self._rust_model.posterior(
             x,
             k_num_neighbors=params.k_num_neighbors,
             epistemic_variance_scale=params.epistemic_variance_scale,
@@ -185,7 +188,7 @@ class EpistemicNearestNeighbors:
             observation_noise=flags.observation_noise,
         )
         idx_arr = np.asarray(idx, dtype=int) if idx is not None else None
-        return ENNNormal(mu, se, idx=idx_arr)
+        return ENNNormal(mu, se, se_epi, se_ale, idx=idx_arr)
 
     def conditional_posterior(
         self,
@@ -201,7 +204,7 @@ class EpistemicNearestNeighbors:
         flags = _posterior_flags_coerced(flags)
         self._rust_model.set_tie_break_neighbors(flags.tie_break_neighbors)
 
-        mu, se, _ = self._rust_model.conditional_posterior(
+        mu, se, se_epi, se_ale, _ = self._rust_model.conditional_posterior(
             x_whatif,
             y_whatif,
             x,
@@ -211,7 +214,7 @@ class EpistemicNearestNeighbors:
             exclude_nearest=flags.exclude_nearest,
             observation_noise=flags.observation_noise,
         )
-        return ENNNormal(mu, se)
+        return ENNNormal(mu, se, se_epi, se_ale)
 
     def batch_posterior(
         self,
@@ -233,7 +236,7 @@ class EpistemicNearestNeighbors:
         k_values = [p.k_num_neighbors for p in paramss]
         epistemic_scales = [p.epistemic_variance_scale for p in paramss]
         aleatoric_scales = [p.aleatoric_variance_scale for p in paramss]
-        mu_all, se_all = self._rust_model.batch_posterior(
+        mu_all, se_all, se_epi_all, se_ale_all = self._rust_model.batch_posterior(
             x,
             k_values=k_values,
             epistemic_scales=epistemic_scales,
@@ -241,7 +244,7 @@ class EpistemicNearestNeighbors:
             exclude_nearest=flags.exclude_nearest,
             observation_noise=flags.observation_noise,
         )
-        return ENNNormal(mu_all, se_all)
+        return ENNNormal(mu_all, se_all, se_epi_all, se_ale_all)
 
     def neighbors(
         self, x: np.ndarray, k: int, *, exclude_nearest: bool = False

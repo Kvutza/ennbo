@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
@@ -122,6 +122,7 @@ impl BpannBackend {
             scale_x,
             indexed_rows,
         )?;
+        backend.num_obs_counter.set(n);
         Ok(backend)
     }
 
@@ -167,6 +168,10 @@ impl BpannBackend {
         self.num_dim
     }
 
+    pub fn num_metrics(&self) -> usize {
+        self.num_metrics
+    }
+
     pub fn mark_index_stale(&mut self) {
         self.reset_index();
     }
@@ -193,10 +198,6 @@ impl BpannBackend {
 
     pub fn indexed_rows(&self) -> usize {
         self.index.indexed_rows
-    }
-
-    pub fn index_dir(&self) -> &Path {
-        &self.index.index_dir
     }
 
     pub fn append_row(
@@ -263,6 +264,29 @@ impl BpannBackend {
             &self.work_dir,
             self.num_metrics,
             end,
+        )?;
+        self.pending_unindexed.store(0, Ordering::Relaxed);
+        *self.index_dirty.lock().expect("index_dirty") = false;
+        Ok(())
+    }
+
+    pub fn persist_index_to_disk(&mut self) -> Result<(), BpannError> {
+        let index_dirty = *self.index_dirty.lock().expect("index_dirty");
+        if !self
+            .index
+            .needs_disk_rewrite(index_dirty, self.train_x.nrows)
+        {
+            self.pending_unindexed.store(0, Ordering::Relaxed);
+            *self.index_dirty.lock().expect("index_dirty") = false;
+            return Ok(());
+        }
+        self.index.persist_to_disk_for_backend(
+            &self.train_x,
+            self.num_dim,
+            self.scale_x,
+            self.x_scale.as_slice().unwrap(),
+            &self.work_dir,
+            self.num_metrics,
         )?;
         self.pending_unindexed.store(0, Ordering::Relaxed);
         *self.index_dirty.lock().expect("index_dirty") = false;

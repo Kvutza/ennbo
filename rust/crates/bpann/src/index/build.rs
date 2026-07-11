@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter, Write};
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 use crate::error::BpannError;
 use crate::index::kmeans::{PartitionNode, PartitionTree};
 use crate::index::page::{write_pages_index, Page};
+use crate::index::persist_atomic::skip_edges_bytes;
 
 pub const DEFAULT_LEAF_CAPACITY: usize = 32;
 pub const DEFAULT_SKIP_NEIGHBORS: usize = 3;
@@ -19,6 +20,7 @@ pub struct IndexHeader {
     pub skip_neighbors: usize,
 }
 
+#[derive(Clone)]
 pub struct BpannIndex {
     pub header: IndexHeader,
     pub pages: Vec<Page>,
@@ -323,19 +325,28 @@ impl BpannIndex {
     }
 
     pub fn persist(&self) -> Result<(), BpannError> {
-        fs::create_dir_all(&self.index_dir).map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
-        let header_json = serde_json::to_string_pretty(&self.header)
-            .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
-        fs::write(self.index_dir.join("header.json"), header_json)
-            .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+        crate::index::persist_atomic::persist_index_files(
+            &self.index_dir,
+            &self.header,
+            &self.pages,
+            &self.skip_edges,
+        )
+    }
+
+    pub fn on_disk_index_matches(&self) -> Result<bool, BpannError> {
         let pages_path = self.index_dir.join("pages.bin");
-        let file = File::create(&pages_path).map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
-        let mut writer = BufWriter::new(file);
-        write_pages_index(&self.pages, self.header.num_dim, &mut writer)
+        let skip_path = self.index_dir.join("skip_edges.bin");
+        let on_disk_pages = fs::read(&pages_path)
             .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
-        writer.flush().map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
-        write_skip_edges(&self.index_dir.join("skip_edges.bin"), &self.skip_edges)?;
-        Ok(())
+        let mut expected_pages = Vec::new();
+        write_pages_index(&self.pages, self.header.num_dim, &mut expected_pages)
+            .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+        if on_disk_pages != expected_pages {
+            return Ok(false);
+        }
+        let on_disk_skip = fs::read(&skip_path)
+            .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+        Ok(on_disk_skip == skip_edges_bytes(&self.skip_edges))
     }
 
     pub fn page_by_id(&self, page_id: u32) -> Option<&Page> {
@@ -457,19 +468,6 @@ fn build_skip_edges(pages: &[Page], k: usize) -> HashMap<u32, Vec<u32>> {
     edges
 }
 
-fn write_skip_edges(path: &Path, edges: &HashMap<u32, Vec<u32>>) -> Result<(), BpannError> {
-    let mut buf = Vec::new();
-    buf.extend_from_slice(&(edges.len() as u32).to_le_bytes());
-    for (&from, tos) in edges {
-        buf.extend_from_slice(&from.to_le_bytes());
-        buf.extend_from_slice(&(tos.len() as u32).to_le_bytes());
-        for &to in tos {
-            buf.extend_from_slice(&to.to_le_bytes());
-        }
-    }
-    fs::write(path, buf).map_err(|e| BpannError::InvalidParameter(e.to_string()))
-}
-
 fn read_skip_edges(path: &Path) -> Result<HashMap<u32, Vec<u32>>, BpannError> {
     if !path.exists() {
         return Ok(HashMap::new());
@@ -505,6 +503,7 @@ fn read_skip_edges(path: &Path) -> Result<HashMap<u32, Vec<u32>>, BpannError> {
 #[cfg(test)]
 mod kiss_coverage_tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn build_units_are_linked() {
@@ -514,8 +513,34 @@ mod kiss_coverage_tests {
             BpannIndex::concat_merge,
             BpannIndex::root_centroid,
             BpannIndex::leaf_row_ids,
+            BpannIndex::on_disk_index_matches,
             read_skip_edges,
             std::mem::size_of::<IndexHeader>,
         );
+    }
+
+    #[test]
+    fn on_disk_index_matches_detects_valid_and_corrupt_pages() {
+        let dir = TempDir::new().unwrap();
+        let index_dir = dir.path().join("index");
+        let index = BpannIndex::build_single_leaf_from_rows_with_persist(
+            &[0u32, 1, 2],
+            &[
+                vec![0.0f32, 0.0],
+                vec![1.0, 0.0],
+                vec![0.5, 1.0],
+            ],
+            2,
+            index_dir.clone(),
+            true,
+        )
+        .unwrap();
+        assert!(index.on_disk_index_matches().unwrap());
+
+        let pages_path = index_dir.join("pages.bin");
+        let mut pages = fs::read(&pages_path).unwrap();
+        pages[0] ^= 0xFF;
+        fs::write(&pages_path, pages).unwrap();
+        assert!(!index.on_disk_index_matches().unwrap());
     }
 }

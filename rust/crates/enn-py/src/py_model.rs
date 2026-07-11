@@ -9,6 +9,8 @@ use std::path::PathBuf;
 pub(crate) type PosteriorPyOut<'py> = (
     Bound<'py, PyArrayDyn<f64>>,
     Bound<'py, PyArrayDyn<f64>>,
+    Bound<'py, PyArrayDyn<f64>>,
+    Bound<'py, PyArrayDyn<f64>>,
     Option<Bound<'py, PyArrayDyn<i64>>>,
 );
 
@@ -51,8 +53,6 @@ impl PyEpistemicNearestNeighbors {
     ) -> PyResult<Self> {
         let driver = match index_driver {
             "Exact" | "exact" | "FLAT" | "flat" => ennbo::IndexDriver::Exact,
-            "HNSW" | "hnsw" => ennbo::IndexDriver::HNSW,
-            "HNSW_DISK" | "hnsw_disk" => ennbo::IndexDriver::HNSWDisk,
             "BPANN_DISK" | "bpann_disk" => ennbo::IndexDriver::BpAnnDisk,
             _ => {
                 return Err(PyValueError::new_err(format!(
@@ -123,6 +123,12 @@ impl PyEpistemicNearestNeighbors {
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
+    fn persist_index_to_disk(&self) -> PyResult<()> {
+        self.inner
+            .persist_index_to_disk()
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
     fn index_memory_bytes(&self) -> PyResult<usize> {
         self.inner
             .index_access()
@@ -156,6 +162,8 @@ impl PyEpistemicNearestNeighbors {
         Ok((
             out.mu.into_pyarray_bound(py),
             out.se.into_pyarray_bound(py),
+            out.se_epi.into_pyarray_bound(py),
+            out.se_ale.into_pyarray_bound(py),
             out.idx.map(|idx| idx.into_dyn().into_pyarray_bound(py)),
         ))
     }
@@ -172,7 +180,12 @@ impl PyEpistemicNearestNeighbors {
         aleatoric_scales: Vec<f64>,
         exclude_nearest: bool,
         observation_noise: bool,
-    ) -> PyResult<(Bound<'py, PyArrayDyn<f64>>, Bound<'py, PyArrayDyn<f64>>)> {
+    ) -> PyResult<(
+        Bound<'py, PyArrayDyn<f64>>,
+        Bound<'py, PyArrayDyn<f64>>,
+        Bound<'py, PyArrayDyn<f64>>,
+        Bound<'py, PyArrayDyn<f64>>,
+    )> {
         // Build params list
         let n_params = k_values.len();
         if epistemic_scales.len() != n_params || aleatoric_scales.len() != n_params {
@@ -195,7 +208,12 @@ impl PyEpistemicNearestNeighbors {
             .inner
             .batch_posterior(&x.as_array(), &paramss, &flags)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok((out.mu.into_pyarray_bound(py), out.se.into_pyarray_bound(py)))
+        Ok((
+            out.mu.into_pyarray_bound(py),
+            out.se.into_pyarray_bound(py),
+            out.se_epi.into_pyarray_bound(py),
+            out.se_ale.into_pyarray_bound(py),
+        ))
     }
 
     /// Posterior function draw - sample from posterior predictive.
@@ -261,6 +279,8 @@ impl PyEpistemicNearestNeighbors {
         Ok((
             out.mu.into_pyarray_bound(py),
             out.se.into_pyarray_bound(py),
+            out.se_epi.into_pyarray_bound(py),
+            out.se_ale.into_pyarray_bound(py),
             out.idx.map(|idx| idx.into_dyn().into_pyarray_bound(py)),
         ))
     }
@@ -494,6 +514,7 @@ mod kiss_coverage_tests {
             PyEpistemicNearestNeighbors::add,
             PyEpistemicNearestNeighbors::ensure_index_sync,
             PyEpistemicNearestNeighbors::schedule_background_flush,
+            PyEpistemicNearestNeighbors::persist_index_to_disk,
             PyEpistemicNearestNeighbors::index_memory_bytes,
             PyEpistemicNearestNeighbors::posterior,
             PyEpistemicNearestNeighbors::batch_posterior,

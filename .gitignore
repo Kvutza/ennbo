@@ -2,13 +2,6 @@ target/
 **/__pycache__/
 **/*.py[cod]
 **/*.rs.bk
-.malvin/logs/
-.malvin_checks
-/log
-/log_2
+.malvin/
 results/
-*.md~
-.testmondata*
-src/enn/enn_rust.*.so
-enn.code-workspace
-dist/
+*~

@@ -1,8 +1,9 @@
+use std::fs;
 use std::path::PathBuf;
 
 use crate::distance::{l2_sq_f32, bpann_row_to_f32};
 use crate::error::BpannError;
-use crate::index::build::BpannIndex;
+use crate::index::build::{BpannIndex, IndexHeader};
 use crate::index::search::{
     search_exhaustive_leaves_with_store, search_greedy_blocks_only_with_store,
     search_with_skip_refinement_with_store, MmapSearchStore,
@@ -161,6 +162,73 @@ impl IncrementalIndex {
             num_metrics,
         };
         self.ensure_sync(&ctx, end)
+    }
+
+    pub fn persist_to_disk_for_backend(
+        &mut self,
+        train_x: &MmapColumnStore,
+        num_dim: usize,
+        scale_x: bool,
+        x_scale: &[f64],
+        work_dir: &std::path::Path,
+        num_metrics: usize,
+    ) -> Result<(), BpannError> {
+        let ctx = IndexBuildContext {
+            train_x,
+            num_dim,
+            scale_x,
+            x_scale,
+            work_dir,
+            num_metrics,
+        };
+        self.persist_to_disk(&ctx)
+    }
+
+    pub fn needs_disk_rewrite(&self, index_dirty: bool, nrows: usize) -> bool {
+        if self.indices.len() > 1 {
+            return true;
+        }
+        if index_dirty {
+            return true;
+        }
+        let on_disk = match on_disk_indexed_rows(&self.index_dir) {
+            Ok(on_disk) => on_disk,
+            Err(_) => return true,
+        };
+        if on_disk != nrows {
+            return true;
+        }
+        match self.indices.first() {
+            Some(index) => !index.on_disk_index_matches().unwrap_or(false),
+            None => on_disk != 0 || nrows != 0,
+        }
+    }
+
+    fn persist_to_disk(&mut self, ctx: &IndexBuildContext<'_>) -> Result<(), BpannError> {
+        self.ensure_sync(ctx, ctx.train_x.nrows)?;
+        if self.indices.is_empty() && self.indexed_rows == 0 {
+            return Ok(());
+        }
+        if self.indices.len() > 1 {
+            let merged = BpannIndex::concat_merge(
+                self.indices.clone(),
+                self.index_dir.clone(),
+                false,
+            )?;
+            merged.persist()?;
+        } else if let Some(index) = self.indices.first() {
+            index.persist()?;
+        }
+        obs::bpann_write_metadata(
+            ctx.work_dir,
+            ctx.train_x.nrows,
+            ctx.num_dim,
+            ctx.num_metrics,
+            ctx.scale_x,
+            self.indexed_rows,
+        )?;
+        obs::write_indexed_rows(ctx.work_dir, self.indexed_rows)?;
+        Ok(())
     }
 
     fn ensure_sync(&mut self, ctx: &IndexBuildContext<'_>, end: usize) -> Result<(), BpannError> {
@@ -407,6 +475,18 @@ fn search_index_candidates(
     }
 }
 
+fn on_disk_indexed_rows(index_dir: &std::path::Path) -> Result<usize, BpannError> {
+    let header_path = index_dir.join("header.json");
+    if !header_path.exists() {
+        return Ok(0);
+    }
+    let text = fs::read_to_string(&header_path)
+        .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+    let header: IndexHeader = serde_json::from_str(&text)
+        .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+    Ok(header.indexed_rows)
+}
+
 #[cfg(test)]
 mod kiss_coverage_tests {
     use super::*;
@@ -429,6 +509,16 @@ mod kiss_coverage_tests {
         let _ = search_beam_width(500);
         let _ = (
             IncrementalIndex::take_pending_centroid as fn(&mut IncrementalIndex, usize) -> Option<Vec<f32>>,
+            IncrementalIndex::persist_to_disk_for_backend
+                as fn(
+                    &mut IncrementalIndex,
+                    &MmapColumnStore,
+                    usize,
+                    bool,
+                    &[f64],
+                    &std::path::Path,
+                    usize,
+                ) -> Result<(), BpannError>,
             IncrementalIndex::ensure_sync as fn(&mut IncrementalIndex, &IndexBuildContext<'_>, usize) -> Result<(), BpannError>,
             IncrementalIndex::maybe_compact_or_persist
                 as fn(&mut IncrementalIndex, &IndexBuildContext<'_>) -> Result<(), BpannError>,
@@ -457,6 +547,27 @@ mod kiss_coverage_tests {
         fn _index_build_context_marker(ctx: &IndexBuildContext<'_>) {
             _kiss_index_build_context(ctx);
         }
+    }
+
+    #[test]
+    fn sync_persist_to_disk_behavioral() {
+        let dir = TempDir::new().unwrap();
+        let mut idx = IncrementalIndex::new(dir.path().join("index"));
+        let x_path = dir.path().join("train_x.bin");
+        let mut store = MmapColumnStore::mmap_open_or_create(x_path, 2, None).unwrap();
+        for batch in 0..3 {
+            let row0 = batch as f64 * 2.0;
+            let chunk = array![[row0, 0.0], [row0 + 1.0, 0.0]];
+            store.mmap_append(&chunk.view()).unwrap();
+            let start = batch * 2;
+            let end = start + 2;
+            idx.ensure_sync_for_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1, end)
+                .unwrap();
+        }
+        idx.persist_to_disk_for_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
+            .unwrap();
+        assert!(dir.path().join("index/header.json").exists());
+        assert_eq!(idx.indexed_rows, 6);
     }
 
     #[test]
