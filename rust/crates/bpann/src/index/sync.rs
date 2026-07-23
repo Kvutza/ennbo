@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use crate::distance::{l2_sq_f32, bpann_row_to_f32};
+use crate::distance::l2_sq_f32;
 use crate::error::BpannError;
 use crate::index::build::{BpannIndex, IndexHeader};
 use crate::index::search::{
@@ -11,69 +11,48 @@ use crate::index::search::{
 use crate::index::DEFAULT_LEAF_CAPACITY;
 use crate::mmap_store::MmapColumnStore;
 use crate::observation as obs;
+use crate::tuning::current_tuning;
+
+use crate::index::sync_forest::{
+    build_empty_leaf_forest_index, build_vector_leaf_forest_index, centroid_from_mmap_rows,
+    load_vectors_from_mmap, IndexBuildContext,
+};
 
 const INDEX_COMPACT_THRESHOLD_MIN: usize = 3;
-const EXHAUSTIVE_SEARCH_ROW_LIMIT: usize = 2500;
-const SKIP_REFINEMENT_ROW_LIMIT: usize = 150_000;
 
-fn env_usize(name: &str, default: usize) -> usize {
-    std::env::var(name)
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(default)
-}
-
-fn index_compact_rows_per_fragment() -> usize {
-    env_usize("BPANN_INDEX_COMPACT_ROWS_PER_FRAGMENT", 10_000)
-}
-
-fn index_compact_fragment_max() -> usize {
-    env_usize("BPANN_INDEX_COMPACT_FRAGMENT_MAX", 32)
-}
-
-fn search_rows_per_fragment() -> usize {
-    env_usize("BPANN_SEARCH_ROWS_PER_FRAGMENT", 80_000)
-}
-
-fn small_fragment_merge_rows() -> usize {
-    env_usize("BPANN_SMALL_FRAGMENT_MERGE_ROWS", 15_000)
-}
-
-fn search_fragment_budget_max() -> usize {
-    env_usize("BPANN_SEARCH_FRAGMENT_BUDGET_MAX", 3)
-}
+/// Soft-sync spans in `(2 * structured_build_row_limit, MID_BAND_SHALLOW_MAX]`
+/// use one in-RAM vector-leaf forest (leaf size `MID_BAND_LEAF_CAPACITY`) so
+/// ask prunes without deep k-means tell. Larger spans use one empty-leaf
+/// forest (Internal → row-id leaves of `structured_build_row_limit`).
+const MID_BAND_SHALLOW_MAX: usize = 10_000;
+/// Vector-leaf size inside the mid-band forest (also the greedy visit size).
+const MID_BAND_LEAF_CAPACITY: usize = 256;
 
 fn index_compact_threshold(indexed_rows: usize) -> usize {
     if indexed_rows <= 1000 {
         return 1;
     }
-    (indexed_rows / index_compact_rows_per_fragment())
-        .clamp(INDEX_COMPACT_THRESHOLD_MIN, index_compact_fragment_max())
+    let t = current_tuning();
+    (indexed_rows / t.index_compact_rows_per_fragment)
+        .clamp(INDEX_COMPACT_THRESHOLD_MIN, t.index_compact_fragment_max)
 }
 
 fn search_fragment_budget(fragment_count: usize, indexed_rows: usize) -> usize {
     if fragment_count <= 2 {
         return fragment_count;
     }
-    let scaled = (indexed_rows / search_rows_per_fragment()).max(2);
+    let t = current_tuning();
+    let scaled = (indexed_rows / t.search_rows_per_fragment).max(2);
     scaled
         .min(fragment_count)
-        .min(search_fragment_budget_max())
+        .min(t.search_fragment_budget_max)
 }
 
 fn search_beam_width(_indexed_rows: usize) -> usize {
-    1
+    current_tuning().search_beam_width
 }
 
-struct IndexBuildContext<'a> {
-    train_x: &'a MmapColumnStore,
-    num_dim: usize,
-    scale_x: bool,
-    x_scale: &'a [f64],
-    work_dir: &'a std::path::Path,
-    num_metrics: usize,
-}
-
+#[derive(Clone)]
 pub struct IncrementalIndex {
     pub indices: Vec<BpannIndex>,
     pub indexed_rows: usize,
@@ -105,16 +84,11 @@ impl IncrementalIndex {
         if self.pending_centroid_sum.len() != x.ncols() {
             self.pending_centroid_sum = vec![0.0; x.ncols()];
         }
-        for row in x.axis_iter(ndarray::Axis(0)) {
-            for (j, &v) in row.iter().enumerate() {
-                self.pending_centroid_sum[j] += if scale_x {
-                    v / x_scale[j]
-                } else {
-                    v
-                };
-            }
-            self.pending_row_count += 1;
+        let col_sums = x.sum_axis(ndarray::Axis(0));
+        for (j, &s) in col_sums.iter().enumerate() {
+            self.pending_centroid_sum[j] += if scale_x { s / x_scale[j] } else { s };
         }
+        self.pending_row_count += x.nrows();
     }
 
     fn take_pending_centroid(&mut self, num_dim: usize) -> Option<Vec<f32>> {
@@ -235,27 +209,41 @@ impl IncrementalIndex {
         if self.indexed_rows >= end {
             return Ok(());
         }
-        self.build_batch(ctx, self.indexed_rows, end)?;
-        self.maybe_compact_or_persist(ctx)?;
+        let limit = current_tuning().structured_build_row_limit;
+        let pending = end - self.indexed_rows;
+        // Soft-sync spans just above `limit` used to take one structured
+        // `build_from_rows` tree (better ask, slower tell). Very large spans
+        // become one empty-leaf forest (Internal → row-id leaves of `limit`).
+        // Mid-band spans become one in-RAM vector-leaf forest so ask prunes
+        // without k-means tell.
+        let chunk_large_spans = pending > limit.saturating_mul(2);
+        if chunk_large_spans && pending > MID_BAND_SHALLOW_MAX {
+            let _ = self.take_pending_centroid(ctx.num_dim);
+            self.build_empty_leaf_forest(ctx, self.indexed_rows, end, limit)?;
+            self.maybe_compact(ctx)?;
+        } else if chunk_large_spans {
+            let _ = self.take_pending_centroid(ctx.num_dim);
+            self.build_vector_leaf_forest(
+                ctx,
+                self.indexed_rows,
+                end,
+                MID_BAND_LEAF_CAPACITY,
+            )?;
+            self.maybe_compact(ctx)?;
+        } else {
+            self.build_batch(ctx, self.indexed_rows, end)?;
+            self.maybe_compact(ctx)?;
+        }
         obs::write_indexed_rows(ctx.work_dir, self.indexed_rows)?;
         Ok(())
     }
 
-    fn maybe_compact_or_persist(&mut self, ctx: &IndexBuildContext<'_>) -> Result<(), BpannError> {
+    /// RAM amalgamation only: no `persist()`, no metadata rewrite.
+    fn maybe_compact(&mut self, ctx: &IndexBuildContext<'_>) -> Result<(), BpannError> {
         let max_fragments = index_compact_threshold(self.indexed_rows);
         let compact_limit = max_fragments.saturating_mul(2).max(max_fragments + 1);
         if self.indices.len() > compact_limit {
             self.compact(ctx)?;
-        } else if self.indices.len() == 1 {
-            self.indices[0].persist()?;
-            obs::bpann_write_metadata(
-                ctx.work_dir,
-                ctx.train_x.nrows,
-                ctx.num_dim,
-                ctx.num_metrics,
-                ctx.scale_x,
-                self.indexed_rows,
-            )?;
         }
         Ok(())
     }
@@ -271,17 +259,6 @@ impl IncrementalIndex {
             let merge_n = over.clamp(2, 4).min(self.indices.len());
             self.amalgamate_smallest_run(ctx, merge_n)?;
         }
-        if self.indices.len() == 1 {
-            self.indices[0].persist()?;
-            obs::bpann_write_metadata(
-                ctx.work_dir,
-                ctx.train_x.nrows,
-                ctx.num_dim,
-                ctx.num_metrics,
-                ctx.scale_x,
-                self.indexed_rows,
-            )?;
-        }
         Ok(())
     }
 
@@ -296,7 +273,7 @@ impl IncrementalIndex {
         let merge_n = merge_n.min(self.indices.len());
         let mut best_i = 0usize;
         let mut best_rows = usize::MAX;
-        let small_limit = small_fragment_merge_rows();
+        let small_limit = current_tuning().small_fragment_merge_rows;
         for i in 0..=self.indices.len().saturating_sub(merge_n) {
             let slice = &self.indices[i..i + merge_n];
             let rows: usize = slice.iter().map(|index| index.header.indexed_rows).sum();
@@ -323,6 +300,43 @@ impl IncrementalIndex {
         self.amalgamate_smallest_run(ctx, 2)
     }
 
+
+    /// Large soft-sync: one fragment of empty row-id leaves under an Internal root.
+    fn build_empty_leaf_forest(
+        &mut self,
+        ctx: &IndexBuildContext<'_>,
+        start: usize,
+        end: usize,
+        leaf_rows: usize,
+    ) -> Result<(), BpannError> {
+        if start >= end {
+            return Ok(());
+        }
+        let index = build_empty_leaf_forest_index(ctx, start, end, leaf_rows, self.index_dir.clone())?;
+        self.indices.push(index);
+        self.indexed_rows = end;
+        Ok(())
+    }
+
+    /// Mid-band: one fragment of in-RAM vector leaves (no k-means).
+    fn build_vector_leaf_forest(
+        &mut self,
+        ctx: &IndexBuildContext<'_>,
+        start: usize,
+        end: usize,
+        leaf_rows: usize,
+    ) -> Result<(), BpannError> {
+        if start >= end {
+            return Ok(());
+        }
+        let index = build_vector_leaf_forest_index(ctx, start, end, leaf_rows, self.index_dir.clone())?;
+        self.indices.push(index);
+        self.indexed_rows = end;
+        Ok(())
+    }
+
+
+
     fn build_batch(
         &mut self,
         ctx: &IndexBuildContext<'_>,
@@ -332,13 +346,11 @@ impl IncrementalIndex {
         if start >= end {
             return Ok(());
         }
-        let seed = std::env::var("BPANN_BUILD_SEED")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(start as u64);
+        let tuning = current_tuning();
+        let seed = tuning.build_seed.unwrap_or(start as u64);
         let row_ids: Vec<u32> = (start..end).map(|i| i as u32).collect();
         let batch_len = end - start;
-        let index = if batch_len <= 1024 {
+        let index = if batch_len <= tuning.structured_build_row_limit {
             let centroid = self
                 .take_pending_centroid(ctx.num_dim)
                 .unwrap_or_else(|| {
@@ -353,13 +365,11 @@ impl IncrementalIndex {
                 false,
             )?
         } else {
-            let mut vectors = Vec::with_capacity(batch_len);
-            let mut vec_buf = Vec::with_capacity(ctx.num_dim);
-            for i in start..end {
-                let row = ctx.train_x.mmap_row_slice(i)?;
-                bpann_row_to_f32(row, ctx.scale_x, ctx.x_scale, &mut vec_buf);
-                vectors.push(std::mem::take(&mut vec_buf));
-            }
+            // Structured leaf path takes pending for placement; the large path
+            // builds its own tree from rows but must still drain the accumulator
+            // so the next small sync is not poisoned by already-indexed mass.
+            let _ = self.take_pending_centroid(ctx.num_dim);
+            let vectors = load_vectors_from_mmap(ctx, start, end)?;
             BpannIndex::build_from_rows_with_persist(
                 &row_ids,
                 &vectors,
@@ -428,33 +438,6 @@ impl IncrementalIndex {
     }
 }
 
-fn centroid_from_mmap_rows(
-    ctx: &IndexBuildContext<'_>,
-    start: usize,
-    end: usize,
-) -> Result<Vec<f32>, BpannError> {
-    let dim = ctx.num_dim;
-    let mut acc = vec![0.0f64; dim];
-    let count = end.saturating_sub(start);
-    if count == 0 {
-        return Ok(Vec::new());
-    }
-    for i in start..end {
-        let row = ctx.train_x.mmap_row_slice(i)?;
-        for (j, &v) in row.iter().enumerate() {
-            acc[j] += if ctx.scale_x {
-                v / ctx.x_scale[j]
-            } else {
-                v
-            };
-        }
-    }
-    Ok(acc
-        .iter()
-        .map(|&s| (s / count as f64) as f32)
-        .collect())
-}
-
 fn search_index_candidates(
     index: &BpannIndex,
     query: &[f32],
@@ -462,12 +445,15 @@ fn search_index_candidates(
     store: Option<&MmapSearchStore<'_>>,
 ) -> Result<Vec<(u32, f32)>, BpannError> {
     let rows = index.header.indexed_rows;
-    if rows <= EXHAUSTIVE_SEARCH_ROW_LIMIT {
+    // Mode cliffs are call-time tuning. On-disk skip edges reflect build-time limits
+    // and may be empty if limits changed since the fragment was built.
+    let t = current_tuning();
+    if t.use_exhaustive_search(rows) {
         search_exhaustive_leaves_with_store(index, query, k, store)
     } else {
         let beam = search_beam_width(rows);
         let mut visited = Vec::new();
-        if rows <= SKIP_REFINEMENT_ROW_LIMIT {
+        if t.use_skip_refinement_search(rows) {
             search_with_skip_refinement_with_store(index, query, k, beam, &mut visited, store)
         } else {
             search_greedy_blocks_only_with_store(index, query, k, beam, store)
@@ -496,13 +482,13 @@ mod kiss_coverage_tests {
 
     #[test]
     fn sync_private_helpers_are_linked() {
-        assert_eq!(env_usize("BPANN_KISS_MISSING_ENV_VAR", 99), 99);
+        let t = current_tuning();
         let _ = (
-            index_compact_rows_per_fragment(),
-            index_compact_fragment_max(),
-            search_rows_per_fragment(),
-            small_fragment_merge_rows(),
-            search_fragment_budget_max(),
+            t.index_compact_rows_per_fragment,
+            t.index_compact_fragment_max,
+            t.search_rows_per_fragment,
+            t.small_fragment_merge_rows,
+            t.search_fragment_budget_max,
         );
         let _ = index_compact_threshold(2000);
         let _ = search_fragment_budget(4, 100_000);
@@ -520,7 +506,7 @@ mod kiss_coverage_tests {
                     usize,
                 ) -> Result<(), BpannError>,
             IncrementalIndex::ensure_sync as fn(&mut IncrementalIndex, &IndexBuildContext<'_>, usize) -> Result<(), BpannError>,
-            IncrementalIndex::maybe_compact_or_persist
+            IncrementalIndex::maybe_compact
                 as fn(&mut IncrementalIndex, &IndexBuildContext<'_>) -> Result<(), BpannError>,
             IncrementalIndex::compact as fn(&mut IncrementalIndex, &IndexBuildContext<'_>) -> Result<(), BpannError>,
             IncrementalIndex::amalgamate_smallest_run
@@ -534,6 +520,43 @@ mod kiss_coverage_tests {
                     usize,
                     usize,
                 ) -> Result<(), BpannError>,
+            IncrementalIndex::build_empty_leaf_forest
+                as fn(
+                    &mut IncrementalIndex,
+                    &IndexBuildContext<'_>,
+                    usize,
+                    usize,
+                    usize,
+                ) -> Result<(), BpannError>,
+            IncrementalIndex::build_vector_leaf_forest
+                as fn(
+                    &mut IncrementalIndex,
+                    &IndexBuildContext<'_>,
+                    usize,
+                    usize,
+                    usize,
+                ) -> Result<(), BpannError>,
+            build_empty_leaf_forest_index
+                as fn(
+                    &IndexBuildContext<'_>,
+                    usize,
+                    usize,
+                    usize,
+                    std::path::PathBuf,
+                ) -> Result<BpannIndex, BpannError>,
+            build_vector_leaf_forest_index
+                as fn(
+                    &IndexBuildContext<'_>,
+                    usize,
+                    usize,
+                    usize,
+                    std::path::PathBuf,
+                ) -> Result<BpannIndex, BpannError>,
+            crate::index::sync_forest::first_row_centroid_from_mmap
+                as fn(&IndexBuildContext<'_>, usize) -> Result<Vec<f32>, BpannError>,
+            crate::index::sync_forest::mean_centroid_f32 as fn(&[Vec<f32>]) -> Vec<f32>,
+            load_vectors_from_mmap
+                as fn(&IndexBuildContext<'_>, usize, usize) -> Result<Vec<Vec<f32>>, BpannError>,
             centroid_from_mmap_rows
                 as fn(&IndexBuildContext<'_>, usize, usize) -> Result<Vec<f32>, BpannError>,
             search_index_candidates
@@ -545,8 +568,25 @@ mod kiss_coverage_tests {
                 ) -> Result<Vec<(u32, f32)>, BpannError>,
         );
         fn _index_build_context_marker(ctx: &IndexBuildContext<'_>) {
+            let _ = (
+                ctx.train_x,
+                ctx.num_dim,
+                ctx.scale_x,
+                ctx.x_scale,
+                ctx.work_dir,
+                ctx.num_metrics,
+            );
             _kiss_index_build_context(ctx);
         }
+    }
+
+    #[test]
+    fn search_fragment_budget_respects_default_max_of_one() {
+        // Default search_fragment_budget_max=1: with many fragments, search only one.
+        assert_eq!(search_fragment_budget(1, 100_000), 1);
+        assert_eq!(search_fragment_budget(2, 100_000), 2);
+        assert_eq!(search_fragment_budget(8, 100_000), 1);
+        assert_eq!(search_fragment_budget(32, 800_000), 1);
     }
 
     #[test]
@@ -571,6 +611,30 @@ mod kiss_coverage_tests {
     }
 
     #[test]
+    fn sync_needs_rewrite_and_on_disk_rows_behavioral() {
+        let dir = TempDir::new().unwrap();
+        let index_dir = dir.path().join("index");
+
+        assert_eq!(on_disk_indexed_rows(&index_dir).unwrap(), 0);
+
+        let mut idx = IncrementalIndex::new(index_dir.clone());
+        assert!(!idx.needs_disk_rewrite(false, 0));
+        assert!(idx.needs_disk_rewrite(true, 0));
+
+        let x_path = dir.path().join("train_x.bin");
+        let mut store = MmapColumnStore::mmap_open_or_create(x_path, 2, None).unwrap();
+        let chunk = array![[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]];
+        store.mmap_append(&chunk.view()).unwrap();
+        idx.ensure_sync_for_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1, 3)
+            .unwrap();
+        idx.persist_to_disk_for_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
+            .unwrap();
+
+        assert_eq!(on_disk_indexed_rows(&index_dir).unwrap(), 3);
+        assert!(idx.needs_disk_rewrite(false, 999));
+    }
+
+    #[test]
     fn sync_public_api_behavioral() {
         let dir = TempDir::new().unwrap();
         let mut idx = IncrementalIndex::new(dir.path().to_path_buf());
@@ -584,6 +648,12 @@ mod kiss_coverage_tests {
             .unwrap();
         let results = idx.search_candidates(&[0.0, 0.0], 1, None).unwrap();
         let _ = results;
+        assert_eq!(idx.indexed_rows, 2);
+        assert!(!idx.indices.is_empty());
+        // Soft sync leaves pages on disk unwritten; hard persist materializes files.
+        assert_eq!(idx.index_memory_bytes(), 0);
+        idx.persist_to_disk_for_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
+            .unwrap();
         assert!(idx.index_memory_bytes() > 0);
     }
 
@@ -604,6 +674,141 @@ mod kiss_coverage_tests {
         }
         assert!(idx.indices.len() <= 4);
         let _ = idx.search_candidates(&[1.0, 0.0], 2, None).unwrap();
+    }
+
+    /// Regression: soft-sync spans larger than `structured_build_row_limit` must still
+    /// consume pending-centroid state (drained before chunked leaf builds). Otherwise
+    /// the next structured fragment is placed with a contaminated centroid.
+    #[test]
+    fn large_soft_sync_clears_pending_centroid() {
+        let limit = current_tuning().structured_build_row_limit;
+        let n = limit + 76; // force multi-chunk soft-sync
+        let dir = TempDir::new().unwrap();
+        let mut idx = IncrementalIndex::new(dir.path().join("index"));
+        let x_path = dir.path().join("train_x.bin");
+        let mut store = MmapColumnStore::mmap_open_or_create(x_path, 2, None).unwrap();
+        let scale = [1.0_f64, 1.0];
+
+        let mut large = ndarray::Array2::<f64>::zeros((n, 2));
+        for i in 0..n {
+            large[[i, 0]] = (i as f64) * 0.01;
+            large[[i, 1]] = 1.0;
+        }
+        store.mmap_append(&large.view()).unwrap();
+        idx.note_pending_rows(&large.view(), false, &scale);
+        idx.ensure_sync_for_backend(&store, 2, false, &scale, dir.path(), 1, n)
+            .unwrap();
+
+        assert_eq!(
+            idx.pending_row_count, 0,
+            "large soft-sync batch must clear pending_row_count"
+        );
+        assert!(
+            idx.take_pending_centroid(2).is_none(),
+            "large soft-sync batch must leave no pending centroid to take"
+        );
+
+        // Metamorphic: next singleton fragment must place at the new row, not a blend
+        // with the already-indexed large batch.
+        let far = array![[10_000.0, 0.0]];
+        store.mmap_append(&far.view()).unwrap();
+        idx.note_pending_rows(&far.view(), false, &scale);
+        idx.ensure_sync_for_backend(&store, 2, false, &scale, dir.path(), 1, n + 1)
+            .unwrap();
+        let centroid = idx
+            .indices
+            .last()
+            .expect("singleton fragment")
+            .root_centroid();
+        assert!(
+            (centroid[0] - 10_000.0).abs() < 1.0,
+            "post-large-sync fragment must place near the new row, got {centroid:?}"
+        );
+    }
+
+    #[test]
+    fn large_soft_sync_uses_chunked_leaf_builds() {
+        let limit = current_tuning().structured_build_row_limit;
+        // Must exceed MID_BAND_SHALLOW_MAX to take the empty-leaf chunk path.
+        let n = MID_BAND_SHALLOW_MAX + limit + 10;
+        let dir = TempDir::new().unwrap();
+        let mut idx = IncrementalIndex::new(dir.path().join("index"));
+        let x_path = dir.path().join("train_x.bin");
+        let mut store = MmapColumnStore::mmap_open_or_create(x_path, 2, None).unwrap();
+        let scale = [1.0_f64, 1.0];
+        let mut large = ndarray::Array2::<f64>::zeros((n, 2));
+        for i in 0..n {
+            large[[i, 0]] = i as f64;
+            large[[i, 1]] = 0.0;
+        }
+        store.mmap_append(&large.view()).unwrap();
+        idx.note_pending_rows(&large.view(), false, &scale);
+        idx.ensure_sync_for_backend(&store, 2, false, &scale, dir.path(), 1, n)
+            .unwrap();
+        assert_eq!(idx.indexed_rows, n);
+        assert_eq!(idx.indices.len(), 1, "expected one empty-leaf forest fragment");
+        assert!(
+            idx.indices[0].pages.len() >= 3,
+            "expected multi-page forest, got {} pages",
+            idx.indices[0].pages.len()
+        );
+    }
+
+    #[test]
+    fn midband_soft_sync_uses_vector_leaf_forest() {
+        let limit = current_tuning().structured_build_row_limit;
+        let n = limit * 2 + 100;
+        assert!(n > limit * 2 && n <= MID_BAND_SHALLOW_MAX);
+        let dir = TempDir::new().unwrap();
+        let mut idx = IncrementalIndex::new(dir.path().join("index"));
+        let x_path = dir.path().join("train_x.bin");
+        let mut store = MmapColumnStore::mmap_open_or_create(x_path, 2, None).unwrap();
+        let scale = [1.0_f64, 1.0];
+        let mut mid = ndarray::Array2::<f64>::zeros((n, 2));
+        for i in 0..n {
+            mid[[i, 0]] = i as f64;
+        }
+        store.mmap_append(&mid.view()).unwrap();
+        idx.note_pending_rows(&mid.view(), false, &scale);
+        idx.ensure_sync_for_backend(&store, 2, false, &scale, dir.path(), 1, n)
+            .unwrap();
+        assert_eq!(idx.indexed_rows, n);
+        assert_eq!(idx.indices.len(), 1, "expected one vector-leaf forest fragment");
+        assert_eq!(idx.indices[0].header.leaf_capacity, MID_BAND_LEAF_CAPACITY);
+        let has_vectors = idx.indices[0].pages.iter().any(|p| {
+            matches!(p, crate::index::page::Page::Leaf { vectors, .. } if !vectors.is_empty())
+        });
+        assert!(has_vectors);
+        assert!(!idx.search_candidates(&[1.0, 0.0], 3, None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn midsize_soft_sync_stays_single_fragment() {
+        let limit = current_tuning().structured_build_row_limit;
+        // Between limit and 2*limit: structured single-build path.
+        let n = limit + limit / 2;
+        assert!(n > limit && n <= limit * 2);
+        let dir = TempDir::new().unwrap();
+        let mut idx = IncrementalIndex::new(dir.path().join("index"));
+        let x_path = dir.path().join("train_x.bin");
+        let mut store = MmapColumnStore::mmap_open_or_create(x_path, 2, None).unwrap();
+        let scale = [1.0_f64, 1.0];
+        let mut mid = ndarray::Array2::<f64>::zeros((n, 2));
+        for i in 0..n {
+            mid[[i, 0]] = i as f64;
+            mid[[i, 1]] = 0.0;
+        }
+        store.mmap_append(&mid.view()).unwrap();
+        idx.note_pending_rows(&mid.view(), false, &scale);
+        idx.ensure_sync_for_backend(&store, 2, false, &scale, dir.path(), 1, n)
+            .unwrap();
+        assert_eq!(idx.indexed_rows, n);
+        assert_eq!(
+            idx.indices.len(),
+            1,
+            "mid-size sync should stay one structured fragment"
+        );
+        assert_eq!(idx.indices[0].header.indexed_rows, n);
     }
 
     fn _kiss_index_build_context<'a>(ctx: &IndexBuildContext<'a>) {

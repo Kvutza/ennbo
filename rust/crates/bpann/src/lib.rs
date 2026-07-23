@@ -2,14 +2,30 @@ pub mod backend;
 pub mod distance;
 pub mod error;
 pub mod index;
+pub mod large_n_search;
 pub mod merge;
 pub mod mmap_store;
 pub mod observation;
+pub mod small_n_search;
+pub mod tuning;
 
-pub use backend::{BpannBackend, DEFAULT_PENDING_FLUSH_THRESHOLD, PAPER_TEX_PATH};
+pub use backend::{
+    soft_sync_build, soft_sync_publish, BpannBackend, DEFAULT_PENDING_FLUSH_THRESHOLD,
+    DEFAULT_PENDING_HARD_FLUSH_THRESHOLD, PAPER_TEX_PATH,
+};
 pub use error::BpannError;
-pub use index::BpannIndex;
+pub use index::{BpannIndex, IncrementalIndex};
 pub use observation::{MAX_NUM_DIM, MAX_RECORD_STRIDE};
+pub use large_n_search::{search_indexed_and_pending, SearchPendingArgs};
+pub use small_n_search::{
+    load_or_build_small_n_cache, score_queries_flat, topk_flat_sq_l2, OrderedF32,
+    ScoreQueriesFlat, SMALL_N_INCORE_SEARCH_LIMIT,
+};
+pub use tuning::{
+    clear_tuning_provider, current_tuning, set_tuning_provider, BpannTuning,
+    DEFAULT_EXHAUSTIVE_SEARCH_ROW_LIMIT, DEFAULT_SKIP_REFINEMENT_ROW_LIMIT,
+    DEFAULT_STRUCTURED_BUILD_ROW_LIMIT, INDEX_COMPACT_FRAGMENT_MAX_MIN,
+};
 
 #[cfg(test)]
 mod acceptance_tests {
@@ -60,7 +76,10 @@ mod acceptance_tests {
     #[test]
     fn test_open_rejects_num_dim_above_max() {
         let err = backend::open_rejects_num_dim(MAX_NUM_DIM + 1).unwrap_err();
-        assert!(err.to_string().contains("MAX_NUM_DIM") || err.to_string().contains("8192"));
+        assert!(
+            err.to_string().contains("MAX_NUM_DIM")
+                || err.to_string().contains(&MAX_NUM_DIM.to_string())
+        );
     }
 
     #[test]
@@ -226,6 +245,73 @@ mod acceptance_tests {
             .search(&array![[0.0, 0.0]].view(), 1, true)
             .unwrap();
         assert_eq!(idx[[0, 0]], 1);
+    }
+
+    /// Regression: with pending (unindexed) rows, exclude_nearest must still
+    /// surface the true second-nearest pending neighbor, not a far indexed decoy.
+    /// Requires the pending brute-force leg to fetch pool_k (= search_k+1), not k_eff.
+    #[test]
+    fn test_search_exclude_nearest_pending_returns_second_nearest() {
+        let dir = TempDir::new().unwrap();
+        let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 1, 1).unwrap();
+        // Far indexed decoys.
+        b.append_rows(
+            &array![[1000.0], [1001.0], [1002.0]].view(),
+            &array![[0.0], [0.0], [0.0]].view(),
+            None,
+        )
+        .unwrap();
+        b.ensure_index_sync().unwrap();
+        assert_eq!(b.indexed_rows(), 3);
+        // Pending: nearest (row 3) and second-nearest (row 4) to query at 0.
+        b.append_rows(
+            &array![[1.0], [2.0]].view(),
+            &array![[0.0], [0.0]].view(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(b.pending_rows(), 2);
+        let (_, idx) = b
+            .search(&array![[0.0]].view(), 1, true)
+            .unwrap();
+        assert_eq!(
+            idx[[0, 0]],
+            4,
+            "exclude_nearest with pending top-2 must return second-nearest pending (4), got {}",
+            idx[[0, 0]]
+        );
+    }
+
+    /// Same pending under-fetch bug at search_k > 1: last returned slot must stay
+    /// on the pending distance ladder, not promote a far indexed decoy.
+    #[test]
+    fn test_search_exclude_nearest_pending_ladder_topk() {
+        let dir = TempDir::new().unwrap();
+        let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 1, 1).unwrap();
+        b.append_rows(
+            &array![[1000.0], [1001.0], [1002.0]].view(),
+            &array![[0.0], [0.0], [0.0]].view(),
+            None,
+        )
+        .unwrap();
+        b.ensure_index_sync().unwrap();
+        // Pending ladder at 1,2,3,4,5 (nearest..5th); query at 0 needs ranks 2..5 after exclude.
+        b.append_rows(
+            &array![[1.0], [2.0], [3.0], [4.0], [5.0]].view(),
+            &array![[0.0], [0.0], [0.0], [0.0], [0.0]].view(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(b.pending_rows(), 5);
+        let (_, idx) = b
+            .search(&array![[0.0]].view(), 4, true)
+            .unwrap();
+        let got: Vec<i64> = idx.row(0).iter().copied().collect();
+        assert_eq!(
+            got,
+            vec![4, 5, 6, 7],
+            "exclude_nearest pending ladder must return pending ranks 2..5, got {got:?}"
+        );
     }
 
     #[test]
@@ -432,10 +518,163 @@ mod acceptance_tests {
     }
 
     #[test]
-    fn test_pending_flush_threshold_default_is_1000() {
+    fn test_pending_flush_threshold_default_is_250() {
         let dir = TempDir::new().unwrap();
         let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
-        assert_eq!(b.pending_flush_threshold(), 1000);
+        assert_eq!(b.pending_flush_threshold(), DEFAULT_PENDING_FLUSH_THRESHOLD);
+        assert_eq!(DEFAULT_PENDING_FLUSH_THRESHOLD, 250);
+        assert_eq!(
+            crate::BpannTuning::default().pending_flush_threshold,
+            DEFAULT_PENDING_FLUSH_THRESHOLD
+        );
+    }
+
+    #[test]
+    fn test_pending_hard_flush_threshold_default_is_3000() {
+        let dir = TempDir::new().unwrap();
+        let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+        assert_eq!(
+            b.pending_hard_flush_threshold(),
+            DEFAULT_PENDING_HARD_FLUSH_THRESHOLD
+        );
+        assert_eq!(DEFAULT_PENDING_HARD_FLUSH_THRESHOLD, 3000);
+    }
+
+    #[test]
+    fn test_with_pending_flush_threshold_raises_hard() {
+        let dir = TempDir::new().unwrap();
+        let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+            .unwrap()
+            .with_pending_flush_threshold(2000);
+        assert_eq!(b.pending_flush_threshold(), 2000);
+        assert!(b.pending_hard_flush_threshold() >= 2000);
+    }
+
+    #[test]
+    fn test_deferred_append_below_hard_keeps_pending() {
+        let dir = TempDir::new().unwrap();
+        let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+            .unwrap()
+            .with_pending_flush_threshold(2)
+            .with_pending_hard_flush_threshold(5)
+            .with_defer_append_indexing(true);
+        let x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
+        let y = array![[0.0], [1.0], [2.0], [3.0]];
+        b.append_rows(&x.view(), &y.view(), None).unwrap();
+        assert_eq!(b.pending_rows(), 4);
+        assert_eq!(b.indexed_rows(), 0);
+    }
+
+    #[test]
+    fn test_deferred_append_at_hard_soft_syncs_to_zero() {
+        let dir = TempDir::new().unwrap();
+        let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+            .unwrap()
+            .with_pending_flush_threshold(2)
+            .with_pending_hard_flush_threshold(5)
+            .with_defer_append_indexing(true);
+        let x = Array2::from_shape_fn((5, 2), |(i, j)| (i + j) as f64);
+        let y = Array2::from_shape_fn((5, 1), |(i, _)| i as f64);
+        b.append_rows(&x.view(), &y.view(), None).unwrap();
+        assert_eq!(b.pending_rows(), 0);
+        assert_eq!(b.indexed_rows(), 5);
+        // Soft sync does not write pages.bin.
+        assert!(!dir.path().join("index/pages.bin").exists());
+    }
+
+    #[test]
+    fn ensure_index_sync_in_place_drains_pending_and_is_idempotent() {
+        // Caller soft-sync mutates the live index (no publish swap required).
+        let dir = TempDir::new().unwrap();
+        let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+            .unwrap()
+            .with_pending_flush_threshold(100)
+            .with_pending_hard_flush_threshold(100)
+            .with_defer_append_indexing(true);
+        let x = Array2::from_shape_fn((6, 2), |(i, j)| (i + j) as f64);
+        let y = Array2::from_shape_fn((6, 1), |(i, _)| i as f64);
+        b.append_rows(&x.view(), &y.view(), None).unwrap();
+        assert_eq!(b.pending_rows(), 6);
+        assert_eq!(b.indexed_rows(), 0);
+        b.ensure_index_sync().unwrap();
+        assert_eq!(b.pending_rows(), 0);
+        assert_eq!(b.indexed_rows(), 6);
+        let indexed = b.indexed_rows();
+        b.ensure_index_sync().unwrap();
+        assert_eq!(b.indexed_rows(), indexed);
+        assert_eq!(b.pending_rows(), 0);
+    }
+
+    #[test]
+    fn test_deferred_append_cross_hard_in_two_batches() {
+        let dir = TempDir::new().unwrap();
+        let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+            .unwrap()
+            .with_pending_flush_threshold(2)
+            .with_pending_hard_flush_threshold(5)
+            .with_defer_append_indexing(true);
+        let x4 = Array2::from_shape_fn((4, 2), |(i, j)| (i + j) as f64);
+        let y4 = Array2::from_shape_fn((4, 1), |(i, _)| i as f64);
+        b.append_rows(&x4.view(), &y4.view(), None).unwrap();
+        assert_eq!(b.pending_rows(), 4);
+        let x1 = array![[4.0, 0.0]];
+        let y1 = array![[4.0]];
+        b.append_rows(&x1.view(), &y1.view(), None).unwrap();
+        assert_eq!(b.pending_rows(), 0);
+        assert_eq!(b.indexed_rows(), 5);
+    }
+
+    #[test]
+    fn metamorphic_hard_cap_clears_all_pending_not_trim() {
+        // Soft sync on hard hit must drain pending to 0, not leave hard-1.
+        let dir = TempDir::new().unwrap();
+        let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 3, 1)
+            .unwrap()
+            .with_pending_flush_threshold(3)
+            .with_pending_hard_flush_threshold(7)
+            .with_defer_append_indexing(true);
+        let n = 20usize;
+        let x = Array2::from_shape_fn((n, 3), |(i, j)| (i * 3 + j) as f64);
+        let y = Array2::from_shape_fn((n, 1), |(i, _)| i as f64);
+        b.append_rows(&x.view(), &y.view(), None).unwrap();
+        assert_eq!(b.pending_rows(), 0);
+        assert_eq!(b.indexed_rows(), n);
+    }
+
+    #[test]
+    fn fuzz_hard_cap_boundary_all_seeds() {
+        use rand::{Rng, SeedableRng};
+        use rand_chacha::ChaCha8Rng;
+        let seed = 0x4841_5244_u64; // "HARD"
+        println!("fuzz_hard_cap_boundary_all_seeds seed={seed}");
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        for trial in 0..16 {
+            let soft = rng.gen_range(1usize..=4);
+            let hard = rng.gen_range(soft..=soft + 6);
+            let batch = rng.gen_range(1usize..=hard + 3);
+            let dir = TempDir::new().unwrap();
+            let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+                .unwrap()
+                .with_pending_flush_threshold(soft)
+                .with_pending_hard_flush_threshold(hard)
+                .with_defer_append_indexing(true);
+            let x = Array2::from_shape_fn((batch, 2), |(i, j)| ((trial + i) + j) as f64);
+            let y = Array2::from_shape_fn((batch, 1), |(i, _)| i as f64);
+            b.append_rows(&x.view(), &y.view(), None).unwrap();
+            if batch >= hard {
+                assert_eq!(
+                    b.pending_rows(),
+                    0,
+                    "trial={trial} soft={soft} hard={hard} batch={batch}"
+                );
+            } else {
+                assert_eq!(
+                    b.pending_rows(),
+                    batch,
+                    "trial={trial} soft={soft} hard={hard} batch={batch}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -505,6 +744,7 @@ mod acceptance_tests {
             let (x, y) = synthetic_train(24, 4, 2);
             b.append_rows(&x.view(), &y.view(), None).unwrap();
             b.ensure_index_sync().unwrap();
+            b.persist_index_to_disk().unwrap();
             fs::read(path.join("index/pages.bin")).unwrap()
         };
         let b2 = BpannBackend::reopen(path.clone()).unwrap();

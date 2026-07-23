@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crate::error::BpannError;
 
-const MMAP_GROW_ROWS: usize = 64;
+pub(crate) const MMAP_GROW_ROWS: usize = 64;
 
 pub struct MmapColumnStore {
     pub path: PathBuf,
@@ -31,11 +31,8 @@ impl MmapColumnStore {
         }
         let grow_rows = (need_rows - self.nrows).max(MMAP_GROW_ROWS);
         let new_len = self.bytes_for_rows(self.nrows + grow_rows);
-        if !self.mmap.is_empty() {
-            self.mmap
-                .flush()
-                .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
-        }
+        // No flush before remapping: dirty pages live in the page cache and
+        // survive remapping the same file; msync is only needed for durability.
         self.file
             .set_len(new_len as u64)
             .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
@@ -93,6 +90,18 @@ impl MmapColumnStore {
         })
     }
 
+    /// Touch every page of the current mapping so first appends pay no
+    /// page-fault or block-allocation cost.
+    pub(crate) fn pretouch(&mut self) {
+        const PAGE: usize = 4096;
+        let len = self.mmap.len();
+        let mut i = 0;
+        while i < len {
+            unsafe { std::ptr::write_volatile(self.mmap.as_mut_ptr().add(i), 0) };
+            i += PAGE;
+        }
+    }
+
     pub fn mmap_append(&mut self, rows: &ArrayView2<f64>) -> Result<(), BpannError> {
         if rows.nrows() == 0 {
             return Ok(());
@@ -106,14 +115,44 @@ impl MmapColumnStore {
         let new_nrows = self.nrows + rows.nrows();
         self.ensure_capacity(new_nrows)?;
         let row_bytes = self.row_bytes();
-        for (i, row) in rows.axis_iter(Axis(0)).enumerate() {
-            let offset = (self.nrows + i) * row_bytes;
-            let dst = &mut self.mmap[offset..offset + row_bytes];
-            let bytes =
-                unsafe { std::slice::from_raw_parts(row.as_ptr() as *const u8, row_bytes) };
-            dst.copy_from_slice(bytes);
+        let offset = self.nrows * row_bytes;
+        let n = rows.nrows() * self.ncols;
+        let dst = &mut self.mmap[offset..offset + n * std::mem::size_of::<f64>()];
+        // Bulk memcpy only when the source is C-contiguous. Non-standard layouts
+        // (e.g. Fortran order) have strided rows; copying `row_bytes` from
+        // `row.as_ptr()` would silently write the wrong values.
+        if let Some(src) = rows.as_slice() {
+            let src_bytes = unsafe {
+                std::slice::from_raw_parts(src.as_ptr() as *const u8, n * std::mem::size_of::<f64>())
+            };
+            dst.copy_from_slice(src_bytes);
+        } else {
+            let dst_f64 =
+                unsafe { std::slice::from_raw_parts_mut(dst.as_mut_ptr() as *mut f64, n) };
+            for (i, row) in rows.axis_iter(Axis(0)).enumerate() {
+                let row_dst = &mut dst_f64[i * self.ncols..(i + 1) * self.ncols];
+                for (d, s) in row_dst.iter_mut().zip(row.iter()) {
+                    *d = *s;
+                }
+            }
         }
         self.nrows = new_nrows;
+        Ok(())
+    }
+
+    /// Drop faulted/dirty pages from process RSS while keeping the file mapping.
+    ///
+    /// Remaps the same file so previously resident pages are no longer charged to
+    /// this process. File contents are unchanged; subsequent reads fault pages back
+    /// in (typically via the OS file cache). Call only when no borrows into `mmap`
+    /// are live.
+    ///
+    /// Does not `flush()` the whole mapping first: a full-map flush can briefly
+    /// force large residency (hurting `ru_maxrss`) on multi-GB stores.
+    pub fn release_resident_pages(&mut self) -> Result<(), BpannError> {
+        self.mmap = unsafe {
+            MmapMut::map_mut(&self.file).map_err(|e| BpannError::InvalidParameter(e.to_string()))?
+        };
         Ok(())
     }
 
@@ -176,5 +215,23 @@ mod tests {
             .mmap_append(&array![[1.0, 2.0], [3.0, 4.0]].view())
             .unwrap();
         assert_eq!(store.nrows, 2);
+    }
+
+    #[test]
+    fn release_resident_pages_preserves_rows() {
+        let dir = TempDir::new().unwrap();
+        let mut store =
+            MmapColumnStore::mmap_open_or_create(dir.path().join("c.bin"), 2, None).unwrap();
+        store
+            .mmap_append(&array![[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]].view())
+            .unwrap();
+        store.release_resident_pages().unwrap();
+        assert_eq!(store.mmap_row_slice(0).unwrap(), &[1.0, 2.0]);
+        assert_eq!(store.mmap_row_slice(2).unwrap(), &[5.0, 6.0]);
+        store
+            .mmap_append(&array![[7.0, 8.0]].view())
+            .unwrap();
+        store.release_resident_pages().unwrap();
+        assert_eq!(store.mmap_row_slice(3).unwrap(), &[7.0, 8.0]);
     }
 }
