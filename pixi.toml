@@ -23,6 +23,10 @@ matplotlib = "*"
 c-compiler = "*"
 cxx-compiler = "*"
 
+[feature.ennbo.target.linux-64.activation.env]
+CC = "$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-cc"
+CXX = "$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-c++"
+
 [feature.ennbo.pypi-dependencies]
 ennbo = { path = ".", editable = true }
 
