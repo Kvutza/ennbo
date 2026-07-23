@@ -13,7 +13,6 @@ build = "src/ennbo_build.rs"
 
 [dependencies]
 bpann = { path = "../bpann" }
-faiss = { version = "0.13.0" }
 metal = { version = "0.33.0", optional = true }
 ndarray = { workspace = true }
 ndarray-linalg = { workspace = true }
@@ -24,14 +23,13 @@ sobol = "1.0.2"
 thiserror = { workspace = true }
 memmap2 = "0.9"
 
+[build-dependencies]
+cc = "1.2"
+
 [features]
 default = []
 metal = ["dep:metal"]
 opencl = ["dep:opencl3"]
-
-# Modal/Linux images lack a linkable `libfaiss_c`; macOS dev builds use dynamic faiss (static needs OpenMP in cmake).
-[target.'cfg(target_os = "linux")'.dependencies]
-faiss = { version = "0.13.0", features = ["static"] }
 
 [dev-dependencies]
 approx = "0.5"

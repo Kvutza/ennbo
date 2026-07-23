@@ -4,10 +4,7 @@ use ennbo::ennbo_build::{
     kiss_ennbo_build_touch_07, kiss_ennbo_build_touch_08, kiss_ennbo_build_touch_09, main,
     run_ennbo_build,
 };
-use ennbo::link_search::{
-    emit_blas_lapack_link_search_linux, emit_faiss_link_search, emit_link_search,
-    emit_openblas_link, has_blas_for_link, has_faiss_c, openblas_for_link,
-};
+use ennbo::link_search::{emit_faiss_link_search, emit_link_search, faiss_include_dir, has_faiss};
 
 #[test]
 fn kiss_fullrepo_static_name_registry_core() {
@@ -100,11 +97,8 @@ fn kiss_fullrepo_static_name_registry_core() {
 fn kiss_cargo_build_helpers() {
     let _ = (
         emit_link_search,
-        has_faiss_c,
-        has_blas_for_link,
-        openblas_for_link,
-        emit_openblas_link,
-        emit_blas_lapack_link_search_linux,
+        has_faiss,
+        faiss_include_dir,
         emit_faiss_link_search,
     );
 }
@@ -139,11 +133,10 @@ fn kiss_fullrepo_static_name_registry_extra() {
         "optional_usize",
         "argmax_random_tie",
         "faiss_spec",
-        "faiss_map_err",
+        "make_faiss_for_test",
         "arr2_rows_to_f32",
-        "make_faiss",
         "pad_neighbor_cols_to_search_k",
-        "unpack_faiss_search",
+        "enn_faiss_search",
         "KnnBackend",
         "FaissBackend",
         "rebuild",

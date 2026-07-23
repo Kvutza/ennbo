@@ -18,6 +18,7 @@ ruff = "*"
 nbmake = "*"
 pandas = "*"
 matplotlib = "*"
+libfaiss = { version = "1.10.*", build = "cpu*" }
 
 [feature.ennbo.target.linux-64.dependencies]
 c-compiler = "*"

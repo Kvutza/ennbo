@@ -1,79 +1,103 @@
-use faiss::error::Error as FaissError;
-use faiss::index::IndexImpl;
-use faiss::{index_factory, Index, MetricType};
-use memmap2::MmapMut;
-use ndarray::{Array2, ArrayView2, Axis};
+use std::ffi::{c_void, CStr};
 use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
+use std::ptr::NonNull;
+
+use memmap2::MmapMut;
+use ndarray::{Array2, ArrayView2, Axis};
 
 use super::{arr2_rows_to_f32, pad_neighbor_cols_to_search_k, unpack_batch_search};
 use crate::error::ENNError;
 use crate::index::{IndexDriver, IndexError};
 
-pub(crate) struct FaissBackend {
-    inner: IndexImpl,
-    num_dim: usize,
-    driver: IndexDriver,
+unsafe extern "C" {
+    fn enn_faiss_new(num_dim: usize) -> *mut c_void;
+    fn enn_faiss_free(handle: *mut c_void);
+    fn enn_faiss_reset(handle: *mut c_void) -> i32;
+    fn enn_faiss_add(handle: *mut c_void, num_rows: usize, rows: *const f32) -> i32;
+    fn enn_faiss_len(handle: *const c_void) -> usize;
+    fn enn_faiss_search(
+        handle: *mut c_void,
+        num_queries: usize,
+        k: usize,
+        queries: *const f32,
+        distances: *mut f32,
+        labels: *mut i64,
+    ) -> i32;
+    fn enn_faiss_last_error() -> *const std::ffi::c_char;
 }
 
+pub(crate) struct FaissBackend {
+    handle: NonNull<c_void>,
+    num_dim: usize,
+}
+
+// Faiss is protected by the mutex in KnnBackend.
+unsafe impl Send for FaissBackend {}
+
+fn faiss_error() -> IndexError {
+    let message = unsafe {
+        let ptr = enn_faiss_last_error();
+        if ptr.is_null() {
+            "unknown Faiss error".to_owned()
+        } else {
+            CStr::from_ptr(ptr).to_string_lossy().into_owned()
+        }
+    };
+    IndexError::InvalidParameter(message)
+}
+
+#[cfg(test)]
 fn faiss_spec(driver: IndexDriver) -> &'static str {
     match driver {
         IndexDriver::Exact | IndexDriver::Metal | IndexDriver::OpenCl => "Flat",
-        IndexDriver::BpAnnDisk => {
-            panic!("BpAnnDisk must not be routed to FaissBackend")
-        }
+        IndexDriver::BpAnnDisk => panic!("BpAnnDisk must not be routed to FaissBackend"),
     }
-}
-
-fn faiss_map_err(e: FaissError) -> IndexError {
-    IndexError::InvalidParameter(e.to_string())
 }
 
 impl FaissBackend {
     pub(crate) fn new(
         num_dim: usize,
-        driver: IndexDriver,
+        _driver: IndexDriver,
         train_scaled: &ArrayView2<f64>,
     ) -> Result<Self, IndexError> {
-        let inner = Self::make_index(num_dim, driver, train_scaled)?;
-        Ok(Self {
-            inner,
-            num_dim,
-            driver,
-        })
-    }
-
-    fn make_index(
-        num_dim: usize,
-        driver: IndexDriver,
-        train_scaled: &ArrayView2<f64>,
-    ) -> Result<IndexImpl, IndexError> {
-        let mut index = index_factory(num_dim as u32, faiss_spec(driver), MetricType::L2)
-            .map_err(faiss_map_err)?;
-        if train_scaled.nrows() > 0 {
-            let data = arr2_rows_to_f32(train_scaled);
-            index.add(&data).map_err(faiss_map_err)?;
+        if train_scaled.ncols() != num_dim {
+            return Err(IndexError::InvalidShape {
+                expected: num_dim,
+                got: train_scaled.ncols(),
+            });
         }
-        Ok(index)
+        let handle = NonNull::new(unsafe { enn_faiss_new(num_dim) }).ok_or_else(faiss_error)?;
+        let mut backend = Self { handle, num_dim };
+        if !train_scaled.is_empty() {
+            backend.add(train_scaled, 0)?;
+        }
+        Ok(backend)
     }
 
     pub(crate) fn len(&self) -> usize {
-        self.inner.ntotal() as usize
+        unsafe { enn_faiss_len(self.handle.as_ptr()) }
     }
 
-    /// Approximate in-memory footprint of vector storage.
     pub(crate) fn memory_usage_bytes(&self) -> usize {
-        let n = self.inner.ntotal() as usize;
-        let d = self.inner.d() as usize;
-        if n == 0 {
-            return 0;
-        }
-        n.saturating_mul(d)
+        self.len()
+            .saturating_mul(self.num_dim)
             .saturating_mul(std::mem::size_of::<f32>())
     }
 
     pub(crate) fn rebuild(&mut self, train_scaled: &ArrayView2<f64>) -> Result<(), IndexError> {
-        self.inner = Self::make_index(self.num_dim, self.driver, train_scaled)?;
+        if train_scaled.ncols() != self.num_dim {
+            return Err(IndexError::InvalidShape {
+                expected: self.num_dim,
+                got: train_scaled.ncols(),
+            });
+        }
+        if unsafe { enn_faiss_reset(self.handle.as_ptr()) } != 0 {
+            return Err(faiss_error());
+        }
+        if !train_scaled.is_empty() {
+            self.add(train_scaled, 0)?;
+        }
         Ok(())
     }
 
@@ -82,8 +106,20 @@ impl FaissBackend {
         rows_scaled: &ArrayView2<f64>,
         _start_key: u64,
     ) -> Result<(), IndexError> {
-        let data = arr2_rows_to_f32(rows_scaled);
-        self.inner.add(&data).map_err(faiss_map_err)
+        if rows_scaled.ncols() != self.num_dim {
+            return Err(IndexError::InvalidShape {
+                expected: self.num_dim,
+                got: rows_scaled.ncols(),
+            });
+        }
+        if rows_scaled.nrows() == 0 {
+            return Ok(());
+        }
+        let rows = arr2_rows_to_f32(rows_scaled);
+        if unsafe { enn_faiss_add(self.handle.as_ptr(), rows_scaled.nrows(), rows.as_ptr()) } != 0 {
+            return Err(faiss_error());
+        }
+        Ok(())
     }
 
     pub(crate) fn search(
@@ -91,13 +127,40 @@ impl FaissBackend {
         queries_scaled: &ArrayView2<f64>,
         k_eff: usize,
         search_k: usize,
-    ) -> Result<(ndarray::Array2<f64>, ndarray::Array2<i64>), IndexError> {
+    ) -> Result<(Array2<f64>, Array2<i64>), IndexError> {
+        if queries_scaled.ncols() != self.num_dim {
+            return Err(IndexError::InvalidShape {
+                expected: self.num_dim,
+                got: queries_scaled.ncols(),
+            });
+        }
         let n_query = queries_scaled.nrows();
-        let q = arr2_rows_to_f32(queries_scaled);
-        let res = self.inner.search(&q, k_eff).map_err(faiss_map_err)?;
-        let labels: Vec<i64> = res.labels.iter().map(|l| l.to_native()).collect();
-        let (d, i) = unpack_batch_search(n_query, k_eff, &res.distances, &labels);
-        Ok(pad_neighbor_cols_to_search_k(d, i, search_k))
+        let queries = arr2_rows_to_f32(queries_scaled);
+        let mut distances = vec![0.0_f32; n_query.saturating_mul(k_eff)];
+        let mut labels = vec![0_i64; n_query.saturating_mul(k_eff)];
+        if k_eff > 0 && n_query > 0 {
+            if unsafe {
+                enn_faiss_search(
+                    self.handle.as_ptr(),
+                    n_query,
+                    k_eff,
+                    queries.as_ptr(),
+                    distances.as_mut_ptr(),
+                    labels.as_mut_ptr(),
+                )
+            } != 0
+            {
+                return Err(faiss_error());
+            }
+        }
+        let (distances, labels) = unpack_batch_search(n_query, k_eff, &distances, &labels);
+        Ok(pad_neighbor_cols_to_search_k(distances, labels, search_k))
+    }
+}
+
+impl Drop for FaissBackend {
+    fn drop(&mut self) {
+        unsafe { enn_faiss_free(self.handle.as_ptr()) };
     }
 }
 
@@ -107,17 +170,12 @@ pub(crate) fn faiss_spec_for_test(driver: IndexDriver) -> &'static str {
 }
 
 #[cfg(test)]
-pub(crate) fn faiss_map_err_for_test(e: FaissError) -> IndexError {
-    faiss_map_err(e)
-}
-
-#[cfg(test)]
 pub(crate) fn make_faiss_for_test(
     num_dim: usize,
     driver: IndexDriver,
     train_scaled: &ArrayView2<f64>,
-) -> Result<IndexImpl, IndexError> {
-    FaissBackend::make_index(num_dim, driver, train_scaled)
+) -> Result<FaissBackend, IndexError> {
+    FaissBackend::new(num_dim, driver, train_scaled)
 }
 
 /// Grow the backing file to the exact row count needed (no pre-allocation tail).
@@ -310,17 +368,15 @@ mod faiss_backend_tests {
     }
 
     #[test]
-    fn faiss_spec_and_map_err() {
+    fn faiss_spec_is_flat() {
         assert_eq!(faiss_spec(IndexDriver::Exact), "Flat");
-        let err = faiss_map_err(faiss::error::Error::IndexDescription);
-        assert!(matches!(err, IndexError::InvalidParameter(_)));
     }
 
     #[test]
-    fn make_index() {
+    fn make_faiss_backend() {
         let train = array![[0.0, 0.0], [1.0, 0.0]];
         let index = make_faiss_for_test(2, IndexDriver::Exact, &train.view()).unwrap();
-        assert_eq!(index.ntotal(), 2);
+        assert_eq!(index.len(), 2);
     }
 
     #[test]
@@ -370,7 +426,6 @@ mod faiss_backend_tests {
 
     #[test]
     fn mmap_column_store_single_row_append_without_remap_churn() {
-        use super::MmapColumnStore;
         use tempfile::TempDir;
 
         let dir = TempDir::new().expect("tempdir");
@@ -389,7 +444,6 @@ mod faiss_backend_tests {
 
     #[test]
     fn mmap_column_store_direct_api() {
-        use super::MmapColumnStore;
         use tempfile::TempDir;
 
         let dir = TempDir::new().expect("tempdir");
@@ -407,11 +461,12 @@ mod faiss_backend_tests {
     }
 
     #[test]
-    fn kiss_faiss_make_index_and_memory() {
+    fn faiss_backend_memory_usage() {
         let train = array![[0.0, 0.0], [1.0, 0.0]];
-        let _index = FaissBackend::make_index(2, IndexDriver::Exact, &train.view()).unwrap();
         let backend = FaissBackend::new(2, IndexDriver::Exact, &train.view()).unwrap();
-        assert!(backend.memory_usage_bytes() > 0);
-        let _ = faiss_map_err_for_test(faiss::error::Error::IndexDescription);
+        assert_eq!(
+            backend.memory_usage_bytes(),
+            2 * 2 * std::mem::size_of::<f32>()
+        );
     }
 }
