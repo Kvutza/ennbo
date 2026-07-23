@@ -1,7 +1,12 @@
-//! KNN backends behind [`crate::index::ENNIndex`] (Faiss in-memory only).
+//! Index backends behind [`crate::index::ENNIndex`].
 
 pub(crate) mod faiss_backend;
 pub use faiss_backend::MmapColumnStore;
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+mod metal_index;
+#[cfg(feature = "opencl")]
+mod opencl_index;
 
 use ndarray::{Array2, ArrayView2};
 use std::sync::Mutex;
@@ -10,9 +15,18 @@ use crate::index::{IndexDriver, IndexError};
 
 pub(crate) use faiss_backend::FaissBackend;
 
-/// In-memory Faiss KNN storage (Exact only).
+#[cfg(all(target_os = "macos", feature = "metal"))]
+use metal_index::MetalIndex;
+#[cfg(feature = "opencl")]
+use opencl_index::OpenClIndex;
+
+/// In-memory exact and accelerator-backed index implementations.
 pub(crate) enum KnnBackend {
     Faiss(Mutex<FaissBackend>),
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    Metal(Mutex<MetalIndex>),
+    #[cfg(feature = "opencl")]
+    OpenCl(Mutex<OpenClIndex>),
 }
 
 impl KnnBackend {
@@ -22,9 +36,42 @@ impl KnnBackend {
         train_scaled: &ArrayView2<f64>,
     ) -> Result<Self, IndexError> {
         match driver {
-            IndexDriver::Exact | IndexDriver::Metal | IndexDriver::OpenCl => Ok(Self::Faiss(
-                Mutex::new(FaissBackend::new(num_dim, driver, train_scaled)?),
-            )),
+            IndexDriver::Exact => Ok(Self::Faiss(Mutex::new(FaissBackend::new(
+                num_dim,
+                driver,
+                train_scaled,
+            )?))),
+            IndexDriver::Metal => {
+                #[cfg(all(target_os = "macos", feature = "metal"))]
+                {
+                    return Ok(Self::Metal(Mutex::new(MetalIndex::new(
+                        num_dim,
+                        train_scaled,
+                    )?)));
+                }
+                #[cfg(not(all(target_os = "macos", feature = "metal")))]
+                {
+                    Err(IndexError::InvalidParameter(
+                        "Metal index is unavailable; build on macOS with the metal feature"
+                            .to_string(),
+                    ))
+                }
+            }
+            IndexDriver::OpenCl => {
+                #[cfg(feature = "opencl")]
+                {
+                    return Ok(Self::OpenCl(Mutex::new(OpenClIndex::new(
+                        num_dim,
+                        train_scaled,
+                    )?)));
+                }
+                #[cfg(not(feature = "opencl"))]
+                {
+                    Err(IndexError::InvalidParameter(
+                        "OpenCL index is unavailable; build with the opencl feature".to_string(),
+                    ))
+                }
+            }
             IndexDriver::BpAnnDisk => Err(IndexError::InvalidParameter(
                 "IndexDriver::BpAnnDisk is disk-only; use DiskBpannEnnBackend".to_string(),
             )),
@@ -34,6 +81,10 @@ impl KnnBackend {
     pub(crate) fn len(&self) -> usize {
         match self {
             Self::Faiss(inner) => inner.lock().expect("knn mutex poisoned").len(),
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            Self::Metal(inner) => inner.lock().expect("knn mutex poisoned").len(),
+            #[cfg(feature = "opencl")]
+            Self::OpenCl(inner) => inner.lock().expect("knn mutex poisoned").len(),
         }
     }
 
@@ -43,12 +94,32 @@ impl KnnBackend {
                 .lock()
                 .expect("knn mutex poisoned")
                 .memory_usage_bytes(),
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            Self::Metal(inner) => inner
+                .lock()
+                .expect("knn mutex poisoned")
+                .memory_usage_bytes(),
+            #[cfg(feature = "opencl")]
+            Self::OpenCl(inner) => inner
+                .lock()
+                .expect("knn mutex poisoned")
+                .memory_usage_bytes(),
         }
     }
 
     pub(crate) fn rebuild(&self, train_scaled: &ArrayView2<f64>) -> Result<(), IndexError> {
         match self {
             Self::Faiss(inner) => inner
+                .lock()
+                .expect("knn mutex poisoned")
+                .rebuild(train_scaled),
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            Self::Metal(inner) => inner
+                .lock()
+                .expect("knn mutex poisoned")
+                .rebuild(train_scaled),
+            #[cfg(feature = "opencl")]
+            Self::OpenCl(inner) => inner
                 .lock()
                 .expect("knn mutex poisoned")
                 .rebuild(train_scaled),
@@ -65,6 +136,16 @@ impl KnnBackend {
                 .lock()
                 .expect("knn mutex poisoned")
                 .add(rows_scaled, start_key),
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            Self::Metal(inner) => inner
+                .lock()
+                .expect("knn mutex poisoned")
+                .add(rows_scaled, start_key),
+            #[cfg(feature = "opencl")]
+            Self::OpenCl(inner) => inner
+                .lock()
+                .expect("knn mutex poisoned")
+                .add(rows_scaled, start_key),
         }
     }
 
@@ -76,6 +157,20 @@ impl KnnBackend {
     ) -> Result<(Array2<f64>, Array2<i64>), IndexError> {
         match self {
             Self::Faiss(inner) => {
+                inner
+                    .lock()
+                    .expect("knn mutex poisoned")
+                    .search(queries_scaled, k_eff, search_k)
+            }
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            Self::Metal(inner) => {
+                inner
+                    .lock()
+                    .expect("knn mutex poisoned")
+                    .search(queries_scaled, k_eff, search_k)
+            }
+            #[cfg(feature = "opencl")]
+            Self::OpenCl(inner) => {
                 inner
                     .lock()
                     .expect("knn mutex poisoned")
@@ -172,5 +267,68 @@ mod knn_backend_tests {
         let (d2, i2) = unpack_batch_search(1, 2, &[0.5, 1.5], &[0, 1]);
         assert_eq!(d2[[0, 1]], 1.5);
         assert_eq!(i2[[0, 1]], 1);
+    }
+
+    #[cfg(any(all(target_os = "macos", feature = "metal"), feature = "opencl"))]
+    fn check_device_backend(device: KnnBackend) {
+        let train = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [2.0, 2.0]];
+        let query = array![[0.2, 0.1], [1.1, 0.2]];
+        let exact = KnnBackend::new(2, IndexDriver::Exact, &train.view()).unwrap();
+        let expected = exact.search(&query.view(), 3, 3).unwrap();
+        let actual = device.search(&query.view(), 3, 3).unwrap();
+        assert_eq!(actual.1, expected.1);
+        for (actual, expected) in actual.0.iter().zip(expected.0.iter()) {
+            assert!((actual - expected).abs() < 1.0e-5, "{actual} != {expected}");
+        }
+
+        let large_train = Array2::from_shape_fn((1050, 2), |(row, col)| {
+            if col == 0 {
+                row as f64 * 0.01
+            } else {
+                (row % 17) as f64 * 0.1
+            }
+        });
+        let large_query = array![[2.345, 0.7], [7.891, 1.1]];
+        let large_exact = KnnBackend::new(2, IndexDriver::Exact, &large_train.view()).unwrap();
+        let large_expected = large_exact.search(&large_query.view(), 10, 10).unwrap();
+        device.rebuild(&large_train.view()).unwrap();
+        let large_actual = device.search(&large_query.view(), 10, 10).unwrap();
+        assert_eq!(large_actual.1, large_expected.1);
+        for (actual, expected) in large_actual.0.iter().zip(large_expected.0.iter()) {
+            assert!((actual - expected).abs() < 1.0e-4, "{actual} != {expected}");
+        }
+
+        device.add(&array![[0.2, 0.2]].view(), 4).unwrap();
+        assert_eq!(device.len(), 1051);
+        device.rebuild(&train.view()).unwrap();
+        assert_eq!(device.len(), 4);
+    }
+
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    #[test]
+    fn metal_index_matches_exact() {
+        let train = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [2.0, 2.0]];
+        let device = match KnnBackend::new(2, IndexDriver::Metal, &train.view()) {
+            Ok(index) => index,
+            Err(error) => {
+                eprintln!("Metal runtime unavailable: {error}");
+                return;
+            }
+        };
+        check_device_backend(device);
+    }
+
+    #[cfg(feature = "opencl")]
+    #[test]
+    fn opencl_index_matches_exact() {
+        let train = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [2.0, 2.0]];
+        let device = match KnnBackend::new(2, IndexDriver::OpenCl, &train.view()) {
+            Ok(index) => index,
+            Err(error) => {
+                eprintln!("OpenCL runtime unavailable: {error}");
+                return;
+            }
+        };
+        check_device_backend(device);
     }
 }
