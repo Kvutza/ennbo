@@ -19,8 +19,8 @@ pub(crate) struct FaissBackend {
 fn faiss_spec(driver: IndexDriver) -> &'static str {
     match driver {
         IndexDriver::Exact => "Flat",
-        IndexDriver::BpAnnDisk => {
-            panic!("BpAnnDisk must not be routed to FaissBackend")
+        IndexDriver::BpAnnDisk | IndexDriver::Metal | IndexDriver::OpenCl => {
+            panic!("non-Faiss driver must not be routed to FaissBackend")
         }
     }
 }

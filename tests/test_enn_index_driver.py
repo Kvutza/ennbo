@@ -21,6 +21,8 @@ def test_enn_index_driver_to_rust_maps_all():
     assert set(ENNIndexDriver) == set(ENN_INDEX_DRIVER_TO_RUST.keys())
     assert ENN_INDEX_DRIVER_TO_RUST[ENNIndexDriver.FLAT] == "exact"
     assert ENN_INDEX_DRIVER_TO_RUST[ENNIndexDriver.BPANN_DISK] == "bpann_disk"
+    assert ENN_INDEX_DRIVER_TO_RUST[ENNIndexDriver.METAL] == "metal"
+    assert ENN_INDEX_DRIVER_TO_RUST[ENNIndexDriver.OPENCL] == "opencl"
 
 
 def test_enn_bpann_disk_in_memory_raises():

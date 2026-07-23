@@ -69,6 +69,8 @@ fn parse_index_driver(s: &str) -> PyResult<ennbo::index::IndexDriver> {
     match s.to_lowercase().as_str() {
         "exact" | "flat" => Ok(IndexDriver::Exact),
         "bpann_disk" => Ok(IndexDriver::BpAnnDisk),
+        "metal" => Ok(IndexDriver::Metal),
+        "opencl" | "ocl" => Ok(IndexDriver::OpenCl),
         _ => Err(PyValueError::new_err(format!("Unknown index_driver: {s}"))),
     }
 }

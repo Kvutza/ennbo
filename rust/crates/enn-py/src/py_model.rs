@@ -54,6 +54,8 @@ impl PyEpistemicNearestNeighbors {
         let driver = match index_driver {
             "Exact" | "exact" | "FLAT" | "flat" => ennbo::IndexDriver::Exact,
             "BPANN_DISK" | "bpann_disk" => ennbo::IndexDriver::BpAnnDisk,
+            "METAL" | "metal" => ennbo::IndexDriver::Metal,
+            "OPENCL" | "OpenCL" | "opencl" | "ocl" => ennbo::IndexDriver::OpenCl,
             _ => {
                 return Err(PyValueError::new_err(format!(
                     "Unknown index_driver: {index_driver}"

@@ -17,6 +17,10 @@ pub enum IndexDriver {
     Exact,
     /// B+ANN disk index (`EnnStorage::Disk` + `work_dir`).
     BpAnnDisk,
+    /// Apple Metal backend for exact in-memory search.
+    Metal,
+    /// OpenCL backend for exact in-memory search.
+    OpenCl,
 }
 
 pub fn is_disk_index_driver(driver: IndexDriver) -> bool {
