@@ -7,21 +7,30 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 use std::path::PathBuf;
 
-pub(crate) fn optional_f64(dict: &Bound<'_, pyo3::types::PyDict>, key: &str) -> PyResult<Option<f64>> {
+pub(crate) fn optional_f64(
+    dict: &Bound<'_, pyo3::types::PyDict>,
+    key: &str,
+) -> PyResult<Option<f64>> {
     match dict.get_item(key)? {
         Some(v) => Ok(Some(v.extract()?)),
         None => Ok(None),
     }
 }
 
-pub(crate) fn optional_usize(dict: &Bound<'_, pyo3::types::PyDict>, key: &str) -> PyResult<Option<usize>> {
+pub(crate) fn optional_usize(
+    dict: &Bound<'_, pyo3::types::PyDict>,
+    key: &str,
+) -> PyResult<Option<usize>> {
     match dict.get_item(key)? {
         Some(v) => Ok(Some(v.extract()?)),
         None => Ok(None),
     }
 }
 
-pub(crate) fn optional_bool(dict: &Bound<'_, pyo3::types::PyDict>, key: &str) -> PyResult<Option<bool>> {
+pub(crate) fn optional_bool(
+    dict: &Bound<'_, pyo3::types::PyDict>,
+    key: &str,
+) -> PyResult<Option<bool>> {
     match dict.get_item(key)? {
         Some(v) => Ok(Some(v.extract()?)),
         None => Ok(None),
@@ -48,9 +57,7 @@ pub(crate) fn apply_scalar_overrides(
 
 #[cfg(test)]
 mod kiss_coverage_tests {
-    use super::{
-        apply_scalar_overrides, optional_bool, optional_f64, optional_usize,
-    };
+    use super::{apply_scalar_overrides, optional_bool, optional_f64, optional_usize};
 
     #[test]
     fn py_optimizer_helpers_are_linked() {
@@ -68,6 +75,8 @@ fn parse_index_driver(s: &str) -> PyResult<ennbo::index::IndexDriver> {
     match s.to_lowercase().as_str() {
         "exact" | "flat" => Ok(IndexDriver::Exact),
         "bpann_disk" => Ok(IndexDriver::BpAnnDisk),
+        "metal" => Ok(IndexDriver::Metal),
+        "opencl" | "ocl" => Ok(IndexDriver::OpenCl),
         _ => Err(PyValueError::new_err(format!("Unknown index_driver: {s}"))),
     }
 }

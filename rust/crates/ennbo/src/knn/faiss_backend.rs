@@ -18,7 +18,7 @@ pub(crate) struct FaissBackend {
 
 fn faiss_spec(driver: IndexDriver) -> &'static str {
     match driver {
-        IndexDriver::Exact => "Flat",
+        IndexDriver::Exact | IndexDriver::Metal | IndexDriver::OpenCl => "Flat",
         IndexDriver::BpAnnDisk => {
             panic!("BpAnnDisk must not be routed to FaissBackend")
         }
@@ -48,8 +48,8 @@ impl FaissBackend {
         driver: IndexDriver,
         train_scaled: &ArrayView2<f64>,
     ) -> Result<IndexImpl, IndexError> {
-        let mut index =
-            index_factory(num_dim as u32, faiss_spec(driver), MetricType::L2).map_err(faiss_map_err)?;
+        let mut index = index_factory(num_dim as u32, faiss_spec(driver), MetricType::L2)
+            .map_err(faiss_map_err)?;
         if train_scaled.nrows() > 0 {
             let data = arr2_rows_to_f32(train_scaled);
             index.add(&data).map_err(faiss_map_err)?;
@@ -157,8 +157,7 @@ impl MmapColumnStore {
             .set_len(new_len as u64)
             .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
         self.mmap = unsafe {
-            MmapMut::map_mut(&self.file)
-                .map_err(|e| ENNError::InvalidParameter(e.to_string()))?
+            MmapMut::map_mut(&self.file).map_err(|e| ENNError::InvalidParameter(e.to_string()))?
         };
         Ok(())
     }
@@ -227,9 +226,7 @@ impl MmapColumnStore {
         for (i, row) in rows.axis_iter(Axis(0)).enumerate() {
             let offset = (self.nrows + i) * row_bytes;
             let dst = &mut self.mmap[offset..offset + row_bytes];
-            let bytes = unsafe {
-                std::slice::from_raw_parts(row.as_ptr() as *const u8, row_bytes)
-            };
+            let bytes = unsafe { std::slice::from_raw_parts(row.as_ptr() as *const u8, row_bytes) };
             dst.copy_from_slice(bytes);
         }
         self.nrows = new_nrows;
@@ -248,9 +245,8 @@ impl MmapColumnStore {
         let byte_start = start * std::mem::size_of::<f64>();
         let byte_end = byte_start + row_bytes;
         let bytes = &self.mmap[byte_start..byte_end];
-        let slice: &[f64] = unsafe {
-            std::slice::from_raw_parts(bytes.as_ptr() as *const f64, self.ncols)
-        };
+        let slice: &[f64] =
+            unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const f64, self.ncols) };
         Ok(slice)
     }
 
@@ -267,11 +263,7 @@ impl MmapColumnStore {
 
     /// Copy rows `[start, end)` into a dense buffer (does not materialize the full store).
     #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn mmap_row_range(
-        &self,
-        start: usize,
-        end: usize,
-    ) -> Result<Array2<f64>, ENNError> {
+    pub(crate) fn mmap_row_range(&self, start: usize, end: usize) -> Result<Array2<f64>, ENNError> {
         if start > end {
             return Err(ENNError::InvalidParameter(format!(
                 "mmap_row_range: start {start} > end {end}"
@@ -308,13 +300,9 @@ mod faiss_backend_tests {
         let train = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
         let mut backend = FaissBackend::new(2, IndexDriver::Exact, &train.view()).unwrap();
         assert_eq!(backend.len(), 3);
-        backend
-            .add(&array![[1.0, 1.0]].view(), 3)
-            .unwrap();
+        backend.add(&array![[1.0, 1.0]].view(), 3).unwrap();
         assert_eq!(backend.len(), 4);
-        let (d, i) = backend
-            .search(&array![[0.0, 0.0]].view(), 2, 2)
-            .unwrap();
+        let (d, i) = backend.search(&array![[0.0, 0.0]].view(), 2, 2).unwrap();
         assert_eq!(i[[0, 0]], 0);
         assert!(d[[0, 0]] < 1e-5);
         backend.rebuild(&train.view()).unwrap();
@@ -341,7 +329,8 @@ mod faiss_backend_tests {
         use tempfile::TempDir;
 
         let dir = TempDir::new().expect("tempdir");
-        let store = MmapColumnStore::mmap_open_or_create(dir.path().join("c.bin"), 2, None).unwrap();
+        let store =
+            MmapColumnStore::mmap_open_or_create(dir.path().join("c.bin"), 2, None).unwrap();
         assert_eq!(store.ncols, 2);
     }
 
@@ -350,7 +339,8 @@ mod faiss_backend_tests {
         use tempfile::TempDir;
 
         let dir = TempDir::new().expect("tempdir");
-        let store = MmapColumnStore::mmap_open_or_create(dir.path().join("c.bin"), 2, None).unwrap();
+        let store =
+            MmapColumnStore::mmap_open_or_create(dir.path().join("c.bin"), 2, None).unwrap();
         assert_eq!(store.row_bytes(), 16);
     }
 
@@ -359,7 +349,8 @@ mod faiss_backend_tests {
         use tempfile::TempDir;
 
         let dir = TempDir::new().expect("tempdir");
-        let store = MmapColumnStore::mmap_open_or_create(dir.path().join("c.bin"), 2, None).unwrap();
+        let store =
+            MmapColumnStore::mmap_open_or_create(dir.path().join("c.bin"), 2, None).unwrap();
         assert_eq!(store.bytes_for_rows(4), 64);
     }
 

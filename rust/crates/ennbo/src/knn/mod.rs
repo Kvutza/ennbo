@@ -22,11 +22,9 @@ impl KnnBackend {
         train_scaled: &ArrayView2<f64>,
     ) -> Result<Self, IndexError> {
         match driver {
-            IndexDriver::Exact => Ok(Self::Faiss(Mutex::new(FaissBackend::new(
-                num_dim,
-                driver,
-                train_scaled,
-            )?))),
+            IndexDriver::Exact | IndexDriver::Metal | IndexDriver::OpenCl => Ok(Self::Faiss(
+                Mutex::new(FaissBackend::new(num_dim, driver, train_scaled)?),
+            )),
             IndexDriver::BpAnnDisk => Err(IndexError::InvalidParameter(
                 "IndexDriver::BpAnnDisk is disk-only; use DiskBpannEnnBackend".to_string(),
             )),
@@ -57,7 +55,11 @@ impl KnnBackend {
         }
     }
 
-    pub(crate) fn add(&self, rows_scaled: &ArrayView2<f64>, start_key: u64) -> Result<(), IndexError> {
+    pub(crate) fn add(
+        &self,
+        rows_scaled: &ArrayView2<f64>,
+        start_key: u64,
+    ) -> Result<(), IndexError> {
         match self {
             Self::Faiss(inner) => inner
                 .lock()
@@ -73,10 +75,12 @@ impl KnnBackend {
         search_k: usize,
     ) -> Result<(Array2<f64>, Array2<i64>), IndexError> {
         match self {
-            Self::Faiss(inner) => inner
-                .lock()
-                .expect("knn mutex poisoned")
-                .search(queries_scaled, k_eff, search_k),
+            Self::Faiss(inner) => {
+                inner
+                    .lock()
+                    .expect("knn mutex poisoned")
+                    .search(queries_scaled, k_eff, search_k)
+            }
         }
     }
 }
@@ -146,9 +150,7 @@ mod knn_backend_tests {
         assert_eq!(backend.len(), 2);
         backend.add(&array![[2.0, 2.0]].view(), 2).unwrap();
         assert_eq!(backend.len(), 3);
-        let (_d, i) = backend
-            .search(&array![[0.0, 0.0]].view(), 2, 2)
-            .unwrap();
+        let (_d, i) = backend.search(&array![[0.0, 0.0]].view(), 2, 2).unwrap();
         assert_eq!(i[[0, 0]], 0);
         backend.rebuild(&train.view()).unwrap();
     }

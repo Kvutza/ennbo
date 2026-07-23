@@ -17,6 +17,10 @@ pub enum IndexDriver {
     Exact,
     /// B+ANN disk index (`EnnStorage::Disk` + `work_dir`).
     BpAnnDisk,
+    /// Apple Metal backend for native quantized-weight paths.
+    Metal,
+    /// OpenCL backend for native quantized-weight paths.
+    OpenCl,
 }
 
 pub fn is_disk_index_driver(driver: IndexDriver) -> bool {
@@ -61,10 +65,7 @@ impl ENNIndex {
         x_scale: Array1<f64>,
     ) -> Result<(), IndexError> {
         self.inner.rebuild(&train_x_scaled.view())?;
-        *self
-            .x_scale
-            .lock()
-            .expect("x_scale mutex poisoned") = x_scale;
+        *self.x_scale.lock().expect("x_scale mutex poisoned") = x_scale;
         Ok(())
     }
 
@@ -75,11 +76,7 @@ impl ENNIndex {
                 got: x.ncols(),
             });
         }
-        let x_scale = self
-            .x_scale
-            .lock()
-            .expect("x_scale mutex poisoned")
-            .clone();
+        let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
         let x_scaled: Array2<f64> = if self.scale_x {
             x / &x_scale.view().insert_axis(Axis(0))
         } else {
@@ -111,11 +108,7 @@ impl ENNIndex {
         let n_query = x.nrows();
         let search_k = search_k as usize;
 
-        let x_scale = self
-            .x_scale
-            .lock()
-            .expect("x_scale mutex poisoned")
-            .clone();
+        let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
         let x_scaled: Array2<f64> = if self.scale_x {
             x / &x_scale.view().insert_axis(Axis(0))
         } else {
@@ -129,8 +122,7 @@ impl ENNIndex {
             )
         } else {
             let k_eff = search_k.min(n_train);
-            self.inner
-                .search(&x_scaled.view(), k_eff, search_k)?
+            self.inner.search(&x_scaled.view(), k_eff, search_k)?
         };
 
         if exclude_nearest {
@@ -299,20 +291,10 @@ mod tests {
     #[test]
     fn index_driver_rebuild_and_memory() {
         let train_x = array![[0.0, 0.0], [1.0, 1.0]];
-        let index = ENNIndex::new(
-            train_x,
-            2,
-            array![1.0, 1.0],
-            false,
-            IndexDriver::Exact,
-        )
-        .unwrap();
+        let index = ENNIndex::new(train_x, 2, array![1.0, 1.0], false, IndexDriver::Exact).unwrap();
         assert_eq!(index.driver(), IndexDriver::Exact);
         index
-            .rebuild_from_scaled(
-                array![[0.0, 0.0], [1.0, 1.0]],
-                array![1.0, 1.0],
-            )
+            .rebuild_from_scaled(array![[0.0, 0.0], [1.0, 1.0]], array![1.0, 1.0])
             .unwrap();
         assert!(index.memory_usage_bytes() > 0);
     }

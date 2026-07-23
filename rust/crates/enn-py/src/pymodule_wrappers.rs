@@ -4,7 +4,10 @@ use pyo3::prelude::*;
 #[pymodule]
 #[pyo3(name = "hypervolume")]
 pub fn pymodule_hypervolume(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(crate::py_hypervolume::hypervolume_2d_max_py, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        crate::py_hypervolume::hypervolume_2d_max_py,
+        m
+    )?)?;
     Ok(())
 }
 
@@ -24,10 +27,19 @@ pub fn pymodule_hash(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[pyo3(name = "util")]
 pub fn pymodule_util(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(crate::py_util::standardize_y_py, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_util::pareto_front_2d_maximize_py, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_util::calculate_sobol_indices_py, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        crate::py_util::pareto_front_2d_maximize_py,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        crate::py_util::calculate_sobol_indices_py,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(crate::py_util::sobol_sequence_py, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_util::arms_from_pareto_fronts_py, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        crate::py_util::arms_from_pareto_fronts_py,
+        m
+    )?)?;
     Ok(())
 }
 
@@ -55,9 +67,39 @@ pub fn pymodule_fit(m: &Bound<'_, PyModule>) -> PyResult<()> {
 pub fn pymodule_optimizer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::py_optimizer::PyOptimizer>()?;
     m.add_class::<crate::py_optimizer::PyTelemetry>()?;
-    m.add_function(wrap_pyfunction!(crate::py_optimizer::create_optimizer_enn_py, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_optimizer::create_optimizer_zero_py, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_optimizer::create_optimizer_lhd_py, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        crate::py_optimizer::create_optimizer_enn_py,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        crate::py_optimizer::create_optimizer_zero_py,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        crate::py_optimizer::create_optimizer_lhd_py,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        crate::py_weights::weight_int4_select_ucb_py,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        crate::py_weights::weight_select_ucb_py,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(crate::py_weights::sparse_union_py, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::py_weights::sparse_xor_py, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::py_weights::sparse_missing_py, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::py_weights::sparse_merge_py, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::py_weights::sparse_take_py, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::py_weights::sparse_apply_py, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::py_weights::sparse_blocks_py, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::py_weights::sparse_draw_py, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::py_weights::sparse_select_py, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        crate::py_weights::sparse_select_ucb_py,
+        m
+    )?)?;
     Ok(())
 }
 
