@@ -37,6 +37,7 @@ pub mod surrogate;
 pub mod traits;
 pub mod trust_region;
 pub mod trust_region_config;
+pub mod trials;
 pub mod util;
 pub mod weights;
 
@@ -77,6 +78,7 @@ pub use surrogate::{ENNSurrogate, ENNSurrogateConfig, Surrogate, SurrogatePredic
 pub use traits::PosteriorComputation;
 pub use trust_region::{NoTrustRegion, TRLengthConfig, TrustRegionError, TurboTrustRegion};
 pub use trust_region_config::TrustRegionConfig;
+pub use trials::{Ask as WeightAsk, Leaf as WeightLeaf, Search as WeightSearch, Trial as WeightTrial};
 pub use util::{
     argmax_random_tie, calculate_sobol_indices, pareto_front_2d_maximize, standardize_y,
 };

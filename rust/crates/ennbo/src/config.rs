@@ -399,6 +399,7 @@ mod tests {
             min_candidates: 100,
             max_candidates: Some(5000),
             num_candidates_per_arm: None,
+            num_pert: 20,
             candidate_rv: CandidateRV::Uniform,
         };
         assert_eq!(config.num_candidates(60, 1), 5000);
@@ -514,6 +515,7 @@ mod tests {
             min_candidates: 10,
             max_candidates: None,
             num_candidates_per_arm: Some(25),
+            num_pert: 20,
             candidate_rv: CandidateRV::Uniform,
         };
         assert_eq!(cfg.num_candidates(2, 3), 75);

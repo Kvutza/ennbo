@@ -1,6 +1,7 @@
 target/
 **/__pycache__/
 **/*.py[cod]
+**/*.so
 **/*.rs.bk
 .malvin/
 results/

@@ -1,7 +1,7 @@
 use ennbo::{
     apply_sparse, blocks_for_words, draw_sparse, merge_values, missing_words, select_weights,
-    sparse_union, sparse_xor, take_words, AcquisitionKind, ComputeBackend, WeightBlock,
-    WeightSelectConfig,
+    sparse_union, sparse_xor, take_words, AcquisitionKind, ComputeBackend, WeightAsk, WeightBlock,
+    WeightLeaf, WeightSearch, WeightSelectConfig, WeightTrial,
 };
 use numpy::{Element, IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -47,6 +47,104 @@ fn mixed_blocks(raw: Vec<(usize, usize, u8, f32, f32, f32)>) -> PyResult<Vec<Wei
             },
         )
         .collect()
+}
+
+fn trial_leaves(raw: Vec<(usize, usize, u8, f32, f32, f32)>) -> PyResult<Vec<WeightLeaf>> {
+    raw.into_iter()
+        .map(|(offset, length, bits, scale, weight, radius)| {
+            WeightLeaf::new(offset, length, bits, scale, weight, radius).map_err(err)
+        })
+        .collect()
+}
+
+#[pyclass(name = "WeightSearch", unsendable)]
+pub struct PyWeightSearch {
+    inner: WeightSearch,
+    pending: Option<WeightTrial>,
+}
+
+#[pymethods]
+impl PyWeightSearch {
+    #[new]
+    #[pyo3(signature=(base,base_value,leaves,capacity,backend="auto"))]
+    fn new(
+        base: PyReadonlyArray1<'_, u8>,
+        base_value: f32,
+        leaves: Vec<(usize, usize, u8, f32, f32, f32)>,
+        capacity: usize,
+        backend: &str,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: WeightSearch::new(
+                &array1_vec(base),
+                base_value,
+                trial_leaves(leaves)?,
+                capacity,
+                ComputeBackend::parse(backend).map_err(err)?,
+            )
+            .map_err(err)?,
+            pending: None,
+        })
+    }
+
+    #[pyo3(signature=(seeds,length,neighbors,epistemic_scale=0.7,aleatoric_scale=0.05,y_scale=1.0,beta=1.0,acquisition="ucb",seed=0))]
+    #[allow(clippy::too_many_arguments)]
+    fn ask(
+        &mut self,
+        seeds: PyReadonlyArray1<'_, u64>,
+        length: f32,
+        neighbors: usize,
+        epistemic_scale: f32,
+        aleatoric_scale: f32,
+        y_scale: f32,
+        beta: f32,
+        acquisition: &str,
+        seed: u64,
+    ) -> PyResult<(usize, u64, f32)> {
+        let trial = self
+            .inner
+            .ask(
+                &array1_vec(seeds),
+                WeightAsk {
+                    length,
+                    neighbors,
+                    epistemic_scale,
+                    aleatoric_scale,
+                    y_scale,
+                    beta,
+                    acquisition: AcquisitionKind::parse(acquisition).map_err(err)?,
+                    seed,
+                },
+            )
+            .map_err(err)?;
+        self.pending = Some(trial);
+        Ok((trial.index, trial.seed, trial.score))
+    }
+
+    fn row<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray1<u8>>> {
+        let trial = self
+            .pending
+            .ok_or_else(|| PyValueError::new_err("there is no pending trial"))?;
+        Ok(self.inner.row(trial).map_err(err)?.into_pyarray_bound(py))
+    }
+
+    fn tell(&mut self, value: f32, accept: bool) -> PyResult<()> {
+        let trial = self
+            .pending
+            .take()
+            .ok_or_else(|| PyValueError::new_err("there is no pending trial"))?;
+        self.inner.tell(trial, value, accept).map_err(err)
+    }
+
+    #[getter]
+    fn history_len(&self) -> usize {
+        self.inner.history_len()
+    }
+
+    #[getter]
+    fn row_bytes(&self) -> usize {
+        self.inner.row_bytes()
+    }
 }
 
 fn weight_ucb<'py>(
@@ -462,6 +560,7 @@ mod kiss_coverage_tests {
     #[test]
     fn py_weights_symbols_are_linked() {
         let _ = (
+            std::mem::size_of::<PyWeightSearch>(),
             weight_int4_select_ucb_py,
             weight_select_ucb_py,
             sparse_union_py,

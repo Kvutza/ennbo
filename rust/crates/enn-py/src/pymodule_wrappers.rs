@@ -67,6 +67,7 @@ pub fn pymodule_fit(m: &Bound<'_, PyModule>) -> PyResult<()> {
 pub fn pymodule_optimizer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::py_optimizer::PyOptimizer>()?;
     m.add_class::<crate::py_optimizer::PyTelemetry>()?;
+    m.add_class::<crate::py_weights::PyWeightSearch>()?;
     m.add_function(wrap_pyfunction!(
         crate::py_optimizer::create_optimizer_enn_py,
         m
