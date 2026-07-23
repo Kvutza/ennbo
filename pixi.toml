@@ -9,8 +9,6 @@ git = "*"
 rust = "*"
 cmake = "*"
 ninja = "*"
-c-compiler = "*"
-cxx-compiler = "*"
 maturin = "*"
 numpy = "*"
 scipy = "*"
@@ -20,6 +18,10 @@ ruff = "*"
 nbmake = "*"
 pandas = "*"
 matplotlib = "*"
+
+[feature.ennbo.target.linux-64.dependencies]
+c-compiler = "*"
+cxx-compiler = "*"
 
 [feature.ennbo.pypi-dependencies]
 ennbo = { path = ".", editable = true }
