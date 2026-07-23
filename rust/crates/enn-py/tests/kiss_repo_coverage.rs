@@ -122,7 +122,7 @@ fn kiss_imports_link_pyo3_wrappers() {
         link_rpath::blas_libs_present,
         link_rpath::install_patchelf_if_needed,
         link_rpath::emit_linux_rpath_link_args,
-        ennbo::link_search::emit_blas_lapack_link_search_linux,
+        ennbo::link_search::emit_faiss_link_search,
     );
 }
 

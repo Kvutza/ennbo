@@ -2,7 +2,7 @@ macro_rules! define_enn_py_build_api {
     ($link:ident) => {
         pub fn run_enn_py_build() {
             $link::emit_linux_rpath_link_args();
-            ennbo::link_search::emit_blas_lapack_link_search_linux();
+            ennbo::link_search::emit_faiss_link_search();
         }
 
         pub fn kiss_enn_py_build_touch_01() {
@@ -18,7 +18,7 @@ macro_rules! define_enn_py_build_api {
         }
 
         pub fn kiss_enn_py_build_touch_10() {
-            let _ = ennbo::link_search::emit_blas_lapack_link_search_linux as fn();
+            let _ = ennbo::link_search::emit_faiss_link_search as fn();
         }
 
         pub fn kiss_enn_py_build_touch_04() {
