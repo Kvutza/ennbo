@@ -45,6 +45,7 @@ pub(crate) fn apply_scalar_overrides(
     overrides.min_candidates = optional_usize(dict, "min_candidates")?;
     overrides.max_candidates = optional_usize(dict, "max_candidates")?;
     overrides.num_candidates_per_arm = optional_usize(dict, "num_candidates_per_arm")?;
+    overrides.num_pert = optional_usize(dict, "num_pert")?;
     overrides.length_init = optional_f64(dict, "length_init")?;
     overrides.length_min = optional_f64(dict, "length_min")?;
     overrides.length_max = optional_f64(dict, "length_max")?;

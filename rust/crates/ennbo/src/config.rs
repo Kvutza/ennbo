@@ -62,6 +62,8 @@ pub struct CandidateConfig {
     pub max_candidates: Option<usize>,
     /// Optional per-arm multiplier: pool is at least num_arms * this value.
     pub num_candidates_per_arm: Option<usize>,
+    /// Number of coordinates to perturb for RAASP-style candidates.
+    pub num_pert: usize,
     /// Random variable type for candidates.
     pub candidate_rv: CandidateRV,
 }
@@ -73,6 +75,7 @@ impl Default for CandidateConfig {
             min_candidates: 100,
             max_candidates: None,
             num_candidates_per_arm: None,
+            num_pert: 20,
             candidate_rv: CandidateRV::Uniform,
         }
     }
@@ -122,6 +125,7 @@ pub struct ConfigOverrides {
     pub min_candidates: Option<usize>,
     pub max_candidates: Option<usize>,
     pub num_candidates_per_arm: Option<usize>,
+    pub num_pert: Option<usize>,
     pub length_init: Option<f64>,
     pub length_min: Option<f64>,
     pub length_max: Option<f64>,
@@ -247,6 +251,9 @@ impl ConfigOverrides {
         if let Some(m) = self.num_candidates_per_arm {
             config.candidates.num_candidates_per_arm = Some(m);
         }
+        if let Some(n) = self.num_pert {
+            config.candidates.num_pert = n.max(1);
+        }
         apply_trust_region_overrides(self, &mut config);
         if self.index_driver.is_some()
             || self.num_fit_samples.is_some()
@@ -316,6 +323,7 @@ pub fn turbo_enn_config() -> OptimizerConfig {
             min_candidates: 100,
             max_candidates: None,
             num_candidates_per_arm: None,
+            num_pert: 20,
             candidate_rv: CandidateRV::Uniform,
         },
         acquisition: AcquisitionConfig::UCB { beta: 2.0 },
@@ -333,6 +341,7 @@ pub fn turbo_zero_config() -> OptimizerConfig {
             min_candidates: 100,
             max_candidates: None,
             num_candidates_per_arm: None,
+            num_pert: 20,
             candidate_rv: CandidateRV::Uniform,
         },
         acquisition: AcquisitionConfig::Random,
@@ -350,6 +359,7 @@ pub fn lhd_only_config() -> OptimizerConfig {
             min_candidates: 1,
             max_candidates: None,
             num_candidates_per_arm: None,
+            num_pert: 20,
             candidate_rv: CandidateRV::Uniform,
         },
         acquisition: AcquisitionConfig::Random,

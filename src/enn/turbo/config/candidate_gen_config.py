@@ -11,6 +11,7 @@ class CandidateGenConfig:
     candidate_rv: CandidateRV = CandidateRV.SOBOL
     num_candidates: int | None = None
     num_candidates_per_arm: int | None = None
+    num_pert: int | None = None
     raasp_driver: RAASPDriver = RAASPDriver.ORIG
 
     def resolve_num_candidates(self, *, num_dim: int, num_arms: int) -> int:
@@ -34,3 +35,5 @@ class CandidateGenConfig:
             raise ValueError(
                 f"num_candidates_per_arm must be > 0, got {self.num_candidates_per_arm}"
             )
+        if self.num_pert is not None and self.num_pert <= 0:
+            raise ValueError(f"num_pert must be > 0, got {self.num_pert}")

@@ -298,7 +298,7 @@ fn ask_turbo(
         config.candidate_rv,
         rng,
         optimizer.sobol_engine_mut(),
-        20,
+        config.num_pert,
     )?;
 
     // Select arms using acquisition function (with timing)

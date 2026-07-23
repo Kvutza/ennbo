@@ -78,6 +78,8 @@ def _candidate_count_override(config: OptimizerConfig) -> dict[str, Any]:
         out["max_candidates"] = _DEFAULT_MAX_CANDIDATES
     if candidates.num_candidates_per_arm is not None:
         out["num_candidates_per_arm"] = int(candidates.num_candidates_per_arm)
+    if candidates.num_pert is not None:
+        out["num_pert"] = int(candidates.num_pert)
     return out
 
 
