@@ -75,8 +75,13 @@ impl Optimizer {
             });
         }
 
-        let tr_state = TrustRegionState::from_config(num_dim, &config.trust_region, rng)
+        let mut tr_state = TrustRegionState::from_config(num_dim, &config.trust_region, rng)
             .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+        if let Some(dim) = config.failure_tolerance_dim {
+            if let TrustRegionState::Turbo(t) = &mut tr_state {
+                t.set_failure_tolerance_dim(dim);
+            }
+        }
 
         let surrogate: Option<BoxedSurrogate> = match &config.surrogate {
             SurrogateConfig::ENN(enn_config) => {

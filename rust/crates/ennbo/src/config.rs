@@ -22,6 +22,7 @@ pub struct OptimizerConfig {
     pub acquisition: AcquisitionConfig,
     /// Use surrogate posterior mean for incumbent selection among candidates.
     pub noise_aware: bool,
+    pub failure_tolerance_dim: Option<f64>,
 }
 
 impl Default for OptimizerConfig {
@@ -32,6 +33,7 @@ impl Default for OptimizerConfig {
             candidates: CandidateConfig::default(),
             acquisition: AcquisitionConfig::default(),
             noise_aware: false,
+            failure_tolerance_dim: None,
         }
     }
 }
@@ -130,6 +132,7 @@ pub struct ConfigOverrides {
     pub num_fit_candidates: Option<usize>,
     pub scale_x: Option<bool>,
     pub noise_aware: Option<bool>,
+    pub failure_tolerance_dim: Option<f64>,
     pub enn_storage: Option<EnnStorage>,
     pub work_dir: Option<PathBuf>,
     pub trust_region_kind: Option<String>,
@@ -268,6 +271,9 @@ impl ConfigOverrides {
         if let Some(na) = self.noise_aware {
             config.noise_aware = na;
         }
+        if let Some(d) = self.failure_tolerance_dim {
+            config.failure_tolerance_dim = Some(d);
+        }
         config
     }
 }
@@ -320,6 +326,7 @@ pub fn turbo_enn_config() -> OptimizerConfig {
         },
         acquisition: AcquisitionConfig::UCB { beta: 2.0 },
         noise_aware: false,
+        failure_tolerance_dim: None,
     }
 }
 
@@ -337,6 +344,7 @@ pub fn turbo_zero_config() -> OptimizerConfig {
         },
         acquisition: AcquisitionConfig::Random,
         noise_aware: false,
+        failure_tolerance_dim: None,
     }
 }
 
@@ -354,6 +362,7 @@ pub fn lhd_only_config() -> OptimizerConfig {
         },
         acquisition: AcquisitionConfig::Random,
         noise_aware: false,
+        failure_tolerance_dim: None,
     }
 }
 

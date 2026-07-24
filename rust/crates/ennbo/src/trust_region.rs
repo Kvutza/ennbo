@@ -75,6 +75,8 @@ pub struct TurboTrustRegion {
     hist_ymin: f64,
     /// Max of y[0..prev_num_obs] for O(1) improvement scale.
     hist_ymax: f64,
+    /// Optional effective dimension for failure tolerance (defaults to num_dim).
+    failure_tolerance_dim: Option<f64>,
 }
 
 impl TurboTrustRegion {
@@ -93,6 +95,7 @@ impl TurboTrustRegion {
             config,
             hist_ymin: f64::INFINITY,
             hist_ymax: f64::NEG_INFINITY,
+            failure_tolerance_dim: None,
         }
     }
 
@@ -111,6 +114,12 @@ impl TurboTrustRegion {
         }
     }
 
+    /// Override the ambient dimension used for failure tolerance.
+    pub fn set_failure_tolerance_dim(&mut self, dim: f64) {
+        self.failure_tolerance_dim = Some(dim);
+        self.compute_failure_tolerance();
+    }
+
     /// Initialize or update batch size.
     pub fn set_num_arms(&mut self, num_arms: usize) {
         self.num_arms = Some(num_arms);
@@ -120,8 +129,11 @@ impl TurboTrustRegion {
     /// Compute failure tolerance based on num_arms and num_dim.
     fn compute_failure_tolerance(&mut self) {
         if let Some(num_arms) = self.num_arms {
+            let eff_dim = self
+                .failure_tolerance_dim
+                .unwrap_or(self.num_dim as f64);
             let tolerance =
-                ((4.0 / num_arms as f64).max(self.num_dim as f64 / num_arms as f64)).ceil() as i32;
+                ((4.0 / num_arms as f64).max(eff_dim / num_arms as f64)).ceil() as i32;
             self.failure_tolerance = Some(tolerance.max(1));
         }
     }
