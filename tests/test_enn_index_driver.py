@@ -25,6 +25,41 @@ def test_enn_index_driver_to_rust_maps_all():
     assert ENN_INDEX_DRIVER_TO_RUST[ENNIndexDriver.OPENCL] == "opencl"
 
 
+@pytest.mark.parametrize(
+    "index_driver", [ENNIndexDriver.METAL, ENNIndexDriver.OPENCL]
+)
+def test_accelerator_index_matches_flat(index_driver):
+    train_x = np.array(
+        [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [2.0, 2.0]], dtype=float
+    )
+    query = np.array([[0.1, 0.2], [1.1, 0.1]], dtype=float)
+    flat = _enn(train_x)
+    try:
+        accelerator = _enn(train_x, index_driver=index_driver)
+    except ValueError as error:
+        unavailable = (
+            "index is unavailable",
+            "no default Metal device found",
+            "no OpenCL GPU or CPU device found",
+        )
+        if any(message in str(error) for message in unavailable):
+            pytest.skip(str(error))
+        raise
+
+    flat_distances, flat_indices = enn_index_neighbor_distances_and_indices(
+        flat.rust_backend, query, search_k=3, exclude_nearest=False
+    )
+    accelerator_distances, accelerator_indices = (
+        enn_index_neighbor_distances_and_indices(
+            accelerator.rust_backend, query, search_k=3, exclude_nearest=False
+        )
+    )
+    np.testing.assert_array_equal(accelerator_indices, flat_indices)
+    np.testing.assert_allclose(
+        accelerator_distances, flat_distances, atol=1.0e-4, rtol=0.0
+    )
+
+
 def test_enn_bpann_disk_in_memory_raises():
     train_x = np.array([[0.0, 0.0], [1.0, 1.0]], dtype=float)
     train_y = np.zeros((2, 1), dtype=float)

@@ -107,9 +107,9 @@ __kernel void merge_topk(
             values[i] = result_distances[query_index * params.k + i];
             indices[i] = result_indices[query_index * params.k + i];
         } else if (i < 2 * params.k) {
-            uint local = i - params.k;
-            values[i] = local_distances[query_index * params.k + local];
-            indices[i] = local_indices[query_index * params.k + local];
+            uint local_index = i - params.k;
+            values[i] = local_distances[query_index * params.k + local_index];
+            indices[i] = local_indices[query_index * params.k + local_index];
         } else {
             values[i] = INFINITY;
             indices[i] = 0xffffffffu;
