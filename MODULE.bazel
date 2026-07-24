@@ -1,4 +1,7 @@
-module(name = "ennbo", version = "0.3.14")
+module(
+    name = "ennbo",
+    version = "0.3.14",
+)
 
 bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "openmp", version = "21.1.5.bcr.2")
@@ -9,6 +12,7 @@ http_archive = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_archive",
 )
+
 http_archive(
     name = "faiss_src",
     build_file = "//bazel/faiss:BUILD.faiss.bazel",
@@ -23,12 +27,14 @@ rust.toolchain(
     versions = ["1.88.0"],
 )
 use_repo(rust, "rust_toolchains")
+
 register_toolchains("@rust_toolchains//:all")
 
 crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
 crate.from_cargo(
     name = "crates",
     cargo_lockfile = "//rust:Cargo.lock",
+    lockfile = "//:Cargo.Bazel.lock",
     manifests = ["//rust:Cargo.toml"],
     supported_platform_triples = ["aarch64-apple-darwin"],
 )
@@ -44,6 +50,8 @@ crate.spec(
 )
 crate.from_specs(
     name = "accelerator_crates",
+    cargo_lockfile = "//:Cargo.Accelerators.lock",
+    lockfile = "//:Cargo.Accelerators.Bazel.lock",
     supported_platform_triples = ["aarch64-apple-darwin"],
 )
 use_repo(crate, "accelerator_crates", "crates")

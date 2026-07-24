@@ -1,6 +1,11 @@
 package(default_visibility = ["//visibility:public"])
 
-exports_files(["papers/bpann_2511.15557v1.tex"])
+exports_files([
+    "Cargo.Accelerators.lock",
+    "Cargo.Accelerators.Bazel.lock",
+    "Cargo.Bazel.lock",
+    "papers/bpann_2511.15557v1.tex",
+])
 
 alias(
     name = "rust_core",
