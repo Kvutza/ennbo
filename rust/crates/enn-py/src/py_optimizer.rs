@@ -53,6 +53,7 @@ pub(crate) fn apply_scalar_overrides(
     overrides.num_fit_candidates = optional_usize(dict, "num_fit_candidates")?;
     overrides.noise_aware = optional_bool(dict, "noise_aware")?;
     overrides.scale_x = optional_bool(dict, "scale_x")?;
+    overrides.failure_tolerance_dim = optional_f64(dict, "failure_tolerance_dim")?;
     Ok(())
 }
 

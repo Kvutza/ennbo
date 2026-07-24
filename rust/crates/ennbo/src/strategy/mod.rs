@@ -237,6 +237,15 @@ fn tell_common(
         }
     }
 
+    // noise_aware incumbent predict (and similar) re-faults disk observation pages
+    // after fit_append's release; drop them again so bulk seed RSS stays bounded.
+    // Skip remap on tiny tells (e.g. --tell-all): O(N) remaps dominate mid-N wall time.
+    if x.nrows() >= 64 {
+        if let Some(surrogate) = optimizer.surrogate() {
+            surrogate.release_observation_pages()?;
+        }
+    }
+
     Ok(())
 }
 
@@ -319,24 +328,34 @@ fn tell_turbo(
 ) -> Result<(), ENNError> {
     tell_common(optimizer, x, y, Some(telemetry), rng)?;
 
-    let y_all = optimizer
-        .y_obs()
-        .ok_or_else(|| ENNError::InvalidParameter("Missing y observations".to_string()))?;
-    let num_obs = y_all.nrows();
+    let num_obs = optimizer.obs_count();
     let y_incumbent = optimizer
         .incumbent_y_scalar()
         .ok_or_else(|| ENNError::InvalidParameter("Missing incumbent y".to_string()))?
         .to_owned();
     optimizer.trust_region_mut().set_num_arms(x.nrows());
     if !optimizer.trust_region().is_morbo() {
-        optimizer
-            .trust_region_mut()
-            .tell_update(&y_all.view(), &y_incumbent.view(), num_obs)?;
+        // Init-phase tells do not advance TR prev_num_obs. After init (or a
+        // restart that cleared hist), advance the watermark without loading
+        // full y history — critical for disk-backed N ≫ 1e6.
+        if optimizer.trust_region().turbo_prev_num_obs() == 0 {
+            let prev = num_obs.saturating_sub(y.nrows());
+            optimizer
+                .trust_region_mut()
+                .set_turbo_prev_num_obs(prev);
+        }
+        optimizer.trust_region_mut().tell_update_new_batch(
+            y,
+            &y_incumbent.view(),
+            num_obs,
+        )?;
     }
     if optimizer.trust_region().needs_restart() {
         optimizer.trust_region_mut().restart(Some(rng));
         optimizer.increment_restart_generation();
-        optimizer.reset_incumbent_tracker();
+        // Do not reset the incumbent tracker: clearing observation_count forces
+        // the next tell to rebuild from full y_obs() (Θ(N) RAM on disk). The
+        // tracker is already maintained incrementally in add_observations.
         morbo_sync_ranges_from_obs(optimizer)?;
     }
 

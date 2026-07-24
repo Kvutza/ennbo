@@ -1,15 +1,17 @@
 //! ENN storage and indexing backends.
 
 pub mod disk_observation;
+mod flush_controller;
 mod in_memory;
 pub(crate) mod row_storage;
 
 pub use in_memory::InMemoryEnnBackend;
 pub use crate::disk_bpann::DiskBpannEnnBackend;
+pub(crate) use flush_controller::DiskBackendHandle;
 
 use ndarray::{Array1, Array2, ArrayView2};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 use crate::error::ENNError;
 use crate::index::{ENNIndex, IndexDriver};
@@ -39,20 +41,27 @@ impl EnnStorage {
 
 pub enum EnnBackend {
     InMemory(Box<InMemoryEnnBackend>),
-    Disk(Arc<Mutex<DiskBpannEnnBackend>>),
+    Disk(DiskBackendHandle),
 }
 
-fn disk_lock<'a>(
-    b: &'a Arc<Mutex<DiskBpannEnnBackend>>,
-) -> Result<std::sync::MutexGuard<'a, DiskBpannEnnBackend>, ENNError> {
-    b.lock()
-        .map_err(|_| ENNError::InvalidParameter("disk backend mutex poisoned".to_string()))
+fn disk_read<'a>(
+    b: &'a Arc<RwLock<DiskBpannEnnBackend>>,
+) -> Result<std::sync::RwLockReadGuard<'a, DiskBpannEnnBackend>, ENNError> {
+    b.read()
+        .map_err(|_| ENNError::InvalidParameter("disk backend lock poisoned".to_string()))
+}
+
+fn disk_write<'a>(
+    b: &'a Arc<RwLock<DiskBpannEnnBackend>>,
+) -> Result<std::sync::RwLockWriteGuard<'a, DiskBpannEnnBackend>, ENNError> {
+    b.write()
+        .map_err(|_| ENNError::InvalidParameter("disk backend lock poisoned".to_string()))
 }
 
 pub(crate) fn persist_enn_backend_index(backend: &EnnBackend) -> Result<(), ENNError> {
     match backend {
         EnnBackend::InMemory(_) => Ok(()),
-        EnnBackend::Disk(arc) => disk_lock(arc)?.persist_index_to_disk(),
+        EnnBackend::Disk(handle) => handle.persist_index_to_disk(),
     }
 }
 
@@ -93,7 +102,7 @@ impl EnnBackend {
             x_scale,
             driver,
         )?;
-        Ok(Self::Disk(Arc::new(Mutex::new(inner))))
+        Ok(Self::Disk(DiskBackendHandle::new(inner)))
     }
 
     pub fn new_empty(
@@ -128,7 +137,7 @@ impl EnnBackend {
                     )?,
                     None => DiskBpannEnnBackend::new_empty(dir, num_dim, num_metrics)?,
                 };
-                Ok(Self::Disk(Arc::new(Mutex::new(inner))))
+                Ok(Self::Disk(DiskBackendHandle::new(inner)))
             }
         }
     }
@@ -136,21 +145,21 @@ impl EnnBackend {
     pub fn wait_for_flush(&self) -> Result<(), ENNError> {
         match self {
             Self::InMemory(_) => Ok(()),
-            Self::Disk(arc) => disk_lock(arc)?.wait_for_flush(),
+            Self::Disk(handle) => handle.wait_for_flush(),
         }
     }
 
     pub fn schedule_background_flush(&self) -> Result<(), ENNError> {
         match self {
             Self::InMemory(_) => Ok(()),
-            Self::Disk(arc) => disk_lock(arc)?.schedule_background_flush(),
+            Self::Disk(handle) => handle.schedule_background_flush(),
         }
     }
 
     pub fn len(&self) -> usize {
         match self {
             Self::InMemory(b) => b.len(),
-            Self::Disk(b) => disk_lock(b).map(|g| g.len()).unwrap_or(0),
+            Self::Disk(h) => disk_read(h.data()).map(|g| g.len()).unwrap_or(0),
         }
     }
 
@@ -161,29 +170,31 @@ impl EnnBackend {
     pub fn num_dim(&self) -> usize {
         match self {
             Self::InMemory(b) => b.num_dim(),
-            Self::Disk(b) => disk_lock(b).map(|g| g.num_dim()).unwrap_or(0),
+            Self::Disk(h) => disk_read(h.data()).map(|g| g.num_dim()).unwrap_or(0),
         }
     }
 
     pub fn num_metrics(&self) -> usize {
         match self {
             Self::InMemory(b) => b.num_metrics(),
-            Self::Disk(b) => disk_lock(b).map(|g| g.num_metrics()).unwrap_or(0),
+            Self::Disk(h) => disk_read(h.data()).map(|g| g.num_metrics()).unwrap_or(0),
         }
     }
 
     pub fn driver(&self) -> IndexDriver {
         match self {
             Self::InMemory(b) => b.driver(),
-            Self::Disk(b) => disk_lock(b).map(|g| g.driver()).unwrap_or(IndexDriver::BpAnnDisk),
+            Self::Disk(h) => disk_read(h.data())
+                .map(|g| g.driver())
+                .unwrap_or(IndexDriver::BpAnnDisk),
         }
     }
 
     pub fn mark_index_stale(&self) {
         match self {
             Self::InMemory(b) => b.mark_index_stale(),
-            Self::Disk(b) => {
-                if let Ok(mut g) = disk_lock(b) {
+            Self::Disk(h) => {
+                if let Ok(mut g) = disk_write(h.data()) {
                     g.mark_index_stale();
                 }
             }
@@ -193,7 +204,9 @@ impl EnnBackend {
     pub fn is_index_stale(&self) -> bool {
         match self {
             Self::InMemory(b) => b.is_index_stale(),
-            Self::Disk(b) => disk_lock(b).map(|g| g.is_index_stale()).unwrap_or(false),
+            Self::Disk(h) => disk_read(h.data())
+                .map(|g| g.is_index_stale())
+                .unwrap_or(false),
         }
     }
 
@@ -205,14 +218,14 @@ impl EnnBackend {
     ) -> Result<(), ENNError> {
         match self {
             Self::InMemory(b) => b.append_rows(x, y, yvar),
-            Self::Disk(b) => disk_lock(b)?.append_rows(x, y, yvar),
+            Self::Disk(h) => disk_write(h.data())?.append_rows(x, y, yvar),
         }
     }
 
     pub fn defer_index_sync_for_search(&self) -> bool {
         match self {
             Self::InMemory(_) => false,
-            Self::Disk(b) => disk_lock(b)
+            Self::Disk(h) => disk_read(h.data())
                 .map(|g| g.defer_index_sync_for_search())
                 .unwrap_or(false),
         }
@@ -226,7 +239,7 @@ impl EnnBackend {
         self.wait_for_flush()?;
         match self {
             Self::InMemory(b) => b.ensure_index_sync(scale_x, x_scale),
-            Self::Disk(b) => disk_lock(b)?.ensure_index_sync(scale_x, x_scale),
+            Self::Disk(h) => disk_write(h.data())?.ensure_index_sync(scale_x, x_scale),
         }
     }
 
@@ -236,28 +249,28 @@ impl EnnBackend {
     ) -> Result<TrainRowsAtResult, ENNError> {
         match self {
             Self::InMemory(b) => b.train_rows_at(indices),
-            Self::Disk(b) => disk_lock(b)?.train_rows_at(indices),
+            Self::Disk(h) => disk_read(h.data())?.train_rows_at(indices),
         }
     }
 
     pub fn row_x(&self, i: usize) -> Result<Array1<f64>, ENNError> {
         match self {
             Self::InMemory(b) => b.row_x(i),
-            Self::Disk(b) => disk_lock(b)?.row_x(i),
+            Self::Disk(h) => disk_read(h.data())?.row_x(i),
         }
     }
 
     pub fn row_y(&self, i: usize) -> Result<Array1<f64>, ENNError> {
         match self {
             Self::InMemory(b) => b.row_y(i),
-            Self::Disk(b) => disk_lock(b)?.row_y(i),
+            Self::Disk(h) => disk_read(h.data())?.row_y(i),
         }
     }
 
     pub fn row_yvar(&self, i: usize) -> Result<Option<Array1<f64>>, ENNError> {
         match self {
             Self::InMemory(b) => b.row_yvar(i),
-            Self::Disk(b) => disk_lock(b)?.row_yvar(i),
+            Self::Disk(h) => disk_read(h.data())?.row_yvar(i),
         }
     }
 
@@ -269,21 +282,21 @@ impl EnnBackend {
     ) -> Result<(Array2<f64>, Array2<i64>), ENNError> {
         match self {
             Self::InMemory(b) => b.search(x, search_k, exclude_nearest),
-            Self::Disk(b) => disk_lock(b)?.search(x, search_k, exclude_nearest),
+            Self::Disk(h) => disk_read(h.data())?.search(x, search_k, exclude_nearest),
         }
     }
 
     pub fn index_memory_bytes(&self) -> Result<usize, ENNError> {
         match self {
             Self::InMemory(b) => b.index_memory_bytes(),
-            Self::Disk(b) => disk_lock(b)?.index_memory_bytes(),
+            Self::Disk(h) => disk_read(h.data())?.index_memory_bytes(),
         }
     }
 
     pub fn index_len(&self) -> usize {
         match self {
             Self::InMemory(b) => b.index_len(),
-            Self::Disk(b) => disk_lock(b).map(|g| g.len()).unwrap_or(0),
+            Self::Disk(h) => disk_read(h.data()).map(|g| g.len()).unwrap_or(0),
         }
     }
 
@@ -306,6 +319,14 @@ impl EnnBackend {
             Self::InMemory(b) => Some(b.train_y_view()),
             Self::Disk(_) => None,
         }
+    }
+}
+
+/// Drop faulted observation mmap pages from process RSS (disk backend only).
+pub(crate) fn release_enn_observation_pages(backend: &EnnBackend) -> Result<(), ENNError> {
+    match backend {
+        EnnBackend::InMemory(_) => Ok(()),
+        EnnBackend::Disk(h) => disk_write(h.data())?.release_observation_pages(),
     }
 }
 
@@ -383,7 +404,7 @@ mod backend_dispatch_tests {
     }
 
     #[test]
-    fn disk_lock_used() {
+    fn disk_read_used() {
         use tempfile::TempDir;
         let dir = TempDir::new().expect("tempdir");
         let backend = EnnBackend::new_disk(
@@ -396,8 +417,8 @@ mod backend_dispatch_tests {
             IndexDriver::BpAnnDisk,
         )
         .unwrap();
-        if let EnnBackend::Disk(arc) = &backend {
-            let guard = disk_lock(arc).unwrap();
+        if let EnnBackend::Disk(handle) = &backend {
+            let guard = disk_read(handle.data()).unwrap();
             assert_eq!(guard.driver(), IndexDriver::BpAnnDisk);
         }
     }

@@ -1,0 +1,9 @@
+load("@rules_cc//cc:defs.bzl", "cc_test")
+
+exports_files(["BUILD.faiss.bazel"])
+
+cc_test(
+    name = "faiss_index_smoke",
+    srcs = ["faiss_index_smoke.cc"],
+    deps = ["@faiss_src//:faiss_c"],
+)

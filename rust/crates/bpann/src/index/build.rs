@@ -7,6 +7,7 @@ use crate::error::BpannError;
 use crate::index::kmeans::{PartitionNode, PartitionTree};
 use crate::index::page::{write_pages_index, Page};
 use crate::index::persist_atomic::skip_edges_bytes;
+use crate::tuning::current_tuning;
 
 pub const DEFAULT_LEAF_CAPACITY: usize = 32;
 pub const DEFAULT_SKIP_NEIGHBORS: usize = 3;
@@ -29,11 +30,10 @@ pub struct BpannIndex {
     pub index_dir: PathBuf,
 }
 
-const EXHAUSTIVE_SEARCH_ROW_LIMIT: usize = 2500;
-const SKIP_REFINEMENT_ROW_LIMIT: usize = 150_000;
-
+/// Skip edges are written only for the middle row-count band. Limits come from
+/// call-time tuning; on-disk edges still reflect whatever limits were active at build.
 fn needs_skip_edges(row_count: usize) -> bool {
-    row_count > EXHAUSTIVE_SEARCH_ROW_LIMIT && row_count <= SKIP_REFINEMENT_ROW_LIMIT
+    current_tuning().rows_need_skip_edges(row_count)
 }
 
 fn remap_page(page: &Page, id_map: &HashMap<u32, u32>) -> Page {
@@ -53,11 +53,13 @@ fn remap_page(page: &Page, id_map: &HashMap<u32, u32>) -> Page {
             Page::Leaf {
                 page_id,
                 row_ids,
+                row_range,
                 vectors,
                 stored_centroid,
             } => Page::Leaf {
                 page_id: id_map[page_id],
                 row_ids: row_ids.clone(),
+                row_range: *row_range,
                 vectors: vectors.clone(),
                 stored_centroid: stored_centroid.clone(),
             },
@@ -113,6 +115,7 @@ impl BpannIndex {
         let page = Page::Leaf {
             page_id: 0,
             row_ids: row_ids.to_vec(),
+            row_range: None,
             vectors: vectors.to_vec(),
             stored_centroid: None,
         };
@@ -139,6 +142,34 @@ impl BpannIndex {
         Ok(index)
     }
 
+    pub fn from_pages_unpersisted(
+        num_dim: usize,
+        indexed_rows: usize,
+        leaf_capacity: usize,
+        pages: Vec<Page>,
+        index_dir: PathBuf,
+    ) -> Result<Self, BpannError> {
+        if pages.is_empty() {
+            return Err(BpannError::InvalidParameter(
+                "from_pages_unpersisted requires pages".to_string(),
+            ));
+        }
+        let page_map = build_page_map(&pages);
+        Ok(Self {
+            header: IndexHeader {
+                num_dim,
+                indexed_rows,
+                root_page_id: 0,
+                leaf_capacity: leaf_capacity.max(1),
+                skip_neighbors: DEFAULT_SKIP_NEIGHBORS,
+            },
+            pages,
+            skip_edges: HashMap::new(),
+            page_map,
+            index_dir,
+        })
+    }
+
     pub fn build_row_ids_leaf_with_persist(
         row_ids: &[u32],
         centroid: Vec<f32>,
@@ -149,6 +180,7 @@ impl BpannIndex {
         let page = Page::Leaf {
             page_id: 0,
             row_ids: row_ids.to_vec(),
+            row_range: None,
             vectors: Vec::new(),
             stored_centroid: Some(centroid),
         };
@@ -362,8 +394,17 @@ impl BpannIndex {
     pub fn leaf_row_ids(&self) -> Vec<u32> {
         let mut row_ids = Vec::new();
         for page in &self.pages {
-            if let Page::Leaf { row_ids: ids, .. } = page {
-                row_ids.extend_from_slice(ids);
+            if let Page::Leaf {
+                row_ids: ids,
+                row_range,
+                ..
+            } = page
+            {
+                if let Some((start, end)) = row_range {
+                    row_ids.extend(*start..*end);
+                } else {
+                    row_ids.extend_from_slice(ids);
+                }
             }
         }
         row_ids.sort_unstable();
@@ -411,6 +452,7 @@ fn partition_to_pages_id(node: &PartitionNode, next_id: u32) -> (Vec<Page>, u32)
             let page = Page::Leaf {
                 page_id: next_id,
                 row_ids,
+                row_range: None,
                 vectors: vecs,
                 stored_centroid: None,
             };
@@ -542,5 +584,31 @@ mod kiss_coverage_tests {
         pages[0] ^= 0xFF;
         fs::write(&pages_path, pages).unwrap();
         assert!(!index.on_disk_index_matches().unwrap());
+    }
+
+    #[test]
+    fn needs_skip_edges_follows_tuning_provider() {
+        use crate::tuning::{clear_tuning_provider, set_tuning_provider, BpannTuning};
+
+        clear_tuning_provider();
+        // Defaults: 100 rows is exhaustive → no skip edges.
+        assert!(!needs_skip_edges(100));
+
+        set_tuning_provider(Box::new(|| BpannTuning {
+            exhaustive_search_row_limit: 10,
+            skip_refinement_row_limit: 1_000,
+            ..Default::default()
+        }));
+        assert!(needs_skip_edges(100));
+
+        set_tuning_provider(Box::new(|| BpannTuning {
+            exhaustive_search_row_limit: 10,
+            skip_refinement_row_limit: 50,
+            ..Default::default()
+        }));
+        assert!(!needs_skip_edges(100));
+
+        clear_tuning_provider();
+        assert!(!needs_skip_edges(100));
     }
 }

@@ -7,7 +7,7 @@ import resource
 import struct
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,6 +26,7 @@ DISK_DEFER_SYNC_DRIVERS: frozenset[ENNIndexDriver] = frozenset(
 )
 DEFAULT_NUM_DIM = 10
 STRESS_OBS_BATCH_SIZE = 100
+ENN_ADD_STRESS_BATCH_SIZE = 1000
 DEFAULT_HEARTBEAT_SECONDS = 10.0
 STRESS_QUERY_N = 1000
 STRESS_QUERY_SEED = 1
@@ -44,6 +45,8 @@ DRAW_OBS_NOISE_STD = 0.1
 DRAW_F_CENTER = 0.3
 DRAW_FLAGS = PosteriorFlags(observation_noise=True)
 DRAW_FLAGS_NO_OBS = PosteriorFlags(observation_noise=False)
+# Printed duration fields (*_s) use fixed four fractional digits.
+DURATION_S_FMT = ".4f"
 STRESS_PARAMS = ENNParams(
     k_num_neighbors=STRESS_QUERY_K,
     epistemic_variance_scale=1.0,
@@ -52,6 +55,29 @@ STRESS_PARAMS = ENNParams(
 DISK_STRESS_RSS_BASELINE_MIB = 512
 DISK_STRESS_RSS_PER_SHARD_ROW_BYTES = 64
 DEFAULT_SHARD_MAX_ROWS = 500_000
+TURBO_ENN_NUM_INIT = 10
+TURBO_ENN_ACKLEY_NOISE = 0.1
+TURBO_ENN_SEED = 0
+TURBO_ENN_K = 10
+TURBO_ENN_NUM_FIT_SAMPLES = 100
+# Larger than proposal-scale chunk: turbo-enn large gaps pay per-tell fit/TR cost.
+# Fewer, larger tells cut soft-sync overhead on bpann_disk empty-leaf drains.
+TURBO_ENN_SEED_CHUNK = 100_000
+TURBO_ENN_SEED_CHUNK_FLAT = 200_000
+PROPOSAL_SCALE_NS: tuple[int, ...] = (
+    10,
+    30,
+    100,
+    300,
+    1000,
+    3000,
+    10000,
+    30000,
+    100000,
+)
+PROPOSAL_SCALE_NUM_PROBES = 30
+PROPOSAL_SCALE_WARMUP = 2
+PROPOSAL_SCALE_SEED_CHUNK = 1000
 
 
 def max_rss_bytes() -> int:
@@ -160,6 +186,7 @@ def run_disk_rss_stress(
 class EnnAddStressConfig:
     num_dim: int = DEFAULT_NUM_DIM
     seed: int = 0
+    batch_size: int = 1
     progress_every: int = 0
     heartbeat_seconds: float = 0.0
     query_n: int = STRESS_QUERY_N
@@ -175,6 +202,13 @@ def parse_index_driver(name: str) -> ENNIndexDriver:
     if name not in mapping:
         raise ValueError(f"Unknown index type: {name}")
     return mapping[name]
+
+
+def turbo_enn_default_seed_chunk(index_driver: ENNIndexDriver) -> int:
+    """Return turbo-enn bulk-seed chunk sized for the index backend."""
+    if index_driver == ENNIndexDriver.FLAT:
+        return TURBO_ENN_SEED_CHUNK_FLAT
+    return TURBO_ENN_SEED_CHUNK
 
 
 def _next_checkpoint(n: int) -> int:
@@ -264,16 +298,27 @@ def iter_synthetic_observation_batches(
     num_dim: int = DEFAULT_NUM_DIM,
     seed: int = 0,
     batch_size: int = STRESS_OBS_BATCH_SIZE,
+    stop_points: Sequence[int] | None = None,
 ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
-    """Yield (n, num_dim) x and (n, 1) y batches without holding all num_obs rows."""
+    """Yield (n, num_dim) x and (n, 1) y batches without holding all num_obs rows.
+
+    When ``stop_points`` is given, no batch crosses a stop point, so cumulative
+    row counts land exactly on each stop point (checkpoint alignment).
+    """
     if num_obs < 1:
         raise ValueError("num_obs must be >= 1")
     if batch_size < 1:
         raise ValueError("batch_size must be >= 1")
+    stops = sorted(s for s in (stop_points or ()) if 1 <= s <= num_obs)
+    stop_i = 0
     rng = np.random.default_rng(seed)
     emitted = 0
     while emitted < num_obs:
         n = min(batch_size, num_obs - emitted)
+        while stop_i < len(stops) and stops[stop_i] <= emitted:
+            stop_i += 1
+        if stop_i < len(stops):
+            n = min(n, stops[stop_i] - emitted)
         x_batch = rng.standard_normal((n, num_dim))
         y_batch = rng.standard_normal((n, 1))
         yield x_batch, y_batch
@@ -383,31 +428,89 @@ def run_enn_add_stress(
         model_kwargs["work_dir"] = cfg.work_dir
         model_kwargs["enn_storage"] = "disk"
     model = EpistemicNearestNeighbors(**model_kwargs)
+    # Zero-row warmup: warms the Python validation/binding path only (the
+    # library short-circuits on zero rows), so checkpoint 1 excludes
+    # interpreter warmup but still pays first-touch library costs.
+    model.add(empty_x, empty_y)
 
+    if cfg.batch_size < 1:
+        raise ValueError("batch_size must be >= 1")
+    checkpoint_list = sorted(checkpoints)
+    next_checkpoint_i = 0
     last_heartbeat_t = time.perf_counter()
-    last_checkpoint_t = time.perf_counter()
-    try:
-        for n, (x_row, y_row) in enumerate(
-            iter_synthetic_observations(num_obs, num_dim=cfg.num_dim, seed=cfg.seed),
-            start=1,
+    # Library-only time (model.add + flush scheduling) accumulated since the
+    # previous checkpoint; excludes synthetic-data generation and loop overhead.
+    segment_lib_s = 0.0
+
+    def emit_checkpoints(current_n: int) -> Iterator[tuple[int, float, float]]:
+        nonlocal next_checkpoint_i, segment_lib_s
+        while (
+            next_checkpoint_i < len(checkpoint_list)
+            and checkpoint_list[next_checkpoint_i] <= current_n
         ):
-            model.add(x_row, y_row)
-            if index_driver in DISK_DEFER_SYNC_DRIVERS:
-                model.schedule_background_flush()
-            if cfg.progress_every and (n % cfg.progress_every == 0):
-                click.echo(f"progress n={n}", err=True)
-            if cfg.heartbeat_seconds and (
-                time.perf_counter() - last_heartbeat_t >= cfg.heartbeat_seconds
+            cp = checkpoint_list[next_checkpoint_i]
+            # Index sync is library work, so it counts toward the segment.
+            # Disk mode (batch or single-row) defers indexing to
+            # schedule_background_flush inside the add loop, matching the
+            # baseline; forcing a sync here would build tiny index fragments
+            # the baseline never built.
+            if index_driver not in DISK_DEFER_SYNC_DRIVERS:
+                t_sync = time.perf_counter()
+                model.ensure_index_sync()
+                segment_lib_s += time.perf_counter() - t_sync
+            segment_s = segment_lib_s
+            segment_lib_s = 0.0
+            query_s = _time_query_s(model, x_query)
+            yield (cp, query_s, segment_s)
+            next_checkpoint_i += 1
+
+    try:
+        n = 0
+        if cfg.batch_size <= 1:
+            row_iter = iter_synthetic_observations(
+                num_obs, num_dim=cfg.num_dim, seed=cfg.seed
+            )
+            while True:
+                try:
+                    x_row, y_row = next(row_iter)
+                except StopIteration:
+                    break
+                n += 1
+                t_add = time.perf_counter()
+                model.add(x_row, y_row)
+                if index_driver in DISK_DEFER_SYNC_DRIVERS:
+                    model.schedule_background_flush()
+                segment_lib_s += time.perf_counter() - t_add
+                if cfg.progress_every and (n % cfg.progress_every == 0):
+                    click.echo(f"progress n={n}", err=True)
+                if cfg.heartbeat_seconds and (
+                    time.perf_counter() - last_heartbeat_t >= cfg.heartbeat_seconds
+                ):
+                    click.echo(f"heartbeat n={n}", err=True)
+                    last_heartbeat_t = time.perf_counter()
+                yield from emit_checkpoints(n)
+        else:
+            for x_batch, y_batch in iter_synthetic_observation_batches(
+                num_obs,
+                num_dim=cfg.num_dim,
+                seed=cfg.seed,
+                batch_size=cfg.batch_size,
+                stop_points=checkpoint_list,
             ):
-                click.echo(f"heartbeat n={n}", err=True)
-                last_heartbeat_t = time.perf_counter()
-            if n in checkpoints:
-                if index_driver not in DISK_DEFER_SYNC_DRIVERS:
-                    model.ensure_index_sync()
-                segment_s = time.perf_counter() - last_checkpoint_t
-                query_s = _time_query_s(model, x_query)
-                last_checkpoint_t = time.perf_counter()
-                yield (n, query_s, segment_s)
+                t_add = time.perf_counter()
+                model.add(x_batch, y_batch)
+                if index_driver in DISK_DEFER_SYNC_DRIVERS:
+                    model.schedule_background_flush()
+                segment_lib_s += time.perf_counter() - t_add
+                n += x_batch.shape[0]
+                if cfg.progress_every and (n % cfg.progress_every == 0):
+                    click.echo(f"progress n={n}", err=True)
+                if cfg.heartbeat_seconds and (
+                    time.perf_counter() - last_heartbeat_t >= cfg.heartbeat_seconds
+                ):
+                    click.echo(f"heartbeat n={n}", err=True)
+                    last_heartbeat_t = time.perf_counter()
+                yield from emit_checkpoints(n)
     finally:
         if index_driver in DISK_DEFER_SYNC_DRIVERS:
             model.persist_index_to_disk()
@@ -421,7 +524,7 @@ def stress_row_n_width(num_obs: int) -> int:
 
 
 def format_stress_row(n: int, query_s: float, segment_s: float, *, n_width: int) -> str:
-    return f"{n:>{n_width}} {query_s:.3f} {segment_s:.3g}"
+    return f"{n:>{n_width}} {query_s:{DURATION_S_FMT}} {segment_s:{DURATION_S_FMT}}"
 
 
 @dataclass(frozen=True)
@@ -496,8 +599,9 @@ def format_sample_config_header(*, result: SampleStressResult, work_dir: str) ->
 def format_sample_summary(result: SampleStressResult) -> str:
     return (
         f"draws_shape={result.draws_shape} function_seeds={result.num_function_seeds} "
-        f"all_finite={str(result.all_finite).lower()} init_s={result.init_s:.3f} "
-        f"sample_s={result.sample_s:.3f}"
+        f"all_finite={str(result.all_finite).lower()} "
+        f"init_s={result.init_s:{DURATION_S_FMT}} "
+        f"sample_s={result.sample_s:{DURATION_S_FMT}}"
     )
 
 
@@ -841,7 +945,7 @@ def format_draw_config_header(result: DrawStressResult) -> str:
         f"num_draws={result.num_draws} "
         f"epistemic_variance_scale={result.epistemic_variance_scale:.6g} "
         f"aleatoric_variance_scale={result.aleatoric_variance_scale:.6g} "
-        f"fit_s={result.fit_s:.3f}"
+        f"fit_s={result.fit_s:{DURATION_S_FMT}}"
     )
 
 
@@ -850,7 +954,7 @@ def format_draw_method_summary(method: DrawMethodResult) -> str:
         f"{method.method} avg_likelihood={method.avg_likelihood:.6g} "
         f"argmin_rms={method.argmin_rms:.6g} "
         f"argmin_hit_rate={method.argmin_hit_rate:0.4f} "
-        f"eval_s={method.eval_s:.3f}"
+        f"eval_s={method.eval_s:{DURATION_S_FMT}}"
     )
 
 
@@ -862,7 +966,7 @@ def format_draw_config_header_aggregate(result: DrawStressAggregate) -> str:
         f"num_draws={result.num_draws} "
         f"epistemic_variance_scale={format_mean_se(result.epistemic_variance_scale)} "
         f"aleatoric_variance_scale={format_mean_se(result.aleatoric_variance_scale)} "
-        f"fit_s={format_mean_se(result.fit_s, fmt='.3f')}"
+        f"fit_s={format_mean_se(result.fit_s, fmt=DURATION_S_FMT)}"
     )
 
 
@@ -872,8 +976,377 @@ def format_draw_method_summary_aggregate(method: DrawMethodAggregate) -> str:
         f"avg_likelihood={format_mean_se(method.avg_likelihood)} "
         f"argmin_rms={format_mean_se(method.argmin_rms)} "
         f"argmin_hit_rate={format_mean_se(method.argmin_hit_rate, fmt='0.4f')} "
-        f"eval_s={format_mean_se(method.eval_s, fmt='.3f')}"
+        f"eval_s={format_mean_se(method.eval_s, fmt=DURATION_S_FMT)}"
     )
+
+
+@dataclass(frozen=True)
+class TurboEnnRoundResult:
+    n: int
+    iter_s: float
+    ask_s: float
+    tell_s: float
+
+
+def turbo_enn_ask_stops(num_obs: int, num_ask: int) -> tuple[int, ...]:
+    """Return NUM_ASK exponentially spaced cumulative observation stops in [1, NUM_OBS].
+
+    Example: ``turbo_enn_ask_stops(30, 4) == (1, 3, 10, 30)``.
+    """
+    if num_obs < 1:
+        raise ValueError("num_obs must be >= 1")
+    if num_ask < 1:
+        raise ValueError("num_ask must be >= 1")
+    if num_ask > num_obs:
+        raise ValueError("num_ask must be <= num_obs")
+    if num_ask == 1:
+        return (num_obs,)
+
+    ideal = np.exp(np.linspace(np.log(1.0), np.log(float(num_obs)), num=num_ask))
+    stops: list[int] = []
+    for i, value in enumerate(ideal):
+        lo = (stops[-1] + 1) if stops else 1
+        hi = num_obs - (num_ask - i - 1)
+        assert lo <= hi, f"no room for stop {i}: lo={lo} hi={hi}"
+        cand = int(round(float(value)))
+        cand = min(max(cand, lo), hi)
+        stops.append(cand)
+    assert len(stops) == num_ask, f"expected {num_ask} stops, got {len(stops)}"
+    assert stops[-1] == num_obs, (
+        f"final stop must be num_obs={num_obs}, got {stops[-1]}"
+    )
+    assert all(stops[i] < stops[i + 1] for i in range(num_ask - 1)), stops
+    return tuple(stops)
+
+
+def build_turbo_enn_optimizer_config(
+    *,
+    index_driver: ENNIndexDriver,
+    work_dir: str | None = None,
+    num_init: int = TURBO_ENN_NUM_INIT,
+):
+    """Build turbo_enn config matching compare's single-metric Ackley path.
+
+    Overrides only ``num_init`` (fixed at ``TURBO_ENN_NUM_INIT`` for the stress CLI).
+    For ``BPANN_DISK``, both ``enn_storage="disk"`` and ``work_dir`` are required.
+    """
+    from enn.turbo.config import (
+        AcqType,
+        ENNFitConfig,
+        ENNSurrogateConfig,
+        TurboTRConfig,
+        turbo_enn_config,
+    )
+
+    if num_init < 1:
+        raise ValueError("num_init must be >= 1")
+    enn_kwargs: dict[str, object] = {
+        "k": TURBO_ENN_K,
+        "fit": ENNFitConfig(num_fit_samples=TURBO_ENN_NUM_FIT_SAMPLES),
+        "index_driver": index_driver,
+    }
+    if index_driver == ENNIndexDriver.BPANN_DISK:
+        if work_dir is None:
+            raise ValueError("bpann_disk requires work_dir")
+        enn_kwargs["enn_storage"] = "disk"
+        enn_kwargs["work_dir"] = work_dir
+    elif work_dir is not None:
+        raise ValueError("work_dir requires bpann_disk")
+    return turbo_enn_config(
+        enn=ENNSurrogateConfig(**enn_kwargs),
+        trust_region=TurboTRConfig(noise_aware=True),
+        acq_type=AcqType.UCB,
+        num_init=num_init,
+    )
+
+
+def format_turbo_enn_config_header(
+    *,
+    num_dim: int,
+    num_obs: int,
+    num_ask: int,
+    index_type: str,
+    work_dir: str | None = None,
+    tell_all: bool = False,
+) -> str:
+    header = (
+        f"num_dim={num_dim} num_obs={num_obs} num_ask={num_ask} index_type={index_type}"
+    )
+    if work_dir is not None:
+        header = f"{header} work_dir={work_dir}"
+    if tell_all:
+        header = f"{header} tell_all=true"
+    return header
+
+
+def format_turbo_enn_row(
+    n: int, iter_s: float, ask_s: float, tell_s: float, *, n_width: int
+) -> str:
+    return (
+        f"{n:>{n_width}} {iter_s:{DURATION_S_FMT}} "
+        f"{ask_s:{DURATION_S_FMT}} {tell_s:{DURATION_S_FMT}}"
+    )
+
+
+def run_turbo_enn_stress(
+    *,
+    index_driver: ENNIndexDriver,
+    num_dim: int,
+    num_obs: int,
+    num_ask: int,
+    work_dir: str | None = None,
+    seed: int = TURBO_ENN_SEED,
+    seed_chunk: int | None = None,
+    tell_all: bool = False,
+    optimizer=None,
+    objective=None,
+    bounds: np.ndarray | None = None,
+) -> Iterator[TurboEnnRoundResult]:
+    """Tell DGP obs in exponential groups; at each stop time ask(1) and discard arms."""
+    if num_dim < 1:
+        raise ValueError("num_dim must be >= 1")
+    stops = turbo_enn_ask_stops(num_obs, num_ask)
+    if seed_chunk is None:
+        seed_chunk = turbo_enn_default_seed_chunk(index_driver)
+    if tell_all:
+        seed_chunk = 1
+    if seed_chunk < 1:
+        raise ValueError("seed_chunk must be >= 1")
+
+    from enn import create_optimizer
+    from enn.benchmarks import Ackley
+
+    if objective is None:
+        ackley = Ackley(noise=TURBO_ENN_ACKLEY_NOISE, rng=np.random.default_rng(seed))
+    else:
+        ackley = objective
+    if bounds is None:
+        bounds_arr = np.array([ackley.bounds] * num_dim, dtype=float)
+    else:
+        bounds_arr = np.asarray(bounds, dtype=float)
+    if optimizer is None:
+        config = build_turbo_enn_optimizer_config(
+            index_driver=index_driver,
+            work_dir=work_dir,
+            num_init=TURBO_ENN_NUM_INIT,
+        )
+        opt = create_optimizer(
+            bounds=bounds_arr, config=config, rng=np.random.default_rng(seed)
+        )
+    else:
+        opt = optimizer
+
+    dgp_rng = np.random.default_rng(seed + 17)
+    prev = 0
+    for stop in stops:
+        gap = stop - prev
+        assert gap >= 1, f"empty group at stop={stop} prev={prev}"
+        t0 = time.perf_counter()
+        seed_turbo_enn_to_n(
+            opt,
+            ackley,
+            bounds_arr,
+            gap,
+            rng=dgp_rng,
+            chunk=seed_chunk,
+        )
+        tell_s = time.perf_counter() - t0
+        t_ask0 = time.perf_counter()
+        _ = opt.ask(num_arms=1)  # discard arms; timing only
+        ask_s = time.perf_counter() - t_ask0
+        iter_s = ask_s + tell_s
+        yield TurboEnnRoundResult(n=stop, iter_s=iter_s, ask_s=ask_s, tell_s=tell_s)
+        prev = stop
+
+
+@dataclass(frozen=True)
+class ProposalScaleResult:
+    n: int
+    ask_s: float
+    tell_s: float
+    proposal_s: float
+
+
+def proposal_scale_ns(max_n: int) -> tuple[int, ...]:
+    """Return fixed proposal-scale grid filtered by ``max_n`` (all N >= num_init)."""
+    if max_n < TURBO_ENN_NUM_INIT:
+        raise ValueError(f"max_n must be >= {TURBO_ENN_NUM_INIT} (TuRBO-ENN num_init)")
+    return tuple(n for n in PROPOSAL_SCALE_NS if n <= max_n)
+
+
+def seed_turbo_enn_to_n(
+    opt,
+    objective,
+    bounds: np.ndarray,
+    n: int,
+    *,
+    rng: np.random.Generator,
+    chunk: int = PROPOSAL_SCALE_SEED_CHUNK,
+) -> None:
+    """Bulk-seed optimizer with N synthetic Ackley points via chunked ``tell``."""
+    if n < 1:
+        raise ValueError("n must be >= 1")
+    if chunk < 1:
+        raise ValueError("chunk must be >= 1")
+    bounds = np.asarray(bounds, dtype=float)
+    assert bounds.ndim == 2 and bounds.shape[1] == 2, (
+        f"expected bounds shape (d, 2), got {bounds.shape}"
+    )
+    num_dim = int(bounds.shape[0])
+    lo = bounds[:, 0]
+    hi = bounds[:, 1]
+    assert np.all(hi > lo), "bounds require hi > lo per dimension"
+    # Generate per chunk so peak RAM stays O(chunk·D), not O(n·D). Full-N
+    # materialization made turbo-enn bpann_disk exceed 1 GiB well below n=1e8.
+    for start in range(0, n, chunk):
+        end = min(start + chunk, n)
+        take = end - start
+        x = rng.uniform(lo, hi, size=(take, num_dim))
+        y = np.asarray(objective(x), dtype=float)
+        if y.ndim == 1:
+            y = y.reshape(-1, 1)
+        assert y.shape == (take, 1), f"expected y shape ({take}, 1), got {y.shape}"
+        opt.tell(x, y)
+
+
+def _timed_ask_tell_round(opt, objective) -> tuple[float, float]:
+    """Run one ask → eval → tell round; return (ask_s, tell_s)."""
+    t0 = time.perf_counter()
+    x = opt.ask(num_arms=1)
+    ask_s = time.perf_counter() - t0
+    y = np.asarray(objective(x), dtype=float)
+    if y.ndim == 1:
+        y = y.reshape(-1, 1)
+    assert y.shape == (1, 1), f"expected y shape (1, 1), got {y.shape}"
+    t_tell0 = time.perf_counter()
+    opt.tell(x, y)
+    tell_s = time.perf_counter() - t_tell0
+    return ask_s, tell_s
+
+
+def probe_turbo_enn_proposal(
+    opt,
+    objective,
+    *,
+    warmup: int = PROPOSAL_SCALE_WARMUP,
+    num_probes: int = PROPOSAL_SCALE_NUM_PROBES,
+) -> tuple[float, float, float]:
+    """Warmup then time ask/tell probes; return mean ask_s, tell_s, proposal_s."""
+    if warmup < 0:
+        raise ValueError("warmup must be >= 0")
+    if num_probes < 1:
+        raise ValueError("num_probes must be >= 1")
+
+    for _ in range(warmup):
+        _timed_ask_tell_round(opt, objective)
+
+    ask_times: list[float] = []
+    tell_times: list[float] = []
+    for _ in range(num_probes):
+        ask_s, tell_s = _timed_ask_tell_round(opt, objective)
+        ask_times.append(ask_s)
+        tell_times.append(tell_s)
+
+    ask_mean = float(np.mean(ask_times))
+    tell_mean = float(np.mean(tell_times))
+    proposal_mean = ask_mean + tell_mean
+    return ask_mean, tell_mean, proposal_mean
+
+
+def format_proposal_scale_config_header(
+    *,
+    num_dim: int,
+    max_n: int,
+    num_probes: int,
+    index_type: str,
+    work_dir: str | None = None,
+) -> str:
+    header = (
+        f"num_dim={num_dim} max_n={max_n} num_probes={num_probes} "
+        f"index_type={index_type}"
+    )
+    if work_dir is not None:
+        header = f"{header} work_dir={work_dir}"
+    return header
+
+
+def format_proposal_scale_row(
+    n: int, ask_s: float, tell_s: float, proposal_s: float, *, n_width: int
+) -> str:
+    return (
+        f"{n:>{n_width}} {ask_s:{DURATION_S_FMT}} "
+        f"{tell_s:{DURATION_S_FMT}} {proposal_s:{DURATION_S_FMT}}"
+    )
+
+
+def run_proposal_scale_stress(
+    index_driver: ENNIndexDriver,
+    num_dim: int,
+    max_n: int,
+    *,
+    work_dir: str | None = None,
+    num_probes: int = PROPOSAL_SCALE_NUM_PROBES,
+    warmup: int = PROPOSAL_SCALE_WARMUP,
+    seed_chunk: int = PROPOSAL_SCALE_SEED_CHUNK,
+    seed: int = TURBO_ENN_SEED,
+    optimizer_factory=None,
+    objective=None,
+) -> Iterator[ProposalScaleResult]:
+    """Fresh opt per N: seed to N, warmup, probe; yield mean proposal timings."""
+    if num_dim < 1:
+        raise ValueError("num_dim must be >= 1")
+    if num_probes < 1:
+        raise ValueError("num_probes must be >= 1")
+    if warmup < 0:
+        raise ValueError("warmup must be >= 0")
+    if seed_chunk < 1:
+        raise ValueError("seed_chunk must be >= 1")
+    grid = proposal_scale_ns(max_n)
+
+    from enn import create_optimizer
+    from enn.benchmarks import Ackley
+
+    if objective is None:
+        ackley = Ackley(noise=TURBO_ENN_ACKLEY_NOISE, rng=np.random.default_rng(seed))
+    else:
+        ackley = objective
+    bounds = np.array([ackley.bounds] * num_dim, dtype=float)
+
+    for n in grid:
+        n_work_dir: str | None
+        if work_dir is not None:
+            n_work_dir = str(Path(work_dir) / f"n{n}")
+            Path(n_work_dir).mkdir(parents=True, exist_ok=True)
+        else:
+            n_work_dir = None
+        if optimizer_factory is not None:
+            opt = optimizer_factory(n=n, work_dir=n_work_dir)
+        else:
+            config = build_turbo_enn_optimizer_config(
+                index_driver=index_driver,
+                work_dir=n_work_dir,
+                num_init=TURBO_ENN_NUM_INIT,
+            )
+            opt = create_optimizer(
+                bounds=bounds, config=config, rng=np.random.default_rng(seed + n)
+            )
+        seed_turbo_enn_to_n(
+            opt,
+            ackley,
+            bounds,
+            n,
+            rng=np.random.default_rng(seed + 10_000 + n),
+            chunk=seed_chunk,
+        )
+        ask_mean, tell_mean, proposal_mean = probe_turbo_enn_proposal(
+            opt,
+            ackley,
+            warmup=warmup,
+            num_probes=num_probes,
+        )
+        yield ProposalScaleResult(
+            n=n, ask_s=ask_mean, tell_s=tell_mean, proposal_s=proposal_mean
+        )
 
 
 @click.group()
@@ -916,6 +1389,21 @@ def cli() -> None:
             default=None,
             help="Disk-backed ENN work directory (requires bpann_disk).",
         ),
+        click.Option(
+            ["--batch"],
+            is_flag=True,
+            default=False,
+            help=(
+                "Add observations in batches of "
+                f"{ENN_ADD_STRESS_BATCH_SIZE} instead of one row per add."
+            ),
+        ),
+        click.Option(
+            ["--ennbo-config"],
+            type=click.Path(file_okay=True, dir_okay=False, path_type=str),
+            default=None,
+            help="Path to ennbo config.toml (overrides ~/.ennbo/config.toml).",
+        ),
     ],
 )
 def enn(
@@ -925,8 +1413,14 @@ def enn(
     progress_every: int,
     heartbeat_seconds: float,
     work_dir: str | None,
+    batch: bool,
+    ennbo_config: str | None,
 ) -> None:
     """Time 1000-point ENN queries at sparse checkpoints while streaming adds."""
+    if ennbo_config is not None:
+        from enn._rust import set_config_path
+
+        set_config_path(ennbo_config)
     if num_obs < 1:
         raise click.ClickException("num_obs must be >= 1")
     if num_dim < 1:
@@ -952,11 +1446,13 @@ def enn(
         )
     )
     n_width = stress_row_n_width(num_obs)
+    batch_size = ENN_ADD_STRESS_BATCH_SIZE if batch else 1
     for n, query_s, segment_s in run_enn_add_stress(
         index_driver=driver,
         num_obs=num_obs,
         config=EnnAddStressConfig(
             num_dim=num_dim,
+            batch_size=batch_size,
             progress_every=progress_every,
             heartbeat_seconds=heartbeat_seconds,
             work_dir=work_dir,
@@ -1102,6 +1598,186 @@ def draw(
     click.echo(format_draw_config_header_aggregate(agg))
     click.echo(format_draw_method_summary_aggregate(agg.posterior))
     click.echo(format_draw_method_summary_aggregate(agg.posterior_function_draw))
+
+
+@cli.command(
+    "turbo-enn",
+    params=[
+        click.Argument(
+            ["index_type"],
+            type=click.Choice(INDEX_TYPE_CHOICES),
+        ),
+        click.Argument(["num_obs"], type=int),
+        click.Argument(["num_ask"], type=int),
+        click.Option(
+            ["--num-dim"],
+            type=int,
+            default=DEFAULT_NUM_DIM,
+            show_default=True,
+            help="Embedding dimension for Ackley / TuRBO-ENN.",
+        ),
+        click.Option(
+            ["--work-dir"],
+            type=click.Path(file_okay=False, dir_okay=True, path_type=str),
+            default=None,
+            help="Disk-backed ENN work directory (requires bpann_disk).",
+        ),
+        click.Option(
+            ["--tell-all"],
+            is_flag=True,
+            default=False,
+            help=(
+                "Deliver each DGP observation with its own tell() "
+                "(intended for small-N fidelity; large N is much slower)."
+            ),
+        ),
+    ],
+)
+def turbo_enn(
+    index_type: str,
+    num_obs: int,
+    num_ask: int,
+    num_dim: int,
+    work_dir: str | None,
+    tell_all: bool,
+) -> None:
+    """Time TuRBO-ENN ask at exponentially spaced DGP observation checkpoints."""
+    if num_dim < 1:
+        raise click.ClickException("num_dim must be >= 1")
+    if num_obs < 1:
+        raise click.ClickException("num_obs must be >= 1")
+    if num_ask < 1:
+        raise click.ClickException("num_ask must be >= 1")
+    if num_ask > num_obs:
+        raise click.ClickException("num_ask must be <= num_obs")
+    if work_dir is not None and index_type not in DISK_INDEX_TYPE_CHOICES:
+        raise click.ClickException(
+            f"work_dir requires index_type in {sorted(DISK_INDEX_TYPE_CHOICES)}"
+        )
+    if index_type in DISK_INDEX_TYPE_CHOICES and work_dir is None:
+        raise click.ClickException(f"{index_type} requires --work-dir")
+    driver = parse_index_driver(index_type)
+    click.echo(
+        format_turbo_enn_config_header(
+            num_dim=num_dim,
+            num_obs=num_obs,
+            num_ask=num_ask,
+            index_type=index_type,
+            work_dir=work_dir,
+            tell_all=tell_all,
+        )
+    )
+    n_width = len(str(num_obs))
+    try:
+        for row in run_turbo_enn_stress(
+            index_driver=driver,
+            num_dim=num_dim,
+            num_obs=num_obs,
+            num_ask=num_ask,
+            work_dir=work_dir,
+            tell_all=tell_all,
+        ):
+            click.echo(
+                format_turbo_enn_row(
+                    row.n,
+                    row.iter_s,
+                    row.ask_s,
+                    row.tell_s,
+                    n_width=n_width,
+                )
+            )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@cli.command(
+    "proposal-scale",
+    params=[
+        click.Argument(
+            ["index_type"],
+            type=click.Choice(INDEX_TYPE_CHOICES),
+        ),
+        click.Option(
+            ["--num-dim"],
+            type=int,
+            default=DEFAULT_NUM_DIM,
+            show_default=True,
+            help="Embedding dimension for Ackley / TuRBO-ENN.",
+        ),
+        click.Option(
+            ["--max-n"],
+            type=int,
+            default=PROPOSAL_SCALE_NS[-1],
+            show_default=True,
+            help="Largest N on the proposal-scale grid (filters fixed checkpoints).",
+        ),
+        click.Option(
+            ["--num-probes"],
+            type=int,
+            default=PROPOSAL_SCALE_NUM_PROBES,
+            show_default=True,
+            help="Timed ask/tell rounds per N after warmup.",
+        ),
+        click.Option(
+            ["--work-dir"],
+            type=click.Path(file_okay=False, dir_okay=True, path_type=str),
+            default=None,
+            help="Disk-backed ENN work directory (requires bpann_disk).",
+        ),
+    ],
+)
+def proposal_scale(
+    index_type: str,
+    num_dim: int,
+    max_n: int,
+    num_probes: int,
+    work_dir: str | None,
+) -> None:
+    """Time mean TuRBO-ENN proposal cost at log-spaced N (seed then probe)."""
+    if num_dim < 1:
+        raise click.ClickException("num_dim must be >= 1")
+    if max_n < TURBO_ENN_NUM_INIT:
+        raise click.ClickException(
+            f"max_n must be >= {TURBO_ENN_NUM_INIT} (TuRBO-ENN num_init)"
+        )
+    if num_probes < 1:
+        raise click.ClickException("num_probes must be >= 1")
+    if work_dir is not None and index_type not in DISK_INDEX_TYPE_CHOICES:
+        raise click.ClickException(
+            f"work_dir requires index_type in {sorted(DISK_INDEX_TYPE_CHOICES)}"
+        )
+    if index_type in DISK_INDEX_TYPE_CHOICES and work_dir is None:
+        raise click.ClickException(f"{index_type} requires --work-dir")
+    driver = parse_index_driver(index_type)
+    click.echo(
+        format_proposal_scale_config_header(
+            num_dim=num_dim,
+            max_n=max_n,
+            num_probes=num_probes,
+            index_type=index_type,
+            work_dir=work_dir,
+        )
+    )
+    n_width = len(str(max_n))
+    try:
+        for row in run_proposal_scale_stress(
+            driver,
+            num_dim,
+            max_n,
+            work_dir=work_dir,
+            num_probes=num_probes,
+        ):
+            click.echo(
+                format_proposal_scale_row(
+                    row.n,
+                    row.ask_s,
+                    row.tell_s,
+                    row.proposal_s,
+                    n_width=n_width,
+                )
+            )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 def main() -> None:

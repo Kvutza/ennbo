@@ -17,6 +17,7 @@ pub mod config;
 pub mod disk_bpann;
 pub mod draw;
 pub mod error;
+pub mod file_config;
 pub mod fit;
 pub mod fitter;
 pub mod hash;
@@ -53,6 +54,10 @@ pub use candidates::{from_unit, generate_candidates, generate_lhd, to_unit, Cand
 pub use config::{
     lhd_only_config, turbo_enn_config, turbo_zero_config, AcquisitionConfig, CandidateConfig,
     ConfigOverrides, InitStrategy, OptimizerConfig, SurrogateConfig,
+};
+pub use file_config::{
+    default_config_path, install_bpann_tuning_from_config, set_config_path, BpannConfig, Config,
+    ConfigFile,
 };
 pub use draw::{Candidates, ConditionalPosteriorDrawInternals, DrawInternals, NeighborData};
 pub use error::{ENNError, EPS_VAR};

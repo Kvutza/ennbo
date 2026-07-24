@@ -1,0 +1,26 @@
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["papers/bpann_2511.15557v1.tex"])
+
+alias(
+    name = "rust_core",
+    actual = "//rust/crates/ennbo:ennbo",
+)
+
+alias(
+    name = "rust_accelerators",
+    actual = "//rust/crates/ennbo:ennbo_accelerators",
+)
+
+alias(
+    name = "python_extension",
+    actual = "//rust/crates/enn-py:enn_rust.so",
+)
+
+test_suite(
+    name = "rust_tests",
+    tests = [
+        "//rust/crates/bpann:bpann_test",
+        "//rust/crates/ennbo:ennbo_test",
+    ],
+)
