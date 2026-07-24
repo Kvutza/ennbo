@@ -24,3 +24,8 @@ ndarray = { workspace = true }
 numpy = { workspace = true }
 pyo3 = { workspace = true }
 rand = { workspace = true }
+
+[features]
+default = []
+metal = ["ennbo/metal"]
+opencl = ["ennbo/opencl"]
