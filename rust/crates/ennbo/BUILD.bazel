@@ -1,0 +1,52 @@
+load("@crates//:defs.bzl", "aliases", "all_crate_deps", "crate_edition")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["Cargo.toml"])
+
+rust_library(
+    name = "ennbo",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/ennbo_build.rs"],
+    ),
+    aliases = aliases(),
+    crate_root = "src/lib.rs",
+    edition = crate_edition(),
+    deps = all_crate_deps(normal = True) + [
+        "//rust/crates/bpann",
+    ],
+)
+
+rust_library(
+    name = "ennbo_accelerators",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/ennbo_build.rs"],
+    ),
+    aliases = aliases(),
+    compile_data = [
+        "src/knn/metal_index.metal",
+        "src/knn/opencl_index.cl",
+    ],
+    crate_features = [
+        "metal",
+        "opencl",
+    ],
+    crate_name = "ennbo",
+    crate_root = "src/lib.rs",
+    edition = crate_edition(),
+    deps = all_crate_deps(normal = True) + [
+        "//rust/crates/bpann",
+        "@accelerator_crates//:metal",
+        "@accelerator_crates//:opencl3",
+    ],
+)
+
+rust_test(
+    name = "ennbo_test",
+    crate = ":ennbo",
+    aliases = aliases(normal_dev = True, proc_macro_dev = True),
+    deps = all_crate_deps(normal_dev = True, proc_macro_dev = True),
+)

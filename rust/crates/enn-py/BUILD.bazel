@@ -1,0 +1,35 @@
+load("@crates//:defs.bzl", "aliases", "all_crate_deps", "crate_edition")
+load("@rules_rust//rust:defs.bzl", "rust_shared_library")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["Cargo.toml"])
+
+rust_shared_library(
+    name = "enn_rust",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/enn_py_build.rs"],
+    ),
+    aliases = aliases(),
+    crate_name = "enn_rust",
+    crate_root = "src/lib.rs",
+    edition = crate_edition(),
+    rustc_env = {
+        "CARGO_MANIFEST_DIR": "rust/crates/enn-py",
+    },
+    rustc_flags = [
+        "-Clink-arg=-undefined",
+        "-Clink-arg=dynamic_lookup",
+    ],
+    deps = all_crate_deps(normal = True) + [
+        "//rust/crates/ennbo:ennbo_accelerators",
+    ],
+)
+
+genrule(
+    name = "python_extension",
+    srcs = [":enn_rust"],
+    outs = ["enn_rust.so"],
+    cmd = "cp $(location :enn_rust) $@",
+)
