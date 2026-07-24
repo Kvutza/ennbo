@@ -1,5 +1,5 @@
 {
-  "checksum": "510298e105ab25599fe15a9e9b4cf07cae8366ce0b3bb9e494bac81a8cbcb9ec",
+  "checksum": "c575391d82a92b60c0825f58bf34981bfe4143fdbde2158bbcc4fba7b0f60e7d",
   "crates": {
     "adler32 1.2.0": {
       "name": "adler32",
@@ -297,7 +297,7 @@
               "target": "ndarray"
             },
             {
-              "id": "rand 0.8.5",
+              "id": "rand 0.8.6",
               "target": "rand"
             },
             {
@@ -385,7 +385,7 @@
               "target": "num_traits"
             },
             {
-              "id": "rand 0.8.5",
+              "id": "rand 0.8.6",
               "target": "rand"
             },
             {
@@ -917,7 +917,7 @@
               "target": "ndarray_linalg"
             },
             {
-              "id": "rand 0.8.5",
+              "id": "rand 0.8.6",
               "target": "rand"
             },
             {
@@ -1054,7 +1054,7 @@
               "target": "pyo3"
             },
             {
-              "id": "rand 0.8.5",
+              "id": "rand 0.8.6",
               "target": "rand"
             }
           ],
@@ -2743,7 +2743,7 @@
               "target": "num_traits"
             },
             {
-              "id": "rand 0.8.5",
+              "id": "rand 0.8.6",
               "target": "rand"
             },
             {
@@ -2817,7 +2817,7 @@
               "target": "num_traits"
             },
             {
-              "id": "rand 0.8.5",
+              "id": "rand 0.8.6",
               "target": "rand"
             },
             {
@@ -4076,14 +4076,14 @@
       ],
       "license_file": null
     },
-    "rand 0.8.5": {
+    "rand 0.8.6": {
       "name": "rand",
-      "version": "0.8.5",
+      "version": "0.8.6",
       "package_url": "https://github.com/rust-random/rand",
       "repository": {
         "Http": {
-          "url": "https://static.crates.io/crates/rand/0.8.5/download",
-          "sha256": "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
+          "url": "https://static.crates.io/crates/rand/0.8.6/download",
+          "sha256": "5ca0ecfa931c29007047d1bc58e623ab12e5590e8c7cc53200d5202b69266d8a"
         }
       },
       "targets": [
@@ -4135,7 +4135,7 @@
           "selects": {}
         },
         "edition": "2018",
-        "version": "0.8.5"
+        "version": "0.8.6"
       },
       "license": "MIT OR Apache-2.0",
       "license_ids": [
@@ -7434,7 +7434,7 @@
     "ndarray-linalg 0.17.0",
     "numpy 0.22.1",
     "pyo3 0.22.6",
-    "rand 0.8.5",
+    "rand 0.8.6",
     "rayon 1.12.0",
     "serde 1.0.228",
     "serde_json 1.0.150",

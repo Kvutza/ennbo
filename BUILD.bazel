@@ -13,6 +13,16 @@ alias(
 )
 
 alias(
+    name = "rust_ndarray",
+    actual = "@crates//:ndarray",
+)
+
+alias(
+    name = "rust_rand",
+    actual = "@crates//:rand",
+)
+
+alias(
     name = "rust_accelerators",
     actual = "//rust/crates/ennbo:ennbo_accelerators",
 )
