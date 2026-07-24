@@ -17,9 +17,9 @@ pub enum IndexDriver {
     Exact,
     /// B+ANN disk index (`EnnStorage::Disk` + `work_dir`).
     BpAnnDisk,
-    /// Apple Metal backend for exact in-memory search.
+    /// Apple Metal backend for native quantized-weight paths.
     Metal,
-    /// OpenCL backend for exact in-memory search.
+    /// OpenCL backend for native quantized-weight paths.
     OpenCl,
 }
 
@@ -65,10 +65,7 @@ impl ENNIndex {
         x_scale: Array1<f64>,
     ) -> Result<(), IndexError> {
         self.inner.rebuild(&train_x_scaled.view())?;
-        *self
-            .x_scale
-            .lock()
-            .expect("x_scale mutex poisoned") = x_scale;
+        *self.x_scale.lock().expect("x_scale mutex poisoned") = x_scale;
         Ok(())
     }
 
@@ -79,11 +76,7 @@ impl ENNIndex {
                 got: x.ncols(),
             });
         }
-        let x_scale = self
-            .x_scale
-            .lock()
-            .expect("x_scale mutex poisoned")
-            .clone();
+        let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
         let x_scaled: Array2<f64> = if self.scale_x {
             x / &x_scale.view().insert_axis(Axis(0))
         } else {
@@ -115,11 +108,7 @@ impl ENNIndex {
         let n_query = x.nrows();
         let search_k = search_k as usize;
 
-        let x_scale = self
-            .x_scale
-            .lock()
-            .expect("x_scale mutex poisoned")
-            .clone();
+        let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
         let x_scaled: Array2<f64> = if self.scale_x {
             x / &x_scale.view().insert_axis(Axis(0))
         } else {
@@ -133,8 +122,7 @@ impl ENNIndex {
             )
         } else {
             let k_eff = search_k.min(n_train);
-            self.inner
-                .search(&x_scaled.view(), k_eff, search_k)?
+            self.inner.search(&x_scaled.view(), k_eff, search_k)?
         };
 
         if exclude_nearest {
@@ -172,10 +160,7 @@ impl ENNIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::knn::faiss_backend::{
-        faiss_map_err_for_test, faiss_spec_for_test, make_faiss_for_test,
-    };
-    use faiss::error::Error as FaissError;
+    use crate::knn::faiss_backend::{faiss_spec_for_test, make_faiss_for_test};
     use ndarray::array;
     use ndarray::Array2;
 
@@ -268,14 +253,12 @@ mod tests {
     #[test]
     fn kiss_index_helper_unit_names() {
         use crate::knn::{arr2_rows_to_f32, pad_neighbor_cols_to_search_k, unpack_batch_search};
-        use faiss::Index;
         assert_eq!(faiss_spec_for_test(IndexDriver::Exact), "Flat");
-        let _ = faiss_map_err_for_test as fn(FaissError) -> IndexError;
         let rows = array![[1.0, 2.0], [3.0, 4.0]];
         let f32v = arr2_rows_to_f32(&rows.view());
         assert_eq!(f32v.len(), 4);
         let index = make_faiss_for_test(2, IndexDriver::Exact, &rows.view()).unwrap();
-        assert_eq!(index.ntotal(), 2);
+        assert_eq!(index.len(), 2);
         let (d, _i) = pad_neighbor_cols_to_search_k(array![[1.0, 2.0]], array![[0i64, 1]], 3);
         assert_eq!(d.ncols(), 3);
         let (d2, i2) = unpack_batch_search(1, 2, &[0.5f32, 1.5], &[0, 1]);
@@ -303,20 +286,10 @@ mod tests {
     #[test]
     fn index_driver_rebuild_and_memory() {
         let train_x = array![[0.0, 0.0], [1.0, 1.0]];
-        let index = ENNIndex::new(
-            train_x,
-            2,
-            array![1.0, 1.0],
-            false,
-            IndexDriver::Exact,
-        )
-        .unwrap();
+        let index = ENNIndex::new(train_x, 2, array![1.0, 1.0], false, IndexDriver::Exact).unwrap();
         assert_eq!(index.driver(), IndexDriver::Exact);
         index
-            .rebuild_from_scaled(
-                array![[0.0, 0.0], [1.0, 1.0]],
-                array![1.0, 1.0],
-            )
+            .rebuild_from_scaled(array![[0.0, 0.0], [1.0, 1.0]], array![1.0, 1.0])
             .unwrap();
         assert!(index.memory_usage_bytes() > 0);
     }

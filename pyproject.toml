@@ -56,8 +56,8 @@ manifest-path = "rust/crates/enn-py/Cargo.toml"
 python-source = "src"
 module-name = "enn.enn_rust"
 profile = "release"
-# Linux release builds should repair wheels; macOS wheels are repaired in CI with delocate.
-auditwheel = "repair"
+# Linux release builds should repair wheels; local macOS editable installs should skip repair.
+auditwheel = "skip"
 # Linux builds link Faiss statically by Rust target configuration; macOS builds link
 # Homebrew/CI dylibs and bundle them into the wheel during repair.
 # `.cargo/` is outside the Rust workspace; include it for any workspace-level Cargo config.

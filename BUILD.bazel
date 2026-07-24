@@ -8,6 +8,11 @@ alias(
 )
 
 alias(
+    name = "rust_accelerators",
+    actual = "//rust/crates/ennbo:ennbo_accelerators",
+)
+
+alias(
     name = "python_extension",
     actual = "//rust/crates/enn-py:enn_rust.so",
 )

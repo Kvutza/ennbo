@@ -14,6 +14,7 @@ from .base import (
     InitConfig,
 )
 from .candidate_rv import CandidateRV
+from .enn_distance_metric import ENNDistanceMetric
 from .enn_index_driver import ENNIndexDriver
 from .num_candidates_fn import default_num_candidates
 from .optimizer_config import OptimizerConfig
@@ -65,6 +66,7 @@ __all__ = [
     "CandidateGenConfig",
     "CandidateRV",
     "default_num_candidates",
+    "ENNDistanceMetric",
     "ENNIndexDriver",
     "RAASPDriver",
     "Rescalarize",

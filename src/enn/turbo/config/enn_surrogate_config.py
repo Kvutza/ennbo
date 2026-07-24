@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from .enn_distance_metric import ENNDistanceMetric
 from .enn_fit_config import ENNFitConfig
 from .enn_index_driver import ENNIndexDriver
 
@@ -13,6 +14,7 @@ class ENNSurrogateConfig:
     fit: ENNFitConfig = ENNFitConfig()
     scale_x: bool = False
     index_driver: ENNIndexDriver = ENNIndexDriver.FLAT
+    distance_metric: ENNDistanceMetric = ENNDistanceMetric.SQUARED_L2
     enn_storage: str | None = None
     work_dir: str | os.PathLike[str] | None = None
 

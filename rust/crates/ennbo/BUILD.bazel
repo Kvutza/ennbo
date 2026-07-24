@@ -1,9 +1,20 @@
 load("@crates//:defs.bzl", "aliases", "all_crate_deps", "crate_edition")
+load("@rules_cc//cc:defs.bzl", "cc_library")
 load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
 package(default_visibility = ["//visibility:public"])
 
 exports_files(["Cargo.toml"])
+
+cc_library(
+    name = "faiss_bridge",
+    srcs = ["src/faiss_bridge.cpp"],
+    copts = select({
+        "@platforms//os:windows": ["/std:c++17"],
+        "//conditions:default": ["-std=c++17"],
+    }),
+    deps = ["@faiss_src//:faiss"],
+)
 
 rust_library(
     name = "ennbo",
@@ -14,6 +25,7 @@ rust_library(
     aliases = aliases(),
     crate_root = "src/lib.rs",
     edition = crate_edition(),
+    link_deps = [":faiss_bridge"],
     deps = all_crate_deps(normal = True) + [
         "//rust/crates/bpann",
     ],
@@ -26,10 +38,10 @@ rust_library(
         exclude = ["src/ennbo_build.rs"],
     ),
     aliases = aliases(),
-    compile_data = [
-        "src/knn/metal_index.metal",
-        "src/knn/opencl_index.cl",
-    ],
+    compile_data = glob([
+        "src/**/*.cl",
+        "src/**/*.metal",
+    ]),
     crate_features = [
         "metal",
         "opencl",
@@ -37,6 +49,7 @@ rust_library(
     crate_name = "ennbo",
     crate_root = "src/lib.rs",
     edition = crate_edition(),
+    link_deps = [":faiss_bridge"],
     deps = all_crate_deps(normal = True) + [
         "//rust/crates/bpann",
         "@accelerator_crates//:metal",

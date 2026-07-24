@@ -26,16 +26,6 @@ use_repo(rust, "rust_toolchains")
 register_toolchains("@rust_toolchains//:all")
 
 crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
-crate.annotation(
-    crate = "faiss-sys",
-    gen_build_script = "off",
-    label_injections = {
-        "@faiss_src//:faiss_c": "@faiss_src",
-    },
-    link_deps = ["@faiss_src//:faiss_c"],
-    repositories = ["crates"],
-    version = "0.7.0",
-)
 crate.from_cargo(
     name = "crates",
     cargo_lockfile = "//rust:Cargo.lock",

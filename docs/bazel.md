@@ -1,8 +1,8 @@
 # Bazel build
 
-This overlay builds the ENNBO Rust workspace at `cd4c7dc` without changing its
-Rust or Python sources. Bazel owns dependency resolution, compilation, tests,
-and the Python extension artifact in this isolated JJ workspace.
+This build graph compiles the ENNBO Rust workspace and its native dependencies
+without relying on host package-manager libraries. Bazel owns dependency
+resolution, compilation, tests, and the Python extension artifact.
 
 ## Native dependency contract
 
@@ -10,10 +10,10 @@ FAISS is part of every ENNBO build, including Metal and OpenCL builds. The
 accelerator drivers augment the index layer; they do not replace the CPU
 FAISS capability.
 
-Bazel fetches the checksum-pinned FAISS 1.12.0 source release, matching
-`faiss-sys` 0.7.0, and compiles both `faiss` and `faiss_c` directly. The
-`faiss-sys` Cargo build script is disabled and its Rust library receives the
-Bazel C API target through `link_deps`.
+Bazel fetches the checksum-pinned FAISS 1.12.0 source release and compiles both
+`faiss` and `faiss_c` directly. ENNBO's `faiss_bridge.cpp` is a Bazel
+`cc_library` linked into both Rust ENNBO targets. The Cargo build script is
+excluded from the Bazel graph.
 
 On macOS:
 
@@ -69,7 +69,7 @@ default is complete. Linux and Windows must override that label with the
 checked-in pinned OpenBLAS target when those Rust toolchain lanes are enabled;
 they must not fall back to an ambient `-lopenblas`.
 
-The Bazel module graph is restricted to `aarch64-apple-darwin` so Cargo's
-Linux-only static-FAISS feature does not leak into the verified macOS lane.
+The Bazel module graph is currently restricted to `aarch64-apple-darwin`.
 Linux and Windows get separate crate-universe/toolchain lanes rather than
-unifying target-specific Cargo features into the macOS dependency graph.
+unifying target-specific Cargo features into the verified macOS dependency
+graph.

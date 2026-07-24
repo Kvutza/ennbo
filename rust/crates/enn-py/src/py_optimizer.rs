@@ -7,21 +7,30 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 use std::path::PathBuf;
 
-pub(crate) fn optional_f64(dict: &Bound<'_, pyo3::types::PyDict>, key: &str) -> PyResult<Option<f64>> {
+pub(crate) fn optional_f64(
+    dict: &Bound<'_, pyo3::types::PyDict>,
+    key: &str,
+) -> PyResult<Option<f64>> {
     match dict.get_item(key)? {
         Some(v) => Ok(Some(v.extract()?)),
         None => Ok(None),
     }
 }
 
-pub(crate) fn optional_usize(dict: &Bound<'_, pyo3::types::PyDict>, key: &str) -> PyResult<Option<usize>> {
+pub(crate) fn optional_usize(
+    dict: &Bound<'_, pyo3::types::PyDict>,
+    key: &str,
+) -> PyResult<Option<usize>> {
     match dict.get_item(key)? {
         Some(v) => Ok(Some(v.extract()?)),
         None => Ok(None),
     }
 }
 
-pub(crate) fn optional_bool(dict: &Bound<'_, pyo3::types::PyDict>, key: &str) -> PyResult<Option<bool>> {
+pub(crate) fn optional_bool(
+    dict: &Bound<'_, pyo3::types::PyDict>,
+    key: &str,
+) -> PyResult<Option<bool>> {
     match dict.get_item(key)? {
         Some(v) => Ok(Some(v.extract()?)),
         None => Ok(None),
@@ -36,6 +45,7 @@ pub(crate) fn apply_scalar_overrides(
     overrides.min_candidates = optional_usize(dict, "min_candidates")?;
     overrides.max_candidates = optional_usize(dict, "max_candidates")?;
     overrides.num_candidates_per_arm = optional_usize(dict, "num_candidates_per_arm")?;
+    overrides.num_pert = optional_usize(dict, "num_pert")?;
     overrides.length_init = optional_f64(dict, "length_init")?;
     overrides.length_min = optional_f64(dict, "length_min")?;
     overrides.length_max = optional_f64(dict, "length_max")?;
@@ -49,9 +59,7 @@ pub(crate) fn apply_scalar_overrides(
 
 #[cfg(test)]
 mod kiss_coverage_tests {
-    use super::{
-        apply_scalar_overrides, optional_bool, optional_f64, optional_usize,
-    };
+    use super::{apply_scalar_overrides, optional_bool, optional_f64, optional_usize};
 
     #[test]
     fn py_optimizer_helpers_are_linked() {

@@ -23,6 +23,7 @@ pub mod py_hypervolume;
 pub mod py_model;
 pub mod py_optimizer;
 pub mod py_util;
+pub mod py_weights;
 
 mod pymodule_wrappers;
 
