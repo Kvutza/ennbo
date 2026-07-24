@@ -522,6 +522,21 @@ mod tests {
     }
 
     #[test]
+    fn effective_dimension_recomputes_failure_tolerance() {
+        let config = TRLengthConfig::default();
+        let mut tr = TurboTrustRegion::new(1_000, config);
+
+        tr.set_num_arms(4);
+        assert_eq!(tr.failure_tolerance, Some(250));
+
+        tr.set_failure_tolerance_dim(16.0);
+        assert_eq!(tr.failure_tolerance, Some(4));
+
+        tr.set_num_arms(8);
+        assert_eq!(tr.failure_tolerance, Some(2));
+    }
+
+    #[test]
     fn test_turbo_restart() {
         let config = TRLengthConfig::default();
         let mut tr = TurboTrustRegion::new(5, config);
