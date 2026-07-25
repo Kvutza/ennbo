@@ -1,16 +1,29 @@
 load("@crates//:defs.bzl", "aliases", "all_crate_deps", "crate_edition")
 load("@rules_rust//rust:defs.bzl", "rust_shared_library")
+load("//:bazel/python_extension.bzl", "copy_extension")
 
 package(default_visibility = ["//visibility:public"])
 
 exports_files(["Cargo.toml"])
 
+ENN_PY_SRCS = glob(
+    ["src/**/*.rs"],
+    exclude = ["src/enn_py_build.rs"],
+)
+
+ENN_PY_DEPS = all_crate_deps(normal = True)
+
+PYO3_LINK_FLAGS = select({
+    "@platforms//os:macos": [
+        "-Clink-arg=-undefined",
+        "-Clink-arg=dynamic_lookup",
+    ],
+    "//conditions:default": [],
+})
+
 rust_shared_library(
-    name = "enn_rust",
-    srcs = glob(
-        ["src/**/*.rs"],
-        exclude = ["src/enn_py_build.rs"],
-    ),
+    name = "enn_rust_cpu",
+    srcs = ENN_PY_SRCS,
     aliases = aliases(),
     crate_name = "enn_rust",
     crate_root = "src/lib.rs",
@@ -18,18 +31,76 @@ rust_shared_library(
     rustc_env = {
         "CARGO_MANIFEST_DIR": "rust/crates/enn-py",
     },
-    rustc_flags = [
-        "-Clink-arg=-undefined",
-        "-Clink-arg=dynamic_lookup",
-    ],
-    deps = all_crate_deps(normal = True) + [
-        "//rust/crates/ennbo:ennbo_accelerators",
+    rustc_flags = PYO3_LINK_FLAGS,
+    deps = ENN_PY_DEPS + [
+        "//rust/crates/ennbo:ennbo_cpu",
     ],
 )
 
-genrule(
+rust_shared_library(
+    name = "enn_rust_metal",
+    srcs = ENN_PY_SRCS,
+    aliases = aliases(),
+    crate_name = "enn_rust",
+    crate_root = "src/lib.rs",
+    edition = crate_edition(),
+    rustc_env = {
+        "CARGO_MANIFEST_DIR": "rust/crates/enn-py",
+    },
+    rustc_flags = PYO3_LINK_FLAGS,
+    deps = ENN_PY_DEPS + [
+        "//rust/crates/ennbo:ennbo_metal",
+    ],
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
+rust_shared_library(
+    name = "enn_rust_opencl",
+    srcs = ENN_PY_SRCS,
+    aliases = aliases(),
+    crate_name = "enn_rust",
+    crate_root = "src/lib.rs",
+    edition = crate_edition(),
+    rustc_env = {
+        "CARGO_MANIFEST_DIR": "rust/crates/enn-py",
+    },
+    rustc_flags = PYO3_LINK_FLAGS,
+    deps = ENN_PY_DEPS + [
+        "//rust/crates/ennbo:ennbo_opencl",
+    ],
+)
+
+alias(
+    name = "enn_rust",
+    actual = select({
+        "@platforms//os:linux": ":enn_rust_opencl",
+        "@platforms//os:macos": ":enn_rust_metal",
+        "@platforms//os:windows": ":enn_rust_opencl",
+        "//conditions:default": ":enn_rust_cpu",
+    }),
+)
+
+copy_extension(
+    name = "python_extension_unix",
+    src = ":enn_rust",
+    output = "enn_rust.so",
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+)
+
+copy_extension(
+    name = "python_extension_windows",
+    src = ":enn_rust",
+    output = "enn_rust.pyd",
+    target_compatible_with = ["@platforms//os:windows"],
+)
+
+alias(
     name = "python_extension",
-    srcs = [":enn_rust"],
-    outs = ["enn_rust.so"],
-    cmd = "cp $(location :enn_rust) $@",
+    actual = select({
+        "@platforms//os:windows": ":python_extension_windows",
+        "//conditions:default": ":python_extension_unix",
+    }),
 )

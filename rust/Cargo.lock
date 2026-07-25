@@ -43,7 +43,7 @@ checksum = "0d8c1fef690941d3e7788d328517591fecc684c084084702d6ff1641e993699a"
 
 [[package]]
 name = "bpann"
-version = "0.2.7"
+version = "0.3.14"
 dependencies = [
  "approx",
  "memmap2",
@@ -198,7 +198,7 @@ checksum = "91622ff5e7162018101f2fea40d6ebf4a78bbe5a49736a2020649edf9693679e"
 
 [[package]]
 name = "ennbo"
-version = "0.2.7"
+version = "0.3.14"
 dependencies = [
  "approx",
  "bpann",
@@ -221,7 +221,7 @@ dependencies = [
 
 [[package]]
 name = "ennbo-py"
-version = "0.2.7"
+version = "0.3.14"
 dependencies = [
  "ennbo",
  "ndarray",

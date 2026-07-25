@@ -1,15 +1,13 @@
 common --enable_bzlmod
 
-# Keep this checkout's Bazel state independent from the original ENNBO checkout.
-startup --output_user_root=/private/tmp/ennbo-bazel-output
-
-# The Rust and native dependencies are large enough that unconstrained local
-# parallelism is counterproductive on a laptop.
-build --jobs=3
-build --local_resources=cpu=4
-build --local_resources=memory=6144
 test --test_output=errors
-test --test_arg=--test-threads=1
+
+# Optional laptop-friendly limits. Public builds and downstream consumers do
+# not inherit machine-specific paths or resource caps.
+build:constrained --jobs=3
+build:constrained --local_resources=cpu=4
+build:constrained --local_resources=memory=6144
+test:constrained --test_arg=--test-threads=1
 
 # Stable platform entry points. Native dependencies use Bazel platform
 # constraints; these defines keep the user-facing configs explicit.

@@ -7,3 +7,5 @@ target/
 results/
 *~
 /bazel-*
+/tests/bazel_consumer/MODULE.bazel.lock
+/tests/bazel_consumer/bazel-*

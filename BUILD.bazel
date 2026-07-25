@@ -1,3 +1,6 @@
+load("@rules_python//python:packaging.bzl", "py_wheel")
+load("//:bazel/python_extension.bzl", "copy_extension")
+
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
@@ -9,7 +12,12 @@ exports_files([
 
 alias(
     name = "rust_core",
-    actual = "//rust/crates/ennbo:ennbo",
+    actual = ":rust_cpu",
+)
+
+alias(
+    name = "rust_cpu",
+    actual = "//rust/crates/ennbo:ennbo_cpu",
 )
 
 alias(
@@ -24,12 +32,91 @@ alias(
 
 alias(
     name = "rust_accelerators",
-    actual = "//rust/crates/ennbo:ennbo_accelerators",
+    actual = select({
+        "@platforms//os:linux": ":rust_opencl",
+        "@platforms//os:macos": ":rust_metal",
+        "@platforms//os:windows": ":rust_opencl",
+        "//conditions:default": ":rust_cpu",
+    }),
+)
+
+alias(
+    name = "rust_metal",
+    actual = "//rust/crates/ennbo:ennbo_metal",
+)
+
+alias(
+    name = "rust_opencl",
+    actual = "//rust/crates/ennbo:ennbo_opencl",
 )
 
 alias(
     name = "python_extension",
-    actual = "//rust/crates/enn-py:enn_rust.so",
+    actual = "//rust/crates/enn-py:python_extension",
+)
+
+filegroup(
+    name = "python_sources",
+    srcs = glob(["src/enn/**/*.py"]),
+)
+
+copy_extension(
+    name = "wheel_extension_unix",
+    src = "//rust/crates/enn-py:python_extension_unix",
+    output = "enn/enn_rust.so",
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+)
+
+copy_extension(
+    name = "wheel_extension_windows",
+    src = "//rust/crates/enn-py:python_extension_windows",
+    output = "enn/enn_rust.pyd",
+    target_compatible_with = ["@platforms//os:windows"],
+)
+
+alias(
+    name = "wheel_extension",
+    actual = select({
+        "@platforms//os:windows": ":wheel_extension_windows",
+        "//conditions:default": ":wheel_extension_unix",
+    }),
+)
+
+py_wheel(
+    name = "python_wheel",
+    abi = "cp313",
+    author = "YUBO Lab",
+    author_email = "david.sweet@yu.edu",
+    deps = [
+        ":python_sources",
+        ":wheel_extension",
+    ],
+    description_file = "README.md",
+    distribution = "ennbo",
+    extra_requires = {
+        "full": [
+            "gpytorch>=1.13",
+            "scipy>=1.15.3",
+            "torch>=2.5.1",
+        ],
+    },
+    homepage = "https://github.com/Kvutza/ennbo",
+    license = "MIT",
+    platform = select({
+        "@platforms//os:linux": "manylinux_2_28_x86_64",
+        "@platforms//os:macos": "macosx_11_0_arm64",
+        "@platforms//os:windows": "win_amd64",
+        "//conditions:default": "any",
+    }),
+    python_requires = ">=3.13,<3.14",
+    python_tag = "cp313",
+    requires = ["numpy>=2.1"],
+    strip_path_prefixes = ["src"],
+    summary = "Epistemic Nearest Neighbors",
+    version = "0.3.14",
 )
 
 test_suite(

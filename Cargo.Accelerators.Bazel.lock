@@ -1,5 +1,5 @@
 {
-  "checksum": "7bd7a24f136dee15ddd46cd6e11f2c05e5ab0fd962e1e6d9d0f33441175c6e0c",
+  "checksum": "c74dfd481ed926216122a91918092bd627c18f18a6a3c9d2edbae4e7cde9b8e8",
   "crates": {
     "bitflags 2.13.1": {
       "name": "bitflags",
@@ -1722,6 +1722,19 @@
         "compile_data_glob": [
           "**"
         ],
+        "crate_features": {
+          "common": [
+            "basetsd",
+            "dbghelp",
+            "errhandlingapi",
+            "libloaderapi",
+            "minwindef",
+            "processthreadsapi",
+            "winerror",
+            "winnt"
+          ],
+          "selects": {}
+        },
         "deps": {
           "common": [
             {
@@ -1917,11 +1930,20 @@
       "aarch64-apple-darwin"
     ],
     "cfg(unix)": [
-      "aarch64-apple-darwin"
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu"
     ],
-    "cfg(windows)": [],
+    "cfg(windows)": [
+      "x86_64-pc-windows-msvc"
+    ],
     "i686-pc-windows-gnu": [],
-    "x86_64-pc-windows-gnu": []
+    "x86_64-pc-windows-gnu": [],
+    "x86_64-pc-windows-msvc": [
+      "x86_64-pc-windows-msvc"
+    ],
+    "x86_64-unknown-linux-gnu": [
+      "x86_64-unknown-linux-gnu"
+    ]
   },
   "direct_deps": [
     "metal 0.33.0",

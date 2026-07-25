@@ -1,0 +1,9 @@
+alias(
+    name = "rust_core",
+    actual = "@ennbo//:rust_core",
+)
+
+alias(
+    name = "python_wheel",
+    actual = "@ennbo//:python_wheel",
+)

@@ -7520,10 +7520,10 @@ packages:
 - pypi: .
   name: ennbo
   requires_dist:
-  - numpy>=1.26.4,<2.0.0 ; extra == 'with-deps'
+  - numpy>=1.26.4,<2.0.0 ; python_full_version < '3.13' and extra == 'with-deps'
+  - numpy>=2.1 ; python_full_version >= '3.13' and extra == 'with-deps'
   - torch>=2.5.1 ; extra == 'with-deps'
   - gpytorch>=1.13 ; extra == 'with-deps'
-  - faiss-cpu>=1.9.0 ; extra == 'with-deps'
   - scipy>=1.15.3 ; extra == 'with-deps'
   - pytest>=8.0 ; extra == 'dev'
   - pytest-testmon>=2.0 ; extra == 'dev'

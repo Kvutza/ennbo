@@ -1,5 +1,5 @@
 {
-  "checksum": "c575391d82a92b60c0825f58bf34981bfe4143fdbde2158bbcc4fba7b0f60e7d",
+  "checksum": "a96048ca017148711e33d44206171ebad8662b53111dbd5872e2dad7381b5b9d",
   "crates": {
     "adler32 1.2.0": {
       "name": "adler32",
@@ -262,9 +262,9 @@
       ],
       "license_file": "LICENSE-APACHE"
     },
-    "bpann 0.2.7": {
+    "bpann 0.3.14": {
       "name": "bpann",
-      "version": "0.2.7",
+      "version": "0.3.14",
       "package_url": "https://github.com/yubo-research/enn",
       "repository": null,
       "targets": [
@@ -337,7 +337,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.2.7"
+        "version": "0.3.14"
       },
       "license": "MIT",
       "license_ids": [
@@ -856,9 +856,9 @@
       ],
       "license_file": "LICENSE-APACHE"
     },
-    "ennbo 0.2.7": {
+    "ennbo 0.3.14": {
       "name": "ennbo",
-      "version": "0.2.7",
+      "version": "0.3.14",
       "package_url": "https://github.com/yubo-research/enn",
       "repository": null,
       "targets": [
@@ -901,7 +901,7 @@
         "deps": {
           "common": [
             {
-              "id": "ennbo 0.2.7",
+              "id": "ennbo 0.3.14",
               "target": "build_script_ennbo_build"
             },
             {
@@ -965,7 +965,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.2.7"
+        "version": "0.3.14"
       },
       "build_script_attrs": {
         "compile_data_glob": [
@@ -993,9 +993,9 @@
       ],
       "license_file": null
     },
-    "ennbo-py 0.2.7": {
+    "ennbo-py 0.3.14": {
       "name": "ennbo-py",
-      "version": "0.2.7",
+      "version": "0.3.14",
       "package_url": "https://github.com/yubo-research/enn",
       "repository": null,
       "targets": [
@@ -1038,7 +1038,7 @@
         "deps": {
           "common": [
             {
-              "id": "ennbo-py 0.2.7",
+              "id": "ennbo-py 0.3.14",
               "target": "build_script_enn_py_build"
             },
             {
@@ -1061,7 +1061,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.2.7"
+        "version": "0.3.14"
       },
       "build_script_attrs": {
         "compile_data_glob": [
@@ -2267,6 +2267,17 @@
         "compile_data_glob": [
           "**"
         ],
+        "crate_features": {
+          "common": [
+            "auxvec",
+            "elf",
+            "errno",
+            "general",
+            "ioctl",
+            "no_std"
+          ],
+          "selects": {}
+        },
         "edition": "2021",
         "version": "0.12.1"
       },
@@ -6498,6 +6509,16 @@
         "compile_data_glob": [
           "**"
         ],
+        "crate_features": {
+          "common": [
+            "Win32",
+            "Win32_Foundation",
+            "Win32_Storage",
+            "Win32_Storage_FileSystem",
+            "default"
+          ],
+          "selects": {}
+        },
         "deps": {
           "common": [
             {
@@ -7391,17 +7412,21 @@
   },
   "binary_crates": [],
   "workspace_members": {
-    "bpann 0.2.7": "rust/crates/bpann",
-    "ennbo 0.2.7": "rust/crates/ennbo",
-    "ennbo-py 0.2.7": "rust/crates/enn-py"
+    "bpann 0.3.14": "rust/crates/bpann",
+    "ennbo 0.3.14": "rust/crates/ennbo",
+    "ennbo-py 0.3.14": "rust/crates/enn-py"
   },
   "conditions": {
     "aarch64-apple-darwin": [
       "aarch64-apple-darwin"
     ],
     "cfg(all(any(target_os = \"linux\", target_os = \"android\"), any(rustix_use_libc, miri, not(all(target_os = \"linux\", any(target_endian = \"little\", any(target_arch = \"s390x\", target_arch = \"powerpc\")), any(target_arch = \"arm\", all(target_arch = \"aarch64\", target_pointer_width = \"64\"), target_arch = \"riscv64\", all(rustix_use_experimental_asm, target_arch = \"powerpc\"), all(rustix_use_experimental_asm, target_arch = \"powerpc64\"), all(rustix_use_experimental_asm, target_arch = \"s390x\"), all(rustix_use_experimental_asm, target_arch = \"mips\"), all(rustix_use_experimental_asm, target_arch = \"mips32r6\"), all(rustix_use_experimental_asm, target_arch = \"mips64\"), all(rustix_use_experimental_asm, target_arch = \"mips64r6\"), target_arch = \"x86\", all(target_arch = \"x86_64\", target_pointer_width = \"64\")))))))": [],
-    "cfg(all(any(target_os = \"linux\", target_os = \"android\"), not(any(all(target_os = \"linux\", target_env = \"\"), getrandom_backend = \"custom\", getrandom_backend = \"linux_raw\", getrandom_backend = \"rdrand\", getrandom_backend = \"rndr\"))))": [],
-    "cfg(all(not(rustix_use_libc), not(miri), target_os = \"linux\", any(target_endian = \"little\", any(target_arch = \"s390x\", target_arch = \"powerpc\")), any(target_arch = \"arm\", all(target_arch = \"aarch64\", target_pointer_width = \"64\"), target_arch = \"riscv64\", all(rustix_use_experimental_asm, target_arch = \"powerpc\"), all(rustix_use_experimental_asm, target_arch = \"powerpc64\"), all(rustix_use_experimental_asm, target_arch = \"s390x\"), all(rustix_use_experimental_asm, target_arch = \"mips\"), all(rustix_use_experimental_asm, target_arch = \"mips32r6\"), all(rustix_use_experimental_asm, target_arch = \"mips64\"), all(rustix_use_experimental_asm, target_arch = \"mips64r6\"), target_arch = \"x86\", all(target_arch = \"x86_64\", target_pointer_width = \"64\"))))": [],
+    "cfg(all(any(target_os = \"linux\", target_os = \"android\"), not(any(all(target_os = \"linux\", target_env = \"\"), getrandom_backend = \"custom\", getrandom_backend = \"linux_raw\", getrandom_backend = \"rdrand\", getrandom_backend = \"rndr\"))))": [
+      "x86_64-unknown-linux-gnu"
+    ],
+    "cfg(all(not(rustix_use_libc), not(miri), target_os = \"linux\", any(target_endian = \"little\", any(target_arch = \"s390x\", target_arch = \"powerpc\")), any(target_arch = \"arm\", all(target_arch = \"aarch64\", target_pointer_width = \"64\"), target_arch = \"riscv64\", all(rustix_use_experimental_asm, target_arch = \"powerpc\"), all(rustix_use_experimental_asm, target_arch = \"powerpc64\"), all(rustix_use_experimental_asm, target_arch = \"s390x\"), all(rustix_use_experimental_asm, target_arch = \"mips\"), all(rustix_use_experimental_asm, target_arch = \"mips32r6\"), all(rustix_use_experimental_asm, target_arch = \"mips64\"), all(rustix_use_experimental_asm, target_arch = \"mips64r6\"), target_arch = \"x86\", all(target_arch = \"x86_64\", target_pointer_width = \"64\"))))": [
+      "x86_64-unknown-linux-gnu"
+    ],
     "cfg(all(target_arch = \"wasm32\", target_os = \"wasi\", target_env = \"p2\"))": [],
     "cfg(all(target_arch = \"wasm32\", target_os = \"wasi\", target_env = \"p3\"))": [],
     "cfg(all(target_os = \"uefi\", getrandom_backend = \"efi_rng\"))": [],
@@ -7413,7 +7438,8 @@
       "aarch64-apple-darwin"
     ],
     "cfg(any(unix, target_os = \"wasi\"))": [
-      "aarch64-apple-darwin"
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu"
     ],
     "cfg(not(target_has_atomic = \"64\"))": [],
     "cfg(not(target_has_atomic = \"ptr\"))": [],
@@ -7423,9 +7449,18 @@
     "cfg(target_os = \"vxworks\")": [],
     "cfg(target_os = \"wasi\")": [],
     "cfg(unix)": [
-      "aarch64-apple-darwin"
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu"
     ],
-    "cfg(windows)": []
+    "cfg(windows)": [
+      "x86_64-pc-windows-msvc"
+    ],
+    "x86_64-pc-windows-msvc": [
+      "x86_64-pc-windows-msvc"
+    ],
+    "x86_64-unknown-linux-gnu": [
+      "x86_64-unknown-linux-gnu"
+    ]
   },
   "direct_deps": [
     "cc 1.2.61",

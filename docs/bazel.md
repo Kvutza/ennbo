@@ -1,75 +1,108 @@
-# Bazel build
+# Bazel build and distribution
 
-This build graph compiles the ENNBO Rust workspace and its native dependencies
-without relying on host package-manager libraries. Bazel owns dependency
-resolution, compilation, tests, and the Python extension artifact.
+Bazel owns native dependency resolution, Rust/C++ compilation, tests, and
+Python wheel creation. A downstream Python project consumes the wheel; a
+downstream Bazel project consumes the public module targets.
+
+## Public targets
+
+| Target | Contents |
+| --- | --- |
+| `//:rust_cpu` | Rust ENNBO with FAISS and BPANN |
+| `//:rust_metal` | CPU target plus Metal kernels; macOS only |
+| `//:rust_opencl` | CPU target plus OpenCL kernels |
+| `//:rust_accelerators` | Host-selected Metal or OpenCL compatibility alias |
+| `//:python_extension` | Host-selected native Python extension |
+| `//:python_wheel` | Python sources plus the native extension |
+
+`//:rust_core` remains a compatibility alias for `//:rust_cpu`.
+
+CPU, Metal, and OpenCL are separate Bazel targets. Metal and OpenCL are no
+longer forced into the same Rust feature closure.
 
 ## Native dependency contract
 
-FAISS is part of every ENNBO build, including Metal and OpenCL builds. The
-accelerator drivers augment the index layer; they do not replace the CPU
-FAISS capability.
+FAISS is present in every native target. Accelerator drivers augment the
+index layer; they do not replace the CPU FAISS capability.
 
-Bazel fetches the checksum-pinned FAISS 1.12.0 source release and compiles both
-`faiss` and `faiss_c` directly. ENNBO's `faiss_bridge.cpp` is a Bazel
-`cc_library` linked into both Rust ENNBO targets. The Cargo build script is
-excluded from the Bazel graph.
+Bazel fetches checksum-pinned FAISS 1.12.0 source and compiles it directly.
+The Rust graph does not run the legacy `faiss-sys` CMake build and does not
+search Homebrew or another host package manager for FAISS.
 
-On macOS:
+On macOS, Bazel uses:
 
-- Bazel's pinned LLVM OpenMP target supplies the OpenMP headers and runtime;
-- the Apple SDK's Accelerate framework supplies BLAS/LAPACK;
-- FAISS and OpenMP are linked statically into the extension;
-- Metal and OpenCL ENNBO features are both enabled.
+- the pinned LLVM OpenMP module;
+- the Apple SDK Accelerate framework for BLAS/LAPACK;
+- the system Metal framework for the host-selected wheel.
 
-No external FAISS installation or native-library search environment is used.
+The explicit `//:rust_opencl` target remains available for OpenCL development
+on macOS, while the default macOS wheel contains Metal rather than both GPU
+stacks.
 
-Build and test the Rust crates:
+Linux and Windows select OpenCL rather than Metal. Bazel also fetches
+checksum-pinned OpenBLAS 0.3.32 source and builds a static library for those
+platforms. The build does not fall back to an ambient `-lopenblas`.
+
+OpenBLAS uses its upstream CMake build through Bazel-managed
+`rules_foreign_cc` toolchains. The source, CMake, and Ninja inputs are resolved
+by Bazel rather than discovered through a user package manager.
+
+## Dependency locking
+
+`Cargo.Bazel.lock` and `Cargo.Accelerators.Bazel.lock` are Crate Universe
+generator lockfiles. They are checked in deliberately: Bzlmod dependency
+modules cannot repin repositories inside a consumer's read-only module cache.
+
+The lockfiles cover:
+
+- `aarch64-apple-darwin`;
+- `x86_64-unknown-linux-gnu`;
+- `x86_64-pc-windows-msvc`.
+
+When Cargo manifests, supported triples, or crate annotations change, repin
+from the ENNBO repository root:
 
 ```sh
-bazel test //:rust_tests --config=macos
-bazel test //bazel/faiss:faiss_index_smoke --config=macos
+CARGO_BAZEL_REPIN=1 bazel build //:rust_cpu
 ```
 
-Build the optimized Python extension:
+Consumers must never patch or regenerate ENNBO's lockfiles.
+
+## Build and test
+
+macOS:
 
 ```sh
-bazel build //:python_extension --config=macos --config=release
+bazel test //:rust_tests //bazel/faiss:faiss_index_smoke --config=macos
+bazel build //:python_wheel --config=macos --config=release
 ```
 
-The resulting local artifact is:
-
-```text
-bazel-bin/rust/crates/enn-py/enn_rust.so
-```
-
-It can be loaded directly from the existing Pixi Python environment:
+Laptop-friendly resource limits are opt-in:
 
 ```sh
-/Users/mehulbafna/Desktop/yubo/ennbo/.pixi/envs/ennbo/bin/python
+bazel build //:python_wheel --config=macos --config=release --config=constrained
 ```
 
-`otool -L bazel-bin/rust/crates/enn-py/enn_rust.so` should show only Apple
-SDK/system libraries, including Metal and Accelerate. It must not contain an
-external FAISS or OpenMP dynamic-library path.
+The wheel appears under `bazel-bin/` and installs normally:
 
-## Platform layout
+```sh
+python -m venv .venv
+.venv/bin/python -m pip install bazel-bin/ennbo-*.whl
+.venv/bin/python -c "import enn, enn.enn_rust"
+```
 
-The pinned FAISS source and Bazel C/C++ targets are shared by every platform.
-Platform constraints select only the native runtime pieces:
+The local wheel target is tagged for CPython 3.13. Other Python minor versions
+require separately compiled wheels; the native extension is not falsely marked
+as a stable-ABI wheel.
 
-| Platform | ENNBO backends | BLAS/LAPACK | OpenMP |
-| --- | --- | --- | --- |
-| macOS | FAISS, BPANN, Metal, OpenCL | Accelerate SDK | Bazel LLVM OpenMP |
-| Linux | FAISS, BPANN, OpenCL | pinned OpenBLAS target | Bazel LLVM OpenMP |
-| Windows | FAISS, BPANN, OpenCL | pinned OpenBLAS target | selected Windows toolchain runtime |
+No user-specific path is part of the build or install contract.
 
-The FAISS target exposes an overridable `@faiss_src//:blas` label. The macOS
-default is complete. Linux and Windows must override that label with the
-checked-in pinned OpenBLAS target when those Rust toolchain lanes are enabled;
-they must not fall back to an ambient `-lopenblas`.
+## Consumer checks
 
-The Bazel module graph is currently restricted to `aarch64-apple-darwin`.
-Linux and Windows get separate crate-universe/toolchain lanes rather than
-unifying target-specific Cargo features into the verified macOS dependency
-graph.
+The repository contains two owner-boundary smoke fixtures:
+
+- `tests/bazel_consumer` consumes ENNBO as a non-root Bzlmod module;
+- `tests/python_consumer/smoke.py` imports an installed wheel.
+
+They exist to catch root-only Crate Universe behavior and malformed wheel
+layouts before a release is published.

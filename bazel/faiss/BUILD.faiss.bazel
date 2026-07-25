@@ -31,6 +31,16 @@ CXX_COPTS = select({
 })
 
 cc_library(
+    name = "blas",
+    deps = select({
+        "@platforms//os:linux": ["@ennbo//bazel/openblas"],
+        "@platforms//os:macos": [":sdk_blas"],
+        "@platforms//os:windows": ["@ennbo//bazel/openblas"],
+        "//conditions:default": [],
+    }),
+)
+
+cc_library(
     name = "sdk_blas",
     linkopts = select({
         "@platforms//os:macos": [
@@ -43,13 +53,6 @@ cc_library(
         "@platforms//os:macos": [],
         "//conditions:default": ["@platforms//:incompatible"],
     }),
-)
-
-# Linux and Windows builds override this label with the pinned OpenBLAS target.
-# macOS deliberately uses the platform SDK's Accelerate framework.
-label_flag(
-    name = "blas",
-    build_setting_default = ":sdk_blas",
 )
 
 FAISS_HEADERS = glob(

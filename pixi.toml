@@ -41,7 +41,11 @@ DYLD_LIBRARY_PATH = "$CONDA_PREFIX/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
 RUSTFLAGS = "-C link-arg=-framework -C link-arg=Accelerate"
 
 [feature.ennbo.tasks]
+bazel-test = "bazel test //:rust_tests //bazel/faiss:faiss_index_smoke"
+bazel-wheel = "bazel build //:python_wheel --config=release"
+bazel-wheel-constrained = "bazel build //:python_wheel --config=release --config=constrained"
 test = "python -m pytest -q tests/test_candidate_gen_direct.py tests/test_raasp_candidates.py tests/parity/test_rust_config_passthrough.py"
+# Legacy Cargo/Maturin developer commands. Release artifacts come from Bazel.
 develop = "maturin develop --release --features metal,opencl"
 develop-metal = "maturin develop --release --features metal"
 develop-opencl = "maturin develop --release --features opencl"
