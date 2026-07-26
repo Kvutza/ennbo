@@ -6,6 +6,7 @@ use rand::Rng;
 use rand::RngCore;
 use sobol::params::JoeKuoD6;
 use sobol::Sobol;
+use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 
 use crate::error::ENNError;
@@ -16,7 +17,8 @@ fn sobol_params() -> &'static JoeKuoD6 {
 }
 
 /// Candidate random variable type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CandidateRV {
     /// Sobol quasi-random sequence.
     Sobol,
@@ -24,6 +26,7 @@ pub enum CandidateRV {
     #[default]
     Uniform,
     /// RAASP (Random Axis-Aligned Subspace Perturbation).
+    #[serde(rename = "raasp")]
     RAASP,
 }
 

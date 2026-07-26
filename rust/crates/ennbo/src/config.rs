@@ -7,6 +7,7 @@ use crate::backend::EnnStorage;
 use crate::surrogate::ENNSurrogateConfig;
 use crate::trust_region::TRLengthConfig;
 use crate::trust_region_config::TrustRegionConfig;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Optimizer configuration.
@@ -118,8 +119,9 @@ impl CandidateConfig {
 }
 
 /// Optional overrides to apply on top of factory default config.
-/// Used for Python→Rust config pass-through.
-#[derive(Debug, Clone, Default)]
+/// Used by configuration frontends without duplicating ENNBO's schema.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct ConfigOverrides {
     pub acquisition: Option<AcquisitionConfig>,
     pub candidate_rv: Option<CandidateRV>,
@@ -139,10 +141,17 @@ pub struct ConfigOverrides {
     pub failure_tolerance_dim: Option<f64>,
     pub enn_storage: Option<EnnStorage>,
     pub work_dir: Option<PathBuf>,
-    pub trust_region_kind: Option<String>,
+    pub trust_region_kind: Option<TrustRegionKind>,
     pub num_metrics: Option<usize>,
     pub alpha: Option<f64>,
-    pub rescalarize: Option<String>,
+    pub rescalarize: Option<Rescalarize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrustRegionKind {
+    Turbo,
+    Morbo,
 }
 
 fn apply_enn_surrogate_fields(
@@ -180,8 +189,8 @@ fn apply_enn_surrogate_fields(
 }
 
 fn apply_trust_region_overrides(overrides: &ConfigOverrides, config: &mut OptimizerConfig) {
-    if let Some(kind) = &overrides.trust_region_kind {
-        if kind == "morbo" {
+    if let Some(kind) = overrides.trust_region_kind {
+        if kind == TrustRegionKind::Morbo {
             let num_metrics = overrides.num_metrics.unwrap_or(2);
             let alpha = overrides.alpha.unwrap_or(0.05);
             let length = TRLengthConfig {
@@ -189,11 +198,7 @@ fn apply_trust_region_overrides(overrides: &ConfigOverrides, config: &mut Optimi
                 length_min: overrides.length_min.unwrap_or(0.5f64.powi(7)),
                 length_max: overrides.length_max.unwrap_or(1.6),
             };
-            let rescalarize = overrides
-                .rescalarize
-                .as_deref()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(Rescalarize::OnPropose);
+            let rescalarize = overrides.rescalarize.unwrap_or(Rescalarize::OnPropose);
             config.trust_region = TrustRegionConfig::Morbo(MorboTRSettings {
                 num_metrics,
                 alpha,
@@ -286,9 +291,11 @@ impl ConfigOverrides {
 }
 
 /// Acquisition function configuration.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AcquisitionConfig {
     /// Upper Confidence Bound.
+    #[serde(rename = "ucb")]
     UCB { beta: f64 },
     /// Thompson sampling.
     Thompson,
@@ -296,6 +303,41 @@ pub enum AcquisitionConfig {
     Random,
     /// Pareto front acquisition (multi-objective).
     Pareto,
+}
+
+#[cfg(test)]
+mod serde_tests {
+    use super::{AcquisitionConfig, ConfigOverrides, TrustRegionKind};
+    use crate::{CandidateRV, Rescalarize};
+
+    #[test]
+    fn config_overrides_deserialize_with_native_field_names() {
+        let parsed: ConfigOverrides = toml::from_str(
+            r#"
+            acquisition = { ucb = { beta = 3.5 } }
+            candidate_rv = "sobol"
+            num_fit_samples = 14
+            trust_region_kind = "morbo"
+            rescalarize = "on_propose"
+            "#,
+        )
+        .unwrap();
+
+        assert!(matches!(
+            parsed.acquisition,
+            Some(AcquisitionConfig::UCB { beta: 3.5 })
+        ));
+        assert_eq!(parsed.candidate_rv, Some(CandidateRV::Sobol));
+        assert_eq!(parsed.num_fit_samples, Some(14));
+        assert_eq!(parsed.trust_region_kind, Some(TrustRegionKind::Morbo));
+        assert_eq!(parsed.rescalarize, Some(Rescalarize::OnPropose));
+    }
+
+    #[test]
+    fn config_overrides_reject_unknown_fields() {
+        let error = toml::from_str::<ConfigOverrides>("fit_samples = 10").unwrap_err();
+        assert!(error.to_string().contains("unknown field"));
+    }
 }
 
 impl Default for AcquisitionConfig {
@@ -501,7 +543,7 @@ mod tests {
         use rand::SeedableRng;
 
         let overrides = ConfigOverrides {
-            trust_region_kind: Some("morbo".to_string()),
+            trust_region_kind: Some(TrustRegionKind::Morbo),
             num_metrics: Some(1),
             ..Default::default()
         };
@@ -589,7 +631,7 @@ mod tests {
     #[test]
     fn morbo_config_missing_rescalarize_defaults_on_propose() {
         let overrides = ConfigOverrides {
-            trust_region_kind: Some("morbo".to_string()),
+            trust_region_kind: Some(TrustRegionKind::Morbo),
             num_metrics: Some(2),
             ..Default::default()
         };

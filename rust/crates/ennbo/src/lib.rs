@@ -53,7 +53,7 @@ pub use backend::{EnnBackend, EnnStorage, InMemoryEnnBackend};
 pub use candidates::{from_unit, generate_candidates, generate_lhd, to_unit, CandidateRV};
 pub use config::{
     lhd_only_config, turbo_enn_config, turbo_zero_config, AcquisitionConfig, CandidateConfig,
-    ConfigOverrides, InitStrategy, OptimizerConfig, SurrogateConfig,
+    ConfigOverrides, InitStrategy, OptimizerConfig, SurrogateConfig, TrustRegionKind,
 };
 pub use file_config::{
     default_config_path, install_bpann_tuning_from_config, set_config_path, BpannConfig, Config,

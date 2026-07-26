@@ -3,10 +3,12 @@
 use ndarray::{Array1, ArrayView1, ArrayView2};
 use rand::Rng;
 use rand::RngCore;
+use serde::{Deserialize, Serialize};
 
 use crate::trust_region::{TRLengthConfig, TrustRegionError, TurboTrustRegion};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Rescalarize {
     OnRestart,
     OnPropose,

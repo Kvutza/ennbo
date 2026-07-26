@@ -10,6 +10,7 @@ pub use crate::disk_bpann::DiskBpannEnnBackend;
 pub(crate) use flush_controller::DiskBackendHandle;
 
 use ndarray::{Array1, Array2, ArrayView2};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
@@ -19,7 +20,8 @@ use crate::index::{ENNIndex, IndexDriver};
 /// Gathered training rows: `x`, `y`, optional `yvar`.
 pub(crate) type TrainRowsAtResult = (Array2<f64>, Array2<f64>, Option<Array2<f64>>);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum EnnStorage {
     InMemory,
     Disk,
