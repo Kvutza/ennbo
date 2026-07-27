@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from enn import create_optimizer
-from enn.benchmarks import DoubleAckley
-from enn.turbo.config import MorboTRConfig, MultiObjectiveConfig, turbo_one_config
+from ennx import create_optimizer
+from ennx.benchmarks import DoubleAckley
+from ennx.turbo.config import MorboTRConfig, MultiObjectiveConfig, turbo_one_config
 
 
 @pytest.mark.slow

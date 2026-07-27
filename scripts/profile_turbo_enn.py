@@ -8,12 +8,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from enn import create_optimizer
-from enn.turbo.config.acq_type import AcqType
-from enn.turbo.config.candidate_gen_config import CandidateGenConfig
-from enn.turbo.config.enn_surrogate_config import ENNFitConfig, ENNSurrogateConfig
-from enn.turbo.config.factory import turbo_enn_config
-from enn.turbo.config.trust_region import TurboTRConfig
+from ennx import create_optimizer
+from ennx.turbo.config.acq_type import AcqType
+from ennx.turbo.config.candidate_gen_config import CandidateGenConfig
+from ennx.turbo.config.enn_surrogate_config import ENNFitConfig, ENNSurrogateConfig
+from ennx.turbo.config.factory import turbo_enn_config
+from ennx.turbo.config.trust_region import TurboTRConfig
 
 
 @dataclass(frozen=True)

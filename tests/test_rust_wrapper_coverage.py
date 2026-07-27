@@ -36,13 +36,13 @@ class _FakeInner:
 
 
 def test_rust_optimizer_wrapper_methods():
-    from enn.turbo.config import (
+    from ennx.turbo.config import (
         AcqType,
         ENNFitConfig,
         ENNSurrogateConfig,
         turbo_enn_config,
     )
-    from enn.turbo.rust_optimizer import RustOptimizer, is_rust_supported_config
+    from ennx.turbo.rust_optimizer import RustOptimizer, is_rust_supported_config
 
     cfg = turbo_enn_config(
         acq_type=AcqType.UCB,
@@ -87,7 +87,7 @@ def test_rust_optimizer_wrapper_methods():
 
 
 def test__rust_module_exports_optimizer_when_available():
-    import enn._rust as rust_mod
+    import ennx._rust as rust_mod
 
     assert hasattr(rust_mod, "Optimizer")
     assert callable(rust_mod.sobol_sequence)
@@ -99,9 +99,9 @@ def test__rust_module_exports_optimizer_when_available():
 
 
 def test_rust_optimizer_factory_rust_and_python_paths(monkeypatch):
-    import enn.turbo.python_fallback.optimizer as py_opt
-    import enn.turbo.rust_optimizer as ro
-    from enn.turbo.config import (
+    import ennx.turbo.python_fallback.optimizer as py_opt
+    import ennx.turbo.rust_optimizer as ro
+    from ennx.turbo.config import (
         AcqType,
         ENNFitConfig,
         ENNSurrogateConfig,
@@ -130,7 +130,7 @@ def test_rust_optimizer_factory_rust_and_python_paths(monkeypatch):
     assert created["args"][1] == 5
     assert created["args"][2] == 3
 
-    from enn.turbo.rust_optimizer_helpers import DEFAULT_ENN_K
+    from ennx.turbo.rust_optimizer_helpers import DEFAULT_ENN_K
 
     cfg_default_k = turbo_enn_config(
         acq_type=AcqType.PARETO,
@@ -153,8 +153,8 @@ def test_rust_optimizer_factory_rust_and_python_paths(monkeypatch):
 
 
 def test_rust_optimizer_factory_no_surrogate_path(monkeypatch):
-    import enn.turbo.rust_optimizer as ro
-    from enn.turbo.config import turbo_zero_config
+    import ennx.turbo.rust_optimizer as ro
+    from ennx.turbo.config import turbo_zero_config
 
     called = {}
 
@@ -172,8 +172,8 @@ def test_rust_optimizer_factory_no_surrogate_path(monkeypatch):
 
 
 def test_rust_optimizer_factory_lhd_only_path(monkeypatch):
-    import enn.turbo.rust_optimizer as ro
-    from enn.turbo.config import lhd_only_config
+    import ennx.turbo.rust_optimizer as ro
+    from ennx.turbo.config import lhd_only_config
 
     called = {}
 
@@ -191,7 +191,7 @@ def test_rust_optimizer_factory_lhd_only_path(monkeypatch):
 
 
 def test_rust_optimizer_factory_unsupported_surrogate_errors(monkeypatch):
-    import enn.turbo.rust_optimizer as ro
+    import ennx.turbo.rust_optimizer as ro
 
     class _Cfg:
         def __init__(self):

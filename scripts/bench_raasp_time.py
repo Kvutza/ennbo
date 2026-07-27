@@ -34,8 +34,8 @@ def _bench_one(
 ) -> float:
     from scipy.stats import qmc
 
-    from enn.turbo.config.candidate_rv import CandidateRV
-    from enn.turbo.python_fallback.turbo_utils import generate_raasp_candidates
+    from ennx.turbo.config.candidate_rv import CandidateRV
+    from ennx.turbo.python_fallback.turbo_utils import generate_raasp_candidates
 
     center, lb, ub = box
     rng = np.random.default_rng(rep_seed)

@@ -1,9 +1,9 @@
 from typing import Protocol
 
-from enn.turbo.python_fallback.components.incumbent_selector_protocol import (
+from ennx.turbo.python_fallback.components.incumbent_selector_protocol import (
     IncumbentSelector,
 )
-from enn.turbo.python_fallback.components.protocols import (
+from ennx.turbo.python_fallback.components.protocols import (
     AcquisitionOptimizer,
     Surrogate,
     TrustRegion,

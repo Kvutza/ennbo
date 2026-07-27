@@ -10,8 +10,8 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from enn import AcqType, create_optimizer, turbo_enn_config
-from enn.turbo.config import ENNFitConfig, ENNSurrogateConfig
+from ennx import AcqType, create_optimizer, turbo_enn_config
+from ennx.turbo.config import ENNFitConfig, ENNSurrogateConfig
 
 
 def make_bounds(num_dim: int) -> np.ndarray:

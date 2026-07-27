@@ -33,9 +33,9 @@ CXX_COPTS = select({
 cc_library(
     name = "blas",
     deps = select({
-        "@platforms//os:linux": ["@ennbo//bazel/openblas"],
+        "@platforms//os:linux": ["@ennx//bazel/openblas"],
         "@platforms//os:macos": [":sdk_blas"],
-        "@platforms//os:windows": ["@ennbo//bazel/openblas"],
+        "@platforms//os:windows": ["@ennx//bazel/openblas"],
         "//conditions:default": [],
     }),
 )

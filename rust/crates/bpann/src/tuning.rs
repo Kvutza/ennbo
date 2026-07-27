@@ -1,7 +1,7 @@
 //! Process-wide BPANN tuning values.
 //!
-//! Defaults match the historical hardcoded defaults. When the `ennbo` crate is
-//! used, it installs a provider that reads `~/.ennbo/config.toml`.
+//! Defaults match the historical hardcoded defaults. When the `ennx` crate is
+//! used, it installs a provider that reads `~/.ennx/config.toml`.
 
 use std::sync::RwLock;
 

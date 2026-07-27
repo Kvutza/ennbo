@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from enn.turbo.config.morbo_tr_config import MorboTRConfig, MultiObjectiveConfig
-from enn.turbo.python_fallback.morbo_trust_region import MorboTrustRegion
+from ennx.turbo.config.morbo_tr_config import MorboTRConfig, MultiObjectiveConfig
+from ennx.turbo.python_fallback.morbo_trust_region import MorboTrustRegion
 
 
 def test_morbo_resample_weights():
@@ -42,8 +42,8 @@ def test_morbo_inner_trust_region_applies_updates_after_restart_without_interven
 
 
 def test_morbo_restart_resamples():
-    from enn.turbo.config import Rescalarize
-    from enn.turbo.config.morbo_tr_config import RescalePolicyConfig
+    from ennx.turbo.config import Rescalarize
+    from ennx.turbo.config.morbo_tr_config import RescalePolicyConfig
 
     rng = np.random.default_rng(42)
     config = MorboTRConfig(

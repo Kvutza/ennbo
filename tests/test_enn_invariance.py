@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from enn.enn.enn_class import EpistemicNearestNeighbors
-from enn.enn.enn_params import ENNParams
+from ennx.ennx.enn_class import EpistemicNearestNeighbors
+from ennx.ennx.enn_params import ENNParams
 
 
 def _params(

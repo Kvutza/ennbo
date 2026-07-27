@@ -4,7 +4,7 @@ import conftest
 import numpy as np
 import pytest
 
-from enn.turbo.config import (
+from ennx.turbo.config import (
     AcqType,
     CandidateGenConfig,
     CandidateRV,
@@ -19,7 +19,7 @@ from enn.turbo.config import (
     turbo_one_config,
     turbo_zero_config,
 )
-from enn.turbo.python_fallback.optimizer import (
+from ennx.turbo.python_fallback.optimizer import (
     create_optimizer as create_fallback_optimizer,
 )
 
@@ -29,7 +29,7 @@ def _make_fallback_optimizer(*, bounds, config, rng):
 
 
 def _make_rust_optimizer(*, bounds, config, rng):
-    from enn import create_optimizer
+    from ennx import create_optimizer
 
     return create_optimizer(bounds=bounds, config=config, rng=rng)
 
@@ -51,7 +51,7 @@ def test_turbo_fallback_called_during_init_with_observations():
 
 
 def _run_bo(config: OptimizerConfig, num_steps: int = 4) -> float:
-    from enn import create_optimizer
+    from ennx import create_optimizer
 
     bounds = np.array([[-1.0, 1.0], [-1.0, 1.0]], dtype=float)
     rng = np.random.default_rng(0)
@@ -66,7 +66,7 @@ def _run_bo(config: OptimizerConfig, num_steps: int = 4) -> float:
 
 
 def test_turbo_zero_ask_tell_and_shape():
-    from enn import create_optimizer
+    from ennx import create_optimizer
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(0)
@@ -79,7 +79,7 @@ def test_turbo_zero_ask_tell_and_shape():
 
 
 def test_optimizer_accepts_list_bounds():
-    from enn import create_optimizer
+    from ennx import create_optimizer
 
     opt = create_optimizer(
         bounds=[[0.0, 1.0], [0.0, 1.0]],
@@ -92,8 +92,8 @@ def test_optimizer_accepts_list_bounds():
 def test_optimizer_uniform_candidates_never_calls_sobol():
     from unittest import mock
 
-    from enn import create_optimizer
-    from enn.turbo.optimizer_config import turbo_zero_config
+    from ennx import create_optimizer
+    from ennx.turbo.optimizer_config import turbo_zero_config
 
     def _sobol_raises(*args, **kwargs):
         raise RuntimeError(
@@ -130,7 +130,7 @@ def test_turbo_one_improves_on_sphere():
 
 @pytest.mark.slow
 def test_turbo_one_pareto_ask_tell_runs():
-    from enn import create_optimizer
+    from ennx import create_optimizer
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(42)
@@ -147,8 +147,8 @@ def test_turbo_one_pareto_ask_tell_runs():
 
 @pytest.mark.slow
 def test_turbo_one_with_y_var_uses_noisy_gp():
-    from enn import create_optimizer
-    from enn.turbo.python_fallback.turbo_gp_noisy import TurboGPNoisy
+    from ennx import create_optimizer
+    from ennx.turbo.python_fallback.turbo_gp_noisy import TurboGPNoisy
 
     bounds = np.array([[-1.0, 1.0], [-1.0, 1.0]], dtype=float)
     rng = np.random.default_rng(42)
@@ -183,7 +183,7 @@ def test_turbo_enn_with_k_none_fits_hyperparameters():
 
 def test_turbo_enn_config_scale_x_flag_runs():
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
-    from enn.turbo.optimizer_config import ENNSurrogateConfig
+    from ennx.turbo.optimizer_config import ENNSurrogateConfig
 
     opt = _make_rust_optimizer(
         bounds=bounds,
@@ -198,8 +198,8 @@ def test_turbo_enn_config_scale_x_flag_runs():
 
 
 def test_find_x_center_uses_top_k_for_mu_single_objective():
-    from enn.turbo.python_fallback.components.posterior_result import PosteriorResult
-    from enn.turbo.optimizer_config import TurboTRConfig
+    from ennx.turbo.python_fallback.components.posterior_result import PosteriorResult
+    from ennx.turbo.optimizer_config import TurboTRConfig
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(0)
@@ -230,8 +230,8 @@ def test_find_x_center_uses_top_k_for_mu_single_objective():
 
 
 def test_find_x_center_uses_top_k_union_for_multiobjective():
-    from enn.turbo.python_fallback.components.posterior_result import PosteriorResult
-    from enn.turbo.optimizer_config import MorboTRConfig
+    from ennx.turbo.python_fallback.components.posterior_result import PosteriorResult
+    from ennx.turbo.optimizer_config import MorboTRConfig
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(0)
@@ -394,7 +394,7 @@ def test_turbo_one_trust_region_update_is_noise_robust_to_spikes():
 
 def test_turbo_enn_tr_values_do_not_require_full_history_denoising():
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
-    from enn.turbo.config import (
+    from ennx.turbo.config import (
         AcqType,
         CandidateGenConfig,
         ENNSurrogateConfig,

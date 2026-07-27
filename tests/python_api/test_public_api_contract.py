@@ -4,19 +4,19 @@ import inspect
 
 
 class TestPublicAPIExports:
-    """Verify public API surface is exported correctly from enn package."""
+    """Verify public API surface is exported correctly from ennx package."""
 
     def test_all_lazy_attrs_available(self):
         """All _LAZY_ATTRS entries must be importable."""
-        import enn
+        import ennx
 
-        for name in enn._LAZY_ATTRS:
-            attr = getattr(enn, name)
+        for name in ennx._LAZY_ATTRS:
+            attr = getattr(ennx, name)
             assert attr is not None, f"Attribute {name} not found"
 
     def test_epistemic_nearest_neighbors_class(self):
         """EpistemicNearestNeighbors is a class with expected signature."""
-        from enn import EpistemicNearestNeighbors
+        from ennx import EpistemicNearestNeighbors
 
         assert inspect.isclass(EpistemicNearestNeighbors)
         # Check constructor signature has required parameters
@@ -27,19 +27,19 @@ class TestPublicAPIExports:
         assert "train_yvar" in params
 
     def test_enn_stateful_fitter_class(self):
-        from enn import ENNStatefulFitter
+        from ennx import ENNStatefulFitter
 
         assert ENNStatefulFitter is not None
 
     def test_create_optimizer_function(self):
         """create_optimizer is a callable function."""
-        from enn import create_optimizer
+        from ennx import create_optimizer
 
         assert callable(create_optimizer)
 
     def test_config_classes(self):
         """All config classes are available and constructible."""
-        from enn import (
+        from ennx import (
             MorboTRConfig,
             NoTRConfig,
             OptimizerConfig,
@@ -54,7 +54,7 @@ class TestPublicAPIExports:
 
     def test_config_factory_functions(self):
         """All config factory functions are callable."""
-        from enn import (
+        from ennx import (
             lhd_only_config,
             turbo_enn_config,
             turbo_one_config,
@@ -68,13 +68,13 @@ class TestPublicAPIExports:
 
     def test_telemetry_class(self):
         """Telemetry class is available."""
-        from enn import Telemetry
+        from ennx import Telemetry
 
         assert inspect.isclass(Telemetry)
 
     def test_enum_types(self):
         """Enum types are available."""
-        from enn import AcqType, CandidateRV, InitStrategy
+        from ennx import AcqType, CandidateRV, InitStrategy
 
         assert inspect.isclass(CandidateRV)
         assert inspect.isclass(InitStrategy)
@@ -86,6 +86,6 @@ class TestPublicAPIImmutability:
 
     def test_all_list_matches_lazy_attrs(self):
         """__all__ must match _LAZY_ATTRS keys."""
-        import enn
+        import ennx
 
-        assert set(enn.__all__) == set(enn._LAZY_ATTRS.keys())
+        assert set(ennx.__all__) == set(ennx._LAZY_ATTRS.keys())

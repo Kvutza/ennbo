@@ -1,6 +1,6 @@
 import numpy as np
 
-from enn.enn_rust import optimizer
+from ennx.ennx_rust import optimizer
 
 
 def _leaves():

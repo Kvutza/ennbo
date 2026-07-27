@@ -7,8 +7,8 @@ import inspect
 import numpy as np
 import pytest
 
-from enn import EpistemicNearestNeighbors
-from enn.enn.enn_params import ENNParams, PosteriorFlags
+from ennx import EpistemicNearestNeighbors
+from ennx.ennx.enn_params import ENNParams, PosteriorFlags
 
 
 @pytest.fixture

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from enn.turbo.config import turbo_zero_config
-from enn.turbo.python_fallback.optimizer_generate import (
+from ennx.turbo.config import turbo_zero_config
+from ennx.turbo.python_fallback.optimizer_generate import (
     _CandidateGenContext,
     generate_optimizer_candidates,
 )
-from enn.turbo.python_fallback.turbo_trust_region import TurboTrustRegion
+from ennx.turbo.python_fallback.turbo_trust_region import TurboTrustRegion
 
 
 def test_generate_optimizer_candidates_sobol_path():

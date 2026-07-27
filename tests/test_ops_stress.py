@@ -6,7 +6,7 @@ import time
 import numpy as np
 import pytest
 
-from enn.turbo.config.enn_index_driver import ENNIndexDriver
+from ennx.turbo.config.enn_index_driver import ENNIndexDriver
 
 pytestmark = pytest.mark.slow
 
@@ -306,7 +306,7 @@ def test_run_enn_add_stress_segment_is_library_time_only(monkeypatch):
 
 
 def test_run_enn_add_stress_does_not_fit(monkeypatch):
-    from enn.enn.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
 
     tell_calls: list[int] = []
     ask_calls: list[int] = []

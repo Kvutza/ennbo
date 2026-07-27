@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from enn.enn.enn_class import EpistemicNearestNeighbors
-from enn.enn.enn_params import ENNParams
+from ennx.ennx.enn_class import EpistemicNearestNeighbors
+from ennx.ennx.enn_params import ENNParams
 
 from enn_helpers import enn_all_train_rows
 

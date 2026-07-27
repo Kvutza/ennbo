@@ -1,5 +1,5 @@
 {
-  "checksum": "c74dfd481ed926216122a91918092bd627c18f18a6a3c9d2edbae4e7cde9b8e8",
+  "checksum": "2e46149f8a63f31bb5b492faf83998551e7c2a8a718605c382615779ff3be101",
   "crates": {
     "bitflags 2.13.1": {
       "name": "bitflags",

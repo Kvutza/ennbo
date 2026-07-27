@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from enn import create_optimizer, turbo_enn_config, turbo_one_config, turbo_zero_config
-from enn.turbo.config import (
+from ennx import create_optimizer, turbo_enn_config, turbo_one_config, turbo_zero_config
+from ennx.turbo.config import (
     AcqType,
     CandidateGenConfig,
     ENNFitConfig,
@@ -13,12 +13,12 @@ from enn.turbo.config import (
     MultiObjectiveConfig,
     lhd_only_config,
 )
-from enn.turbo.fallback_registry import FALLBACK_REGISTRY, fallback_reason
-from enn.turbo.rust_optimizer import RustOptimizer, is_rust_supported_config
-from enn.turbo.rust_optimizer_helpers import DEFAULT_ENN_K, resolve_enn_k
+from ennx.turbo.fallback_registry import FALLBACK_REGISTRY, fallback_reason
+from ennx.turbo.rust_optimizer import RustOptimizer, is_rust_supported_config
+from ennx.turbo.rust_optimizer_helpers import DEFAULT_ENN_K, resolve_enn_k
 
 try:
-    from enn._rust import Optimizer  # noqa: F401
+    from ennx._rust import Optimizer  # noqa: F401
 
     RUST_AVAILABLE = True
 except ImportError:
@@ -94,7 +94,7 @@ def test_fallback_registry_has_one_entry():
 
 
 def test_supported_enn_create_does_not_call_python_optimizer(monkeypatch):
-    import enn.turbo.python_fallback.optimizer as py_optimizer
+    import ennx.turbo.python_fallback.optimizer as py_optimizer
 
     def _fail(**_kwargs):
         raise AssertionError(

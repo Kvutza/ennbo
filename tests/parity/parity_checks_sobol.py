@@ -60,7 +60,7 @@ def run_sobol_sequence_parity(report: ParityReport) -> None:
         return
 
     try:
-        from enn._rust import sobol_sequence
+        from ennx._rust import sobol_sequence
     except ImportError:
         append_skipped_case(
             report,

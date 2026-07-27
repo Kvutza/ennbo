@@ -6,8 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
-from enn import create_optimizer
-from enn.turbo.config import (
+from ennx import create_optimizer
+from ennx.turbo.config import (
     AcqType,
     ENNFitConfig,
     ENNSurrogateConfig,

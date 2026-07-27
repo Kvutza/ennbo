@@ -6,8 +6,8 @@ import inspect
 
 import numpy as np
 
-from enn import ENNStatefulFitter, EpistemicNearestNeighbors
-from enn.enn.enn_params import ENNParams
+from ennx import ENNStatefulFitter, EpistemicNearestNeighbors
+from ennx.ennx.enn_params import ENNParams
 
 
 class TestENNStatefulFitterContract:

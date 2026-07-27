@@ -5,13 +5,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from enn import create_optimizer, turbo_enn_config, turbo_zero_config
-from enn.turbo.config import CandidateGenConfig, ENNFitConfig, ENNSurrogateConfig
-from enn.turbo.rust_optimizer import RustOptimizer
-from enn.turbo.rust_optimizer_helpers import _config_to_rust_overrides
+from ennx import create_optimizer, turbo_enn_config, turbo_zero_config
+from ennx.turbo.config import CandidateGenConfig, ENNFitConfig, ENNSurrogateConfig
+from ennx.turbo.rust_optimizer import RustOptimizer
+from ennx.turbo.rust_optimizer_helpers import _config_to_rust_overrides
 
 try:
-    from enn import _rust  # noqa: F401
+    from ennx import _rust  # noqa: F401
 
     RUST_AVAILABLE = True
 except ImportError:

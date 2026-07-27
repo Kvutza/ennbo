@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 from scipy.stats import qmc
 
-from enn.enn.enn_class import EpistemicNearestNeighbors
-from enn.enn.enn_class_support import enn_neighbor_distances_and_indices
-from enn.enn.enn_params import ENNParams
-from enn.turbo.python_fallback.turbo_utils import (
+from ennx.ennx.enn_class import EpistemicNearestNeighbors
+from ennx.ennx.enn_class_support import enn_neighbor_distances_and_indices
+from ennx.ennx.enn_params import ENNParams
+from ennx.turbo.python_fallback.turbo_utils import (
     generate_raasp_candidates,
     generate_raasp_candidates_uniform,
 )
@@ -53,7 +53,7 @@ def benchmark_d_scaling(ds=[100, 1000, 5000, 10000], n=1000, num_candidates=5000
         center = np.full(d, 0.5)
         lb, ub = np.zeros(d), np.ones(d)
         sobol = qmc.Sobol(d=d, scramble=True, seed=0)
-        from enn.turbo.config.candidate_rv import CandidateRV
+        from ennx.turbo.config.candidate_rv import CandidateRV
 
         _ = generate_raasp_candidates(
             center,

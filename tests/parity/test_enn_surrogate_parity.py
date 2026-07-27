@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 try:
-    from enn._rust import EpistemicNearestNeighbors as RustENN
+    from ennx._rust import EpistemicNearestNeighbors as RustENN
 
     RUST_AVAILABLE = True
 except ImportError:
@@ -20,8 +20,8 @@ def test_enn_posterior_rust_vs_python():
 
     Cross-language parity for the core ENN model used by ENNSurrogate.
     """
-    from enn import EpistemicNearestNeighbors as PyENN
-    from enn.enn.enn_params import ENNParams, PosteriorFlags
+    from ennx import EpistemicNearestNeighbors as PyENN
+    from ennx.ennx.enn_params import ENNParams, PosteriorFlags
 
     train_x = np.array(
         [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]],

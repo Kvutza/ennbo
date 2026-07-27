@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from enn import create_optimizer
-from enn.turbo.rust_optimizer import is_rust_supported_config
+from ennx import create_optimizer
+from ennx.turbo.rust_optimizer import is_rust_supported_config
 
 
 def assert_rust_optimizer_tr_obs_after_cycles(

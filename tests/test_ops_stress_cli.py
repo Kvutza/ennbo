@@ -12,7 +12,7 @@ _STRESS_ROW_RE = re.compile(r" *\d+ \d+\.\d{4} \d+\.\d{4}")
 def test_enn_stress_cli_does_not_fit(monkeypatch):
     from click.testing import CliRunner
 
-    from enn.enn.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
     from ops.stress import cli
 
     tell_calls: list[int] = []

@@ -3,15 +3,15 @@ from __future__ import annotations
 import numpy as np
 from scipy.stats import qmc
 
-from enn.turbo.config import Rescalarize
-from enn.turbo.config.morbo_tr_config import (
+from ennx.turbo.config import Rescalarize
+from ennx.turbo.config.morbo_tr_config import (
     MorboTRConfig,
     MultiObjectiveConfig,
     RescalePolicyConfig,
 )
-from enn.turbo.config.turbo_tr_config import TRLengthConfig, TurboTRConfig
-from enn.turbo.python_fallback.morbo_trust_region import MorboTrustRegion
-from enn.turbo.python_fallback.turbo_trust_region import TurboTrustRegion
+from ennx.turbo.config.turbo_tr_config import TRLengthConfig, TurboTRConfig
+from ennx.turbo.python_fallback.morbo_trust_region import MorboTrustRegion
+from ennx.turbo.python_fallback.turbo_trust_region import TurboTrustRegion
 
 
 def test_trust_region_state_update_and_restart_and_bounds():

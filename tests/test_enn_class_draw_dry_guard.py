@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from enn.enn.enn_class import EpistemicNearestNeighbors
-from enn.enn.enn_params import ENNParams, PosteriorFlags
+from ennx.ennx.enn_class import EpistemicNearestNeighbors
+from ennx.ennx.enn_params import ENNParams, PosteriorFlags
 
 
 def _tiny_model():
@@ -89,7 +89,7 @@ def test_function_draw_golden_values_fixed_seed_arrays():
     draws, _idx = model.posterior_function_draw(
         x, params, function_seeds=seeds, flags=PosteriorFlags()
     )
-    # Expected from enn EpistemicNearestNeighbors + Rust draw path (fixed data/seeds).
+    # Expected from ennx EpistemicNearestNeighbors + Rust draw path (fixed data/seeds).
     # Shape is (batch, metrics, num_samples) to match posterior().sample().
     expected = np.array(
         [[[-0.71338448, -0.40793862]]],

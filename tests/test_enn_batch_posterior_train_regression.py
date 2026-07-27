@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from enn.enn.enn_class import EpistemicNearestNeighbors
-from enn.enn.enn_params import ENNParams, PosteriorFlags
+from ennx.ennx.enn_class import EpistemicNearestNeighbors
+from ennx.ennx.enn_params import ENNParams, PosteriorFlags
 
 
 def _user_reported_train_data(rng: np.random.Generator):

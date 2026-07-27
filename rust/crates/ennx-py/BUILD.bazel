@@ -1,0 +1,106 @@
+load("@crates//:defs.bzl", "aliases", "all_crate_deps", "crate_edition")
+load("@rules_rust//rust:defs.bzl", "rust_shared_library")
+load("//:bazel/python_extension.bzl", "copy_extension")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["Cargo.toml"])
+
+ENNX_PY_SRCS = glob(
+    ["src/**/*.rs"],
+    exclude = ["src/ennx_py_build.rs"],
+)
+
+ENNX_PY_DEPS = all_crate_deps(normal = True)
+
+PYO3_LINK_FLAGS = select({
+    "@platforms//os:macos": [
+        "-Clink-arg=-undefined",
+        "-Clink-arg=dynamic_lookup",
+    ],
+    "//conditions:default": [],
+})
+
+rust_shared_library(
+    name = "ennx_rust_cpu",
+    srcs = ENNX_PY_SRCS,
+    aliases = aliases(),
+    crate_name = "ennx_rust",
+    crate_root = "src/lib.rs",
+    edition = crate_edition(),
+    rustc_env = {
+        "CARGO_MANIFEST_DIR": "rust/crates/ennx-py",
+    },
+    rustc_flags = PYO3_LINK_FLAGS,
+    deps = ENNX_PY_DEPS + [
+        "//rust/crates/ennx:ennx_cpu",
+    ],
+)
+
+rust_shared_library(
+    name = "ennx_rust_metal",
+    srcs = ENNX_PY_SRCS,
+    aliases = aliases(),
+    crate_name = "ennx_rust",
+    crate_root = "src/lib.rs",
+    edition = crate_edition(),
+    rustc_env = {
+        "CARGO_MANIFEST_DIR": "rust/crates/ennx-py",
+    },
+    rustc_flags = PYO3_LINK_FLAGS,
+    deps = ENNX_PY_DEPS + [
+        "//rust/crates/ennx:ennx_metal",
+    ],
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
+rust_shared_library(
+    name = "ennx_rust_opencl",
+    srcs = ENNX_PY_SRCS,
+    aliases = aliases(),
+    crate_name = "ennx_rust",
+    crate_root = "src/lib.rs",
+    edition = crate_edition(),
+    rustc_env = {
+        "CARGO_MANIFEST_DIR": "rust/crates/ennx-py",
+    },
+    rustc_flags = PYO3_LINK_FLAGS,
+    deps = ENNX_PY_DEPS + [
+        "//rust/crates/ennx:ennx_opencl",
+    ],
+)
+
+alias(
+    name = "ennx_rust",
+    actual = select({
+        "@platforms//os:linux": ":ennx_rust_opencl",
+        "@platforms//os:macos": ":ennx_rust_metal",
+        "@platforms//os:windows": ":ennx_rust_opencl",
+        "//conditions:default": ":ennx_rust_cpu",
+    }),
+)
+
+copy_extension(
+    name = "python_extension_unix",
+    src = ":ennx_rust",
+    output = "ennx_rust.so",
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+)
+
+copy_extension(
+    name = "python_extension_windows",
+    src = ":ennx_rust",
+    output = "ennx_rust.pyd",
+    target_compatible_with = ["@platforms//os:windows"],
+)
+
+alias(
+    name = "python_extension",
+    actual = select({
+        "@platforms//os:windows": ":python_extension_windows",
+        "//conditions:default": ":python_extension_unix",
+    }),
+)

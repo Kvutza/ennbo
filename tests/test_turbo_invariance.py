@@ -4,13 +4,13 @@ import conftest
 import numpy as np
 import pytest
 
-from enn.turbo.config import (
+from ennx.turbo.config import (
     OptimizerConfig,
     turbo_enn_config,
     turbo_one_config,
     turbo_zero_config,
 )
-from enn.turbo.python_fallback.turbo_utils import to_unit
+from ennx.turbo.python_fallback.turbo_utils import to_unit
 
 
 @pytest.mark.parametrize(
@@ -23,7 +23,7 @@ from enn.turbo.python_fallback.turbo_utils import to_unit
     ids=["TURBO_ZERO", "TURBO_ENN", "TURBO_ONE"],
 )
 def test_turbo_behavior_independent_of_affine_x(config: OptimizerConfig) -> None:
-    from enn import create_optimizer
+    from ennx import create_optimizer
 
     bounds1 = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     bounds2 = np.array([[2.0, 4.0], [-3.0, 1.0]], dtype=float)
@@ -48,7 +48,7 @@ def test_turbo_behavior_independent_of_affine_x(config: OptimizerConfig) -> None
     ids=["TURBO_ZERO", "TURBO_ENN"],
 )
 def test_turbo_behavior_independent_of_affine_y(config: OptimizerConfig) -> None:
-    from enn import create_optimizer
+    from ennx import create_optimizer
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     num_arms, num_steps = 2, 2

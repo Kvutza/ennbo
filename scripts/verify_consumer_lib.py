@@ -1,4 +1,4 @@
-"""End-to-end consumer verification script for ENNBO library.
+"""End-to-end consumer verification script for ENNX library.
 
 Exercises real FP4/FP8 quantized WeightSearch, BPANN indexing, and high-level 
 TuRBO optimization to guarantee runtime library functionality beyond unit tests.
@@ -8,9 +8,9 @@ import sys
 import numpy as np
 
 try:
-    from enn import quantize_int4, quantize_fp4_e2m1
-    from enn.enn_rust import optimizer
-    print("[✓] Successfully imported native ENNBO components and quantization helpers.")
+    from ennx import quantize_int4, quantize_fp4_e2m1
+    from ennx.ennx_rust import optimizer
+    print("[✓] Successfully imported native ENNX components and quantization helpers.")
 except Exception as e:
     print(f"[X] Import failed: {e}")
     sys.exit(1)

@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from enn.turbo.config import UCBAcquisitionConfig
-from enn.turbo.config.enn_index_driver import ENNIndexDriver
+from ennx.turbo.config import UCBAcquisitionConfig
+from ennx.turbo.config.enn_index_driver import ENNIndexDriver
 from ops.stress import (
     TURBO_ENN_NUM_FIT_SAMPLES,
     TURBO_ENN_NUM_INIT,
@@ -415,8 +415,8 @@ def _turbo_enn_seed_gap_tell_count(gap: int, chunk: int) -> int:
     """Count ``tell`` calls while bulk-seeding ``gap`` points with ``chunk``."""
     from unittest.mock import MagicMock
 
-    from enn import create_optimizer
-    from enn.benchmarks import Ackley
+    from ennx import create_optimizer
+    from ennx.benchmarks import Ackley
     from ops.stress import (
         TURBO_ENN_ACKLEY_NOISE,
         TURBO_ENN_SEED,

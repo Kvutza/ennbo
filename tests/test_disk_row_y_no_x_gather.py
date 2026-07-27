@@ -10,8 +10,8 @@ import tempfile
 import numpy as np
 import pytest
 
-from enn.enn.enn_class import EpistemicNearestNeighbors
-from enn.turbo.config.enn_index_driver import ENNIndexDriver
+from ennx.ennx.enn_class import EpistemicNearestNeighbors
+from ennx.turbo.config.enn_index_driver import ENNIndexDriver
 
 
 def _live_rss_bytes() -> int:

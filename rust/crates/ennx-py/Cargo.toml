@@ -1,0 +1,31 @@
+[package]
+name = "ennx-py"
+version.workspace = true
+edition.workspace = true
+build = "src/ennx_py_build.rs"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Python bindings for ENN core algorithms"
+readme = "../../../README.md"
+
+[lib]
+name = "ennx_rust"
+crate-type = ["cdylib", "rlib"]
+
+[build-dependencies]
+ennx = { path = "../ennx", version = "0.3" }
+
+[dependencies]
+ennx = { path = "../ennx", version = "0.3" }
+ndarray = { workspace = true }
+numpy = { workspace = true }
+pyo3 = { workspace = true }
+rand = { workspace = true }
+
+[features]
+default = []
+metal = ["ennx/metal"]
+opencl = ["ennx/opencl"]

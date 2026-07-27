@@ -7,8 +7,8 @@ import pytest
 FAST_TEST_SMOKE = {
     "examples/demo_enn.ipynb": """
 import numpy as np
-from enn import ENNStatefulFitter, EpistemicNearestNeighbors
-from enn.enn.enn_params import PosteriorFlags
+from ennx import ENNStatefulFitter, EpistemicNearestNeighbors
+from ennx.ennx.enn_params import PosteriorFlags
 
 rng = np.random.default_rng(0)
 train_x = np.linspace(0, 1, 5)[:, None]
@@ -24,9 +24,9 @@ assert posterior.mu.shape == (1, 1)
     "examples/demo_turbo_enn.ipynb": """
 import numpy as np
 import torch
-from enn import create_optimizer
-from enn.benchmarks import Ackley
-from enn.turbo.optimizer_config import CandidateRV, turbo_zero_config
+from ennx import create_optimizer
+from ennx.benchmarks import Ackley
+from ennx.turbo.optimizer_config import CandidateRV, turbo_zero_config
 
 rng = np.random.default_rng(18)
 torch.manual_seed(17)
@@ -43,9 +43,9 @@ optimizer.tell(x_arms, objective(x_arms))
     "examples/demo_morbo_enn.ipynb": """
 import numpy as np
 import torch
-from enn import create_optimizer
-from enn.benchmarks import DoubleAckley
-from enn.turbo.config import MorboTRConfig, MultiObjectiveConfig, turbo_zero_config
+from ennx import create_optimizer
+from ennx.benchmarks import DoubleAckley
+from ennx.turbo.config import MorboTRConfig, MultiObjectiveConfig, turbo_zero_config
 
 rng = np.random.default_rng(18)
 torch.manual_seed(17)

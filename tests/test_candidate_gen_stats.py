@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from enn.turbo.config import CandidateRV, RAASPDriver
-from enn.turbo.python_fallback.turbo_utils import (
+from ennx.turbo.config import CandidateRV, RAASPDriver
+from ennx.turbo.python_fallback.turbo_utils import (
     generate_tr_candidates,
     generate_tr_candidates_fast,
 )

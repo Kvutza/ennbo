@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from enn.turbo.optimizer_fixtures import (
+from ennx.turbo.optimizer_fixtures import (
     FIXTURE_GENERATOR_ENTRIES,
     build_fixture,
     fixture_output_path,

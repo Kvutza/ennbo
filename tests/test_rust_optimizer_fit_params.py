@@ -9,13 +9,13 @@ See: enn_bug_report.md
 
 from __future__ import annotations
 
-from enn.turbo.config import (
+from ennx.turbo.config import (
     ENNFitConfig,
     ENNSurrogateConfig,
     turbo_enn_config,
 )
-from enn.turbo.config.enn_index_driver import ENNIndexDriver
-from enn.turbo.rust_optimizer import _config_to_rust_overrides
+from ennx.turbo.config.enn_index_driver import ENNIndexDriver
+from ennx.turbo.rust_optimizer import _config_to_rust_overrides
 
 
 def _make_enn_config(num_fit_samples: int | None, num_fit_candidates: int | None):

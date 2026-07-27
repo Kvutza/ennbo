@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from enn.turbo.python_fallback.components.chebyshev_incumbent_selector import (
+from ennx.turbo.python_fallback.components.chebyshev_incumbent_selector import (
     ChebyshevIncumbentSelector,
 )
 
@@ -19,9 +19,9 @@ def test_chebyshev_scalarize_batch_normalized_golden():
 
 
 def test_subsample_loglik_fixed_seed_reproducible():
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_fit import subsample_loglik
-    from enn.enn.enn_params import ENNParams
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_fit import subsample_loglik
+    from ennx.ennx.enn_params import ENNParams
 
     rng = np.random.default_rng(0)
     x = rng.standard_normal((20, 2))

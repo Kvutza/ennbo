@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from enn.turbo.config import CandidateGenConfig
-from enn.turbo.config.num_candidates_fn import (
+from ennx.turbo.config import CandidateGenConfig
+from ennx.turbo.config.num_candidates_fn import (
     const_num_candidates,
     default_num_candidates,
 )

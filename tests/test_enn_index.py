@@ -3,17 +3,17 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from enn.enn.enn_class import EpistemicNearestNeighbors
-from enn.enn.enn_class_support import (
+from ennx.ennx.enn_class import EpistemicNearestNeighbors
+from ennx.ennx.enn_class_support import (
     enn_index_neighbor_distances_and_indices,
     enn_neighbor_distances_and_indices,
 )
-from enn.enn.enn_hash import (
+from ennx.ennx.enn_hash import (
     normal_hash_batch_multi_seed,
     normal_hash_batch_multi_seed_fast,
 )
-from enn.enn.enn_params import ENNParams
-from enn.turbo.config.enn_index_driver import ENNIndexDriver
+from ennx.ennx.enn_params import ENNParams
+from ennx.turbo.config.enn_index_driver import ENNIndexDriver
 
 
 def _enn(train_x, *, scale_x=False, index_driver=ENNIndexDriver.FLAT, train_y=None):
@@ -161,7 +161,7 @@ def test_enn_index_neighbor_tie_break_expands_when_more_than_k_at_cutoff():
 
 
 def test_enn_posterior_tie_break_self_search_batch():
-    from enn.enn.posterior_flags import PosteriorFlags
+    from ennx.ennx.posterior_flags import PosteriorFlags
 
     train_x = np.array([[(i - 9.5) / 3.0 + 0.01 * i] for i in range(20)])
     train_y = np.array([[(i + 1) * 0.37 - 2.1] for i in range(20)])

@@ -1,5 +1,5 @@
 {
-  "checksum": "0f1a0cb7f7a6d6a38154130861fc0f2c5338e116536d6a1b0d93d66c2cf23450",
+  "checksum": "fa273fb9cd3854cb8b1d6be10ad54977d2f929d90db88decff6e5ba27b064ea5",
   "crates": {
     "adler32 1.2.0": {
       "name": "adler32",
@@ -265,7 +265,7 @@
     "bpann 0.3.14": {
       "name": "bpann",
       "version": "0.3.14",
-      "package_url": "https://github.com/Kvutza/ennbo",
+      "package_url": "https://github.com/Kvutza/ennx",
       "repository": null,
       "targets": [
         {
@@ -856,15 +856,15 @@
       ],
       "license_file": "LICENSE-APACHE"
     },
-    "ennbo 0.3.14": {
-      "name": "ennbo",
+    "ennx 0.3.14": {
+      "name": "ennx",
       "version": "0.3.14",
-      "package_url": "https://github.com/Kvutza/ennbo",
+      "package_url": "https://github.com/Kvutza/ennx",
       "repository": null,
       "targets": [
         {
           "Library": {
-            "crate_name": "ennbo",
+            "crate_name": "ennx",
             "crate_root": "src/lib.rs",
             "srcs": {
               "allow_empty": true,
@@ -876,8 +876,8 @@
         },
         {
           "BuildScript": {
-            "crate_name": "build_script_ennbo_build",
-            "crate_root": "src/ennbo_build.rs",
+            "crate_name": "build_script_ennx_build",
+            "crate_root": "src/ennx_build.rs",
             "srcs": {
               "allow_empty": true,
               "include": [
@@ -887,7 +887,7 @@
           }
         }
       ],
-      "library_target_name": "ennbo",
+      "library_target_name": "ennx",
       "common_attrs": {
         "compile_data_glob": [
           "**"
@@ -901,8 +901,8 @@
         "deps": {
           "common": [
             {
-              "id": "ennbo 0.3.14",
-              "target": "build_script_ennbo_build"
+              "id": "ennx 0.3.14",
+              "target": "build_script_ennx_build"
             },
             {
               "id": "memmap2 0.9.10",
@@ -993,15 +993,15 @@
       ],
       "license_file": null
     },
-    "ennbo-py 0.3.14": {
-      "name": "ennbo-py",
+    "ennx-py 0.3.14": {
+      "name": "ennx-py",
       "version": "0.3.14",
-      "package_url": "https://github.com/Kvutza/ennbo",
+      "package_url": "https://github.com/Kvutza/ennx",
       "repository": null,
       "targets": [
         {
           "Library": {
-            "crate_name": "enn_rust",
+            "crate_name": "ennx_rust",
             "crate_root": "src/lib.rs",
             "srcs": {
               "allow_empty": true,
@@ -1013,8 +1013,8 @@
         },
         {
           "BuildScript": {
-            "crate_name": "build_script_enn_py_build",
-            "crate_root": "src/enn_py_build.rs",
+            "crate_name": "build_script_ennx_py_build",
+            "crate_root": "src/ennx_py_build.rs",
             "srcs": {
               "allow_empty": true,
               "include": [
@@ -1024,7 +1024,7 @@
           }
         }
       ],
-      "library_target_name": "enn_rust",
+      "library_target_name": "ennx_rust",
       "common_attrs": {
         "compile_data_glob": [
           "**"
@@ -1038,8 +1038,8 @@
         "deps": {
           "common": [
             {
-              "id": "ennbo-py 0.3.14",
-              "target": "build_script_enn_py_build"
+              "id": "ennx-py 0.3.14",
+              "target": "build_script_ennx_py_build"
             },
             {
               "id": "ndarray 0.16.1",
@@ -7413,8 +7413,8 @@
   "binary_crates": [],
   "workspace_members": {
     "bpann 0.3.14": "rust/crates/bpann",
-    "ennbo 0.3.14": "rust/crates/ennbo",
-    "ennbo-py 0.3.14": "rust/crates/enn-py"
+    "ennx 0.3.14": "rust/crates/ennx",
+    "ennx-py 0.3.14": "rust/crates/ennx-py"
   },
   "conditions": {
     "aarch64-apple-darwin": [

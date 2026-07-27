@@ -1,6 +1,6 @@
 import numpy as np
 
-from enn.turbo.types import (
+from ennx.turbo.types import (
     GPDataPrep,
     GPFitResult,
     ObsLists,

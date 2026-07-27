@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from enn.turbo.types.appendable_array import AppendableArray
+from ennx.turbo.types.appendable_array import AppendableArray
 
 
 def test_appendable_array_basic():

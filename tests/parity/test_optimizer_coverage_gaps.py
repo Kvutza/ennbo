@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from enn.turbo.config import (
+from ennx.turbo.config import (
     AcqType,
     ENNFitConfig,
     ENNSurrogateConfig,
@@ -19,7 +19,7 @@ from enn.turbo.config import (
 )
 
 try:
-    from enn._rust import Optimizer  # noqa: F401
+    from ennx._rust import Optimizer  # noqa: F401
 
     RUST_AVAILABLE = True
 except ImportError:
@@ -137,8 +137,8 @@ def test_acquisition_thompson_config_passthrough():
 
 def test_multi_objective_uses_rust():
     """Multi-objective (Pareto) config uses Rust backend when supported."""
-    from enn import create_optimizer
-    from enn.turbo.rust_optimizer import RustOptimizer
+    from ennx import create_optimizer
+    from ennx.turbo.rust_optimizer import RustOptimizer
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     config = turbo_enn_config(
@@ -155,8 +155,8 @@ def test_multi_objective_uses_rust():
 
 def test_multi_objective_rust_ask_tell():
     """Pareto config uses Rust backend; ask/tell with consistent y width."""
-    from enn import create_optimizer
-    from enn.turbo.rust_optimizer import RustOptimizer
+    from ennx import create_optimizer
+    from ennx.turbo.rust_optimizer import RustOptimizer
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     config = turbo_enn_config(
@@ -181,8 +181,8 @@ def test_multi_objective_rust_ask_tell():
 
 def test_multi_objective_rust_ask_tell_two_metrics_from_start():
     """Pareto ask/tell when all tells use the same number of objectives."""
-    from enn import create_optimizer
-    from enn.turbo.rust_optimizer import RustOptimizer
+    from ennx import create_optimizer
+    from ennx.turbo.rust_optimizer import RustOptimizer
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     config = turbo_enn_config(
@@ -205,8 +205,8 @@ def test_multi_objective_rust_ask_tell_two_metrics_from_start():
 
 def test_multi_objective_y_obs_shape():
     """_ObsView reflects multi-objective y shape after tell (review 5.1)."""
-    from enn import create_optimizer
-    from enn.turbo.rust_optimizer import RustOptimizer
+    from ennx import create_optimizer
+    from ennx.turbo.rust_optimizer import RustOptimizer
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     config = turbo_enn_config(

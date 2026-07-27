@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from enn.turbo.rust_optimizer import (
+from ennx.turbo.rust_optimizer import (
     RustOptimizer,
     _ObsView,
     create_optimizer,
@@ -10,7 +10,7 @@ from enn.turbo.rust_optimizer import (
 
 
 def test_rust_optimizer_kiss_surface_has_view_and_factory():
-    from enn.turbo import rust_optimizer as ro
+    from ennx.turbo import rust_optimizer as ro
 
     assert RustOptimizer.__init__ is not None
     assert create_optimizer is ro.create_optimizer
@@ -18,13 +18,13 @@ def test_rust_optimizer_kiss_surface_has_view_and_factory():
     assert v.view().shape == (1, 1)
     bounds = np.array([[0.0, 1.0]], dtype=float)
     cfg = __import__(
-        "enn.turbo.config", fromlist=["turbo_zero_config"]
+        "ennx.turbo.config", fromlist=["turbo_zero_config"]
     ).turbo_zero_config(num_init=1)
     create_optimizer(bounds=bounds, config=cfg, rng=np.random.default_rng(0))
 
 
 def test_failure_tolerance_dimension_override_reaches_rust_optimizer():
-    from enn import _rust
+    from ennx import _rust
 
     num_dim = 100
     bounds = np.column_stack((np.zeros(num_dim), np.ones(num_dim)))

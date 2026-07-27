@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from enn.turbo.config import ENNFitConfig
-from enn.turbo.proposal import mk_enn
+from ennx.turbo.config import ENNFitConfig
+from ennx.turbo.proposal import mk_enn
 
 
 def test_mk_enn_empty_returns_none():

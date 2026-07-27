@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from enn.turbo.config.enn_index_driver import ENNIndexDriver
+from ennx.turbo.config.enn_index_driver import ENNIndexDriver
 from ops.stress import (
     PROPOSAL_SCALE_SEED_CHUNK,
     PROPOSAL_SCALE_WARMUP,

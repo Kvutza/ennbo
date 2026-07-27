@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 try:
-    from enn._rust import Optimizer  # noqa: F401
+    from ennx._rust import Optimizer  # noqa: F401
 
     RUST_AVAILABLE = True
 except ImportError:

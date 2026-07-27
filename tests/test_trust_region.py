@@ -4,18 +4,18 @@ import numpy as np
 import pytest
 from scipy.stats import qmc
 
-from enn.turbo.config import Rescalarize
-from enn.turbo.config.morbo_tr_config import (
+from ennx.turbo.config import Rescalarize
+from ennx.turbo.config.morbo_tr_config import (
     MorboTRConfig,
     MultiObjectiveConfig,
     RescalePolicyConfig,
 )
-from enn.turbo.config.no_tr_config import NoTRConfig
-from enn.turbo.config.turbo_tr_config import TRLengthConfig, TurboTRConfig
-from enn.turbo.python_fallback.morbo_trust_region import MorboTrustRegion
-from enn.turbo.python_fallback.no_trust_region import NoTrustRegion
-from enn.turbo.python_fallback.turbo_trust_region import TurboTrustRegion
-from enn.turbo.python_fallback.turbo_utils import (
+from ennx.turbo.config.no_tr_config import NoTRConfig
+from ennx.turbo.config.turbo_tr_config import TRLengthConfig, TurboTRConfig
+from ennx.turbo.python_fallback.morbo_trust_region import MorboTrustRegion
+from ennx.turbo.python_fallback.no_trust_region import NoTrustRegion
+from ennx.turbo.python_fallback.turbo_trust_region import TurboTrustRegion
+from ennx.turbo.python_fallback.turbo_utils import (
     compute_full_box_bounds_1d,
 )
 
@@ -55,8 +55,8 @@ def test_no_trust_region_compute_bounds_1d():
 
 
 def test_no_trust_region_generate_candidates():
-    from enn.turbo.config import CandidateRV, RAASPDriver
-    from enn.turbo.python_fallback.turbo_utils import generate_tr_candidates
+    from ennx.turbo.config import CandidateRV, RAASPDriver
+    from ennx.turbo.python_fallback.turbo_utils import generate_tr_candidates
 
     config = NoTRConfig()
     tr = NoTrustRegion(config=config, num_dim=3)

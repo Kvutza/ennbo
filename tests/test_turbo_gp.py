@@ -10,11 +10,11 @@ from gpytorch.distributions import MultivariateNormal
 from gpytorch.likelihoods import FixedNoiseGaussianLikelihood
 from gpytorch.mlls import ExactMarginalLogLikelihood
 
-from enn.turbo.python_fallback.components.gp_surrogate import GPSurrogate
-from enn.turbo.python_fallback.turbo_gp import TurboGP
-from enn.turbo.python_fallback.turbo_gp_base import TurboGPBase
-from enn.turbo.python_fallback.turbo_gp_fit import fit_gp
-from enn.turbo.python_fallback.turbo_gp_noisy import TurboGPNoisy
+from ennx.turbo.python_fallback.components.gp_surrogate import GPSurrogate
+from ennx.turbo.python_fallback.turbo_gp import TurboGP
+from ennx.turbo.python_fallback.turbo_gp_base import TurboGPBase
+from ennx.turbo.python_fallback.turbo_gp_fit import fit_gp
+from ennx.turbo.python_fallback.turbo_gp_noisy import TurboGPNoisy
 
 pytestmark = pytest.mark.slow
 

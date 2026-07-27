@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import enn
-import enn.enn_rust
+import ennx
+import ennx.ennx_rust
 
 
-assert enn.__file__
-assert enn.enn_rust.__file__
-print("ennbo wheel consumer: ok")
+assert ennx.__file__
+assert ennx.ennx_rust.__file__
+print("ennx wheel consumer: ok")

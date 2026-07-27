@@ -1,8 +1,8 @@
-module(name = "ennbo_bazel_consumer")
+module(name = "ennx_bazel_consumer")
 
-bazel_dep(name = "ennbo", version = "0.3.14")
+bazel_dep(name = "ennx", version = "0.3.14")
 
 local_path_override(
-    module_name = "ennbo",
+    module_name = "ennx",
     path = "../..",
 )

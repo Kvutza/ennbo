@@ -3,9 +3,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from enn.enn.enn_class import EpistemicNearestNeighbors
-from enn.enn.enn_class_support import enn_index_neighbor_distances_and_indices
-from enn.turbo.config.enn_index_driver import ENNIndexDriver, ENN_INDEX_DRIVER_TO_RUST
+from ennx.ennx.enn_class import EpistemicNearestNeighbors
+from ennx.ennx.enn_class_support import enn_index_neighbor_distances_and_indices
+from ennx.turbo.config.enn_index_driver import ENNIndexDriver, ENN_INDEX_DRIVER_TO_RUST
 
 
 def _enn(train_x, *, index_driver=ENNIndexDriver.FLAT, work_dir=None):
@@ -59,7 +59,7 @@ def test_accelerator_index_matches_flat(index_driver):
 def test_enn_bpann_disk_in_memory_raises():
     train_x = np.array([[0.0, 0.0], [1.0, 1.0]], dtype=float)
     train_y = np.zeros((2, 1), dtype=float)
-    with pytest.raises(ValueError, match="work_dir|ENN_WORK_DIR"):
+    with pytest.raises(ValueError, match="work_dir|ENNX_WORK_DIR"):
         EpistemicNearestNeighbors(
             train_x,
             train_y,
@@ -117,7 +117,7 @@ def test_enn_disk_backend_persists_observation_files(tmp_path):
 
 
 def test_enn_disk_bpann_posterior_with_pending_matches_fresh(tmp_path):
-    from enn.enn.enn_params import ENNParams
+    from ennx.ennx.enn_params import ENNParams
 
     rng = np.random.default_rng(42)
     d = 3
@@ -159,7 +159,7 @@ def test_enn_disk_bpann_posterior_with_pending_matches_fresh(tmp_path):
 
 def test_enn_disk_bpann_reopen_uses_persisted_num_metrics(tmp_path):
     """Reopen must not trust placeholder empty train_y column count for num_outputs."""
-    from enn.enn.enn_params import ENNParams
+    from ennx.ennx.enn_params import ENNParams
 
     work_dir = tmp_path / "enn_disk_reopen_num_metrics"
     train_x = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=float)
@@ -257,7 +257,7 @@ def test_enn_disk_persist_index_multi_batch_reopen_matches_posterior(tmp_path):
     """Multi-batch disk store: persist preserves in-session posterior; reopen matches reference."""
     import json
 
-    from enn.enn.enn_params import ENNParams
+    from ennx.ennx.enn_params import ENNParams
 
     rng = np.random.default_rng(17)
     d = 32

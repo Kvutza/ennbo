@@ -3,22 +3,22 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from enn import create_optimizer, turbo_one_config
-from enn.turbo.python_fallback.components.acquisition import (
+from ennx import create_optimizer, turbo_one_config
+from ennx.turbo.python_fallback.components.acquisition import (
     ThompsonAcqOptimizer,
     UCBAcqOptimizer,
 )
-from enn.turbo.python_fallback.components.builder import (
+from ennx.turbo.python_fallback.components.builder import (
     build_acquisition_optimizer,
     build_surrogate,
 )
-from enn.turbo.python_fallback.components.protocols import (
+from ennx.turbo.python_fallback.components.protocols import (
     PosteriorResult,
     SurrogateResult,
 )
-from enn.turbo.python_fallback.components.surrogates import GPSurrogate
-from enn.turbo.config import turbo_enn_config, turbo_zero_config
-from enn.turbo.python_fallback.optimizer import Optimizer
+from ennx.turbo.python_fallback.components.surrogates import GPSurrogate
+from ennx.turbo.config import turbo_enn_config, turbo_zero_config
+from ennx.turbo.python_fallback.optimizer import Optimizer
 
 
 def _make_test_data(n: int = 4, d: int = 2):

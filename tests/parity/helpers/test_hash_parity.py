@@ -11,11 +11,11 @@ import importlib.util
 import numpy as np
 import pytest
 
-RUST_AVAILABLE = importlib.util.find_spec("enn._rust") is not None
+RUST_AVAILABLE = importlib.util.find_spec("ennx._rust") is not None
 
 if RUST_AVAILABLE:
-    from enn._rust import normal_hash_batch_multi_seed_fast as rust_hash_fast
-    from enn.enn.enn_hash import normal_hash_batch_multi_seed_fast
+    from ennx._rust import normal_hash_batch_multi_seed_fast as rust_hash_fast
+    from ennx.ennx.enn_hash import normal_hash_batch_multi_seed_fast
 else:
     normal_hash_batch_multi_seed_fast = None
     rust_hash_fast = None

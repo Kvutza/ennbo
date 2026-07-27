@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from enn.turbo.optimizer_fixtures import (
+from ennx.turbo.optimizer_fixtures import (
     EXPECTED_OPTIMIZER_FIXTURE_NAMES,
     FIXTURE_GENERATOR_ENTRIES,
     PREFIX_CONFIG,

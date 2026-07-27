@@ -6,16 +6,16 @@ import inspect
 
 import numpy as np
 
-from enn import EpistemicNearestNeighbors
-from enn.enn.enn_normal import ENNNormal
-from enn.enn.enn_params import ENNParams, PosteriorFlags
+from ennx import EpistemicNearestNeighbors
+from ennx.ennx.enn_normal import ENNNormal
+from ennx.ennx.enn_params import ENNParams, PosteriorFlags
 
 
 class TestENNNormalContract:
     """API contract tests for ENNNormal return type."""
 
     def test_exists_and_is_class(self):
-        from enn.enn.enn_normal import ENNNormal
+        from ennx.ennx.enn_normal import ENNNormal
 
         assert inspect.isclass(ENNNormal)
 

@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from enn.turbo.optimizer_fixtures import (
+from ennx.turbo.optimizer_fixtures import (
     EXPECTED_OPTIMIZER_FIXTURE_NAMES,
     assert_fixture_json_invariants,
     load_fixture,
 )
 
 try:
-    from enn._rust import Optimizer  # noqa: F401
+    from ennx._rust import Optimizer  # noqa: F401
 
     RUST_AVAILABLE = True
 except ImportError:

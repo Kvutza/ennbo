@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from enn import create_optimizer, turbo_enn_config
-from enn.turbo.config import (
+from ennx import create_optimizer, turbo_enn_config
+from ennx.turbo.config import (
     AcqType,
     CandidateGenConfig,
     ENNFitConfig,
@@ -14,12 +14,12 @@ from enn.turbo.config import (
     MorboTRConfig,
     MultiObjectiveConfig,
 )
-from enn.turbo.rust_optimizer import RustOptimizer
+from ennx.turbo.rust_optimizer import RustOptimizer
 
 from morbo_objectives import separable_unimodal_objective
 
 try:
-    from enn import _rust  # noqa: F401
+    from ennx import _rust  # noqa: F401
 
     RUST_AVAILABLE = True
 except ImportError:

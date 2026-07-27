@@ -9,12 +9,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from enn import ENNStatefulFitter, EpistemicNearestNeighbors
-from enn.enn.enn_class_support import (
+from ennx import ENNStatefulFitter, EpistemicNearestNeighbors
+from ennx.ennx.enn_class_support import (
     enn_index_neighbor_distances_and_indices,
     enn_neighbor_distances_and_indices,
 )
-from enn.enn.enn_params import ENNParams, PosteriorFlags
+from ennx.ennx.enn_params import ENNParams, PosteriorFlags
 
 pytestmark = pytest.mark.slow
 

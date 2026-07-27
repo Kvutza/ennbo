@@ -21,9 +21,7 @@ def audit_wheel(wheel_path: str):
             z.extractall(tmpdir)
 
         # 1. Verify exact single extension
-        ext_path = os.path.join(tmpdir, "enn_rust.so")
-        if not os.path.exists(ext_path):
-            ext_path = os.path.join(tmpdir, "enn", "enn_rust.so")
+        ext_path = os.path.join(tmpdir, "ennx", "ennx_rust.so")
         assert os.path.exists(ext_path), f"Missing extension at {ext_path}"
 
 
@@ -54,11 +52,11 @@ def audit_wheel(wheel_path: str):
 
         # 4. Test module import in CPython interpreter
         sys.path.insert(0, tmpdir)
-        import enn
-        import enn.enn_rust as enn_rust
-        from enn.enn_rust import optimizer
+        import ennx
+        import ennx.ennx_rust as ennx_rust
+        from ennx.ennx_rust import optimizer
         assert hasattr(optimizer, "WeightSearch"), "Missing WeightSearch class on PyO3 optimizer module"
-        print("Successfully imported enn and verified native WeightSearch API from audited release wheel!")
+        print("Successfully imported ennx and verified native WeightSearch API from audited release wheel!")
 
 
 

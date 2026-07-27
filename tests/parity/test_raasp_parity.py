@@ -5,18 +5,18 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from enn.turbo.config import (
+from ennx.turbo.config import (
     AcqType,
     ENNFitConfig,
     ENNSurrogateConfig,
     turbo_enn_config,
     turbo_zero_config,
 )
-from enn.turbo.config.candidate_gen_config import CandidateGenConfig
-from enn.turbo.config.candidate_rv import CandidateRV
+from ennx.turbo.config.candidate_gen_config import CandidateGenConfig
+from ennx.turbo.config.candidate_rv import CandidateRV
 
 try:
-    from enn._rust import Optimizer  # noqa: F401
+    from ennx._rust import Optimizer  # noqa: F401
 
     RUST_AVAILABLE = True
 except ImportError:

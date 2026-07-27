@@ -9,22 +9,22 @@ import pytest
 
 
 def _morbo_tr_config():
-    from enn.turbo.config import MorboTRConfig, MultiObjectiveConfig
+    from ennx.turbo.config import MorboTRConfig, MultiObjectiveConfig
 
     mo = MultiObjectiveConfig(num_metrics=2, alpha=0.05)
     return MorboTRConfig(multi_objective=mo)
 
 
 def _morbo_trust_region():
-    from enn.turbo.python_fallback.morbo_trust_region import MorboTrustRegion
+    from ennx.turbo.python_fallback.morbo_trust_region import MorboTrustRegion
 
     cfg = _morbo_tr_config()
     return MorboTrustRegion(config=cfg, num_dim=3, rng=np.random.default_rng(42))
 
 
 def _turbo_trust_region():
-    from enn.turbo.config import TurboTRConfig
-    from enn.turbo.python_fallback.turbo_trust_region import TurboTrustRegion
+    from ennx.turbo.config import TurboTRConfig
+    from ennx.turbo.python_fallback.turbo_trust_region import TurboTrustRegion
 
     tr = TurboTrustRegion(config=TurboTRConfig(), num_dim=5)
     tr.validate_request(4)
@@ -32,7 +32,7 @@ def _turbo_trust_region():
 
 
 def _enn_model():
-    from enn.enn.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
 
     x = np.array([[0.1, 0.2], [0.3, 0.4]])
     y = np.array([[1.0], [2.0]])
@@ -40,8 +40,8 @@ def _enn_model():
 
 
 def _optimizer():
-    from enn import create_optimizer
-    from enn.turbo.config import turbo_zero_config
+    from ennx import create_optimizer
+    from ennx.turbo.config import turbo_zero_config
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]])
     return create_optimizer(
@@ -55,7 +55,7 @@ def _optimizer():
 
 
 def test_morbo_tr_config_rescalarize():
-    from enn.turbo.config import (
+    from ennx.turbo.config import (
         MorboTRConfig,
         MultiObjectiveConfig,
         Rescalarize,
@@ -80,7 +80,7 @@ def test_morbo_tr_config_properties():
 
 
 def test_turbo_tr_config_properties():
-    from enn.turbo.config import TurboTRConfig
+    from ennx.turbo.config import TurboTRConfig
 
     cfg = TurboTRConfig()
     # length_init / length_min / length_max
@@ -90,7 +90,7 @@ def test_turbo_tr_config_properties():
 
 
 def test_enn_surrogate_config_properties():
-    from enn.turbo.config import ENNFitConfig, ENNSurrogateConfig
+    from ennx.turbo.config import ENNFitConfig, ENNSurrogateConfig
 
     cfg = ENNSurrogateConfig(
         fit=ENNFitConfig(num_fit_samples=50, num_fit_candidates=30)
@@ -101,7 +101,7 @@ def test_enn_surrogate_config_properties():
 
 
 def test_observation_history_config_empty():
-    from enn.turbo.config.observation_history_config import ObservationHistoryConfig
+    from ennx.turbo.config.observation_history_config import ObservationHistoryConfig
 
     cfg = ObservationHistoryConfig()
     assert cfg == ObservationHistoryConfig()
@@ -110,26 +110,26 @@ def test_observation_history_config_empty():
 def test_trust_region_config_protocol():
     from typing import get_args
 
-    from enn.turbo.config.trust_region import InitStrategy, TrustRegionConfig
+    from ennx.turbo.config.trust_region import InitStrategy, TrustRegionConfig
 
     assert get_args(TrustRegionConfig)
     assert hasattr(InitStrategy, "create_runtime_strategy")
 
 
 def test_enn_index_driver_enum():
-    from enn.turbo.config.enn_index_driver import ENNIndexDriver
+    from ennx.turbo.config.enn_index_driver import ENNIndexDriver
 
     assert ENNIndexDriver.FLAT != ENNIndexDriver.BPANN_DISK
 
 
 def test_num_candidates_fn_protocol():
-    from enn.turbo.config.num_candidates_fn import NumCandidatesFn
+    from ennx.turbo.config.num_candidates_fn import NumCandidatesFn
 
     assert NumCandidatesFn is not None
 
 
 def test_optimizer_config_properties():
-    from enn.turbo.config import MorboTRConfig, MultiObjectiveConfig, OptimizerConfig
+    from ennx.turbo.config import MorboTRConfig, MultiObjectiveConfig, OptimizerConfig
 
     cfg = OptimizerConfig()
     # num_metrics
@@ -150,7 +150,7 @@ def test_optimizer_config_properties():
 def test_morbo_trust_region_properties():
     tr = _morbo_trust_region()
     # num_dim / num_metrics / length / rescalarize
-    from enn.turbo.config import Rescalarize
+    from ennx.turbo.config import Rescalarize
 
     assert tr.num_dim == 3
     assert tr.num_metrics == 2
@@ -169,8 +169,8 @@ def test_turbo_trust_region_properties():
 
 
 def test_no_trust_region_num_metrics():
-    from enn.turbo.config import NoTRConfig
-    from enn.turbo.python_fallback.no_trust_region import NoTrustRegion
+    from ennx.turbo.config import NoTRConfig
+    from ennx.turbo.python_fallback.no_trust_region import NoTrustRegion
 
     tr = NoTrustRegion(config=NoTRConfig(), num_dim=3)
     assert tr.num_metrics == 1
@@ -182,7 +182,7 @@ def test_no_trust_region_num_metrics():
 
 
 def test_surrogate_protocol_properties():
-    from enn.turbo.python_fallback.components.protocols import Surrogate
+    from ennx.turbo.python_fallback.components.protocols import Surrogate
 
     # lengthscales / find_x_center
     assert hasattr(Surrogate, "lengthscales")
@@ -190,7 +190,7 @@ def test_surrogate_protocol_properties():
 
 
 def test_trust_region_protocol_properties():
-    from enn.turbo.python_fallback.components.protocols import TrustRegion
+    from ennx.turbo.python_fallback.components.protocols import TrustRegion
 
     # length / compute_bounds
     assert hasattr(TrustRegion, "length")
@@ -198,19 +198,19 @@ def test_trust_region_protocol_properties():
 
 
 def test_acquisition_optimizer_protocol():
-    from enn.turbo.python_fallback.components.protocols import AcquisitionOptimizer
+    from ennx.turbo.python_fallback.components.protocols import AcquisitionOptimizer
 
     assert hasattr(AcquisitionOptimizer, "select")
 
 
 def test_surrogate_lengthscales():
-    from enn.turbo.python_fallback.components.gp_surrogate import GPSurrogate
+    from ennx.turbo.python_fallback.components.gp_surrogate import GPSurrogate
 
     assert GPSurrogate().lengthscales is None
 
 
 def test_incumbent_selector_protocol():
-    from enn.turbo.python_fallback.components.incumbent_selector_protocol import (
+    from ennx.turbo.python_fallback.components.incumbent_selector_protocol import (
         IncumbentSelector,
     )
 
@@ -218,7 +218,7 @@ def test_incumbent_selector_protocol():
 
 
 def test_thompson_acq_optimizer_class():
-    from enn.turbo.python_fallback.components.thompson_acq_optimizer import (
+    from ennx.turbo.python_fallback.components.thompson_acq_optimizer import (
         ThompsonAcqOptimizer,
     )
 
@@ -228,10 +228,10 @@ def test_thompson_acq_optimizer_class():
 
 @pytest.mark.slow
 def test_pareto_and_random_acq_optimizer_select():
-    from enn.turbo.python_fallback.components.pareto_acq_optimizer import (
+    from ennx.turbo.python_fallback.components.pareto_acq_optimizer import (
         ParetoAcqOptimizer,
     )
-    from enn.turbo.python_fallback.components.random_acq_optimizer import (
+    from ennx.turbo.python_fallback.components.random_acq_optimizer import (
         RandomAcqOptimizer,
     )
 
@@ -243,7 +243,7 @@ def test_pareto_and_random_acq_optimizer_select():
 
 
 def _fit_gp_surrogate_for_kiss(rng):
-    from enn.turbo.python_fallback.components.gp_surrogate import GPSurrogate
+    from ennx.turbo.python_fallback.components.gp_surrogate import GPSurrogate
 
     surrogate = GPSurrogate()
     x = np.array([[0.2, 0.3], [0.5, 0.5], [0.7, 0.8]], dtype=float)
@@ -272,7 +272,7 @@ def test_enn_class_add():
 
 
 def test_enn_neighbor_distances_add_and_search():
-    from enn.enn.enn_class_support import (
+    from ennx.ennx.enn_class_support import (
         enn_index_neighbor_distances_and_indices,
         enn_neighbor_distances_and_indices,
     )
@@ -320,7 +320,7 @@ def test_optimizer_init_progress():
 
 
 def test_lhd_only_strategy():
-    from enn.turbo.python_fallback.strategies.lhd_only_strategy import LHDOnlyStrategy
+    from ennx.turbo.python_fallback.strategies.lhd_only_strategy import LHDOnlyStrategy
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]])
     s = LHDOnlyStrategy.create(bounds=bounds, rng=np.random.default_rng(0))
@@ -329,7 +329,7 @@ def test_lhd_only_strategy():
 
 
 def test_optimization_strategy_protocol():
-    from enn.turbo.python_fallback.strategies.optimization_strategy import (
+    from ennx.turbo.python_fallback.strategies.optimization_strategy import (
         OptimizationStrategy,
     )
 
@@ -338,7 +338,7 @@ def test_optimization_strategy_protocol():
 
 
 def test_turbo_hybrid_strategy():
-    from enn.turbo.python_fallback.strategies.turbo_hybrid_strategy import (
+    from ennx.turbo.python_fallback.strategies.turbo_hybrid_strategy import (
         TurboHybridStrategy,
     )
 
@@ -356,8 +356,8 @@ def test_turbo_hybrid_strategy():
 
 
 def test_build_trust_region():
-    from enn.turbo.config import NoTRConfig, TurboTRConfig
-    from enn.turbo.python_fallback.components.builder import build_trust_region
+    from ennx.turbo.config import NoTRConfig, TurboTRConfig
+    from ennx.turbo.python_fallback.components.builder import build_trust_region
 
     rng = np.random.default_rng(0)
     tr = build_trust_region(TurboTRConfig(), num_dim=3, rng=rng)
@@ -367,43 +367,43 @@ def test_build_trust_region():
 
 
 def test_turbo_gp_base():
-    from enn.turbo.python_fallback.turbo_gp_base import TurboGPBase
+    from ennx.turbo.python_fallback.turbo_gp_base import TurboGPBase
 
     assert hasattr(TurboGPBase, "forward")
 
 
 def test_scalar_incumbent_mixin():
-    from enn.turbo.python_fallback.turbo_utils import ScalarIncumbentMixin
+    from ennx.turbo.python_fallback.turbo_utils import ScalarIncumbentMixin
 
     assert hasattr(ScalarIncumbentMixin, "get_incumbent_index")
 
 
 def test_lazy_getattr():
-    from enn._lazy import lazy_getattr
+    from ennx._lazy import lazy_getattr
 
-    mapping = {"foo": (".enn.enn_params", "ENNParams")}
+    mapping = {"foo": (".ennx.enn_params", "ENNParams")}
     result = lazy_getattr(
         name="foo",
-        module_name="enn",
-        package="enn",
+        module_name="ennx",
+        package="ennx",
         mapping=mapping,
-        extra="pip install ennbo[with-deps]",
+        extra="pip install ennx[with-deps]",
     )
-    from enn.enn.enn_params import ENNParams
+    from ennx.ennx.enn_params import ENNParams
 
     assert result is ENNParams
 
 
 def test_lazy_getattr_missing():
-    from enn._lazy import lazy_getattr
+    from ennx._lazy import lazy_getattr
 
     with pytest.raises(AttributeError):
         lazy_getattr(
             name="nonexistent",
-            module_name="enn",
-            package="enn",
+            module_name="ennx",
+            package="ennx",
             mapping={},
-            extra="pip install ennbo[with-deps]",
+        extra="pip install ennx[with-deps]",
         )
 
 

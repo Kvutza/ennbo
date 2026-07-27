@@ -14,10 +14,10 @@ from pathlib import Path
 import click
 import numpy as np
 
-from enn.enn.enn_class import EpistemicNearestNeighbors
-from enn.enn.enn_fit import enn_fit
-from enn.enn.enn_params import ENNParams, PosteriorFlags
-from enn.turbo.config.enn_index_driver import ENNIndexDriver
+from ennx.ennx.enn_class import EpistemicNearestNeighbors
+from ennx.ennx.enn_fit import enn_fit
+from ennx.ennx.enn_params import ENNParams, PosteriorFlags
+from ennx.turbo.config.enn_index_driver import ENNIndexDriver
 
 INDEX_TYPE_CHOICES: tuple[str, ...] = ("flat", "bpann_disk")
 DISK_INDEX_TYPE_CHOICES: frozenset[str] = frozenset({"bpann_disk"})
@@ -1030,7 +1030,7 @@ def build_turbo_enn_optimizer_config(
     Overrides only ``num_init`` (fixed at ``TURBO_ENN_NUM_INIT`` for the stress CLI).
     For ``BPANN_DISK``, both ``enn_storage="disk"`` and ``work_dir`` are required.
     """
-    from enn.turbo.config import (
+    from ennx.turbo.config import (
         AcqType,
         ENNFitConfig,
         ENNSurrogateConfig,
@@ -1113,8 +1113,8 @@ def run_turbo_enn_stress(
     if seed_chunk < 1:
         raise ValueError("seed_chunk must be >= 1")
 
-    from enn import create_optimizer
-    from enn.benchmarks import Ackley
+    from ennx import create_optimizer
+    from ennx.benchmarks import Ackley
 
     if objective is None:
         ackley = Ackley(noise=TURBO_ENN_ACKLEY_NOISE, rng=np.random.default_rng(seed))
@@ -1303,8 +1303,8 @@ def run_proposal_scale_stress(
         raise ValueError("seed_chunk must be >= 1")
     grid = proposal_scale_ns(max_n)
 
-    from enn import create_optimizer
-    from enn.benchmarks import Ackley
+    from ennx import create_optimizer
+    from ennx.benchmarks import Ackley
 
     if objective is None:
         ackley = Ackley(noise=TURBO_ENN_ACKLEY_NOISE, rng=np.random.default_rng(seed))
@@ -1399,10 +1399,10 @@ def cli() -> None:
             ),
         ),
         click.Option(
-            ["--ennbo-config"],
+            ["--ennx-config"],
             type=click.Path(file_okay=True, dir_okay=False, path_type=str),
             default=None,
-            help="Path to ennbo config.toml (overrides ~/.ennbo/config.toml).",
+            help="Path to ennx config.toml (overrides ~/.ennx/config.toml).",
         ),
     ],
 )
@@ -1414,13 +1414,13 @@ def enn(
     heartbeat_seconds: float,
     work_dir: str | None,
     batch: bool,
-    ennbo_config: str | None,
+    ennx_config: str | None,
 ) -> None:
     """Time 1000-point ENN queries at sparse checkpoints while streaming adds."""
-    if ennbo_config is not None:
-        from enn._rust import set_config_path
+    if ennx_config is not None:
+        from ennx._rust import set_config_path
 
-        set_config_path(ennbo_config)
+        set_config_path(ennx_config)
     if num_obs < 1:
         raise click.ClickException("num_obs must be >= 1")
     if num_dim < 1:

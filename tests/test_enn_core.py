@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from enn.enn.enn_class import EpistemicNearestNeighbors
-from enn.enn.enn_params import ENNParams, PosteriorFlags
+from ennx.ennx.enn_class import EpistemicNearestNeighbors
+from ennx.ennx.enn_params import ENNParams, PosteriorFlags
 
 from enn_helpers import enn_all_train_rows
 
@@ -23,7 +23,7 @@ def _params(
 
 
 def test_ennnormal_sample_shape_and_clip():
-    from enn.enn.enn_normal import ENNNormal
+    from ennx.ennx.enn_normal import ENNNormal
 
     rng = np.random.default_rng(0)
     mu = np.array([[0.0, 1.0]], dtype=float)

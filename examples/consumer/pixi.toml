@@ -1,5 +1,5 @@
 [workspace]
-name = "ennbo-consumer"
+name = "ennx-consumer"
 channels = ["conda-forge"]
 platforms = ["osx-arm64"]
 
@@ -8,4 +8,4 @@ python = "3.13.*"
 numpy = "*"
 
 [target.osx-arm64.pypi-dependencies]
-ennbo = { url = "https://github.com/Kvutza/ennbo/releases/download/v0.3.14/ennbo-0.3.14-cp313-cp313-macosx_11_0_arm64.whl" }
+ennx = { url = "https://github.com/Kvutza/ennx/releases/download/v0.3.14/ennx-0.3.14-cp313-cp313-macosx_11_0_arm64.whl" }

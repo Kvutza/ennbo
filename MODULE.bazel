@@ -1,5 +1,5 @@
 module(
-    name = "ennbo",
+    name = "ennx",
     version = "0.3.14",
 )
 

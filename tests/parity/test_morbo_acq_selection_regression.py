@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from enn.turbo.config.morbo_tr_config import MorboTRConfig, MultiObjectiveConfig
-from enn.turbo.python_fallback.components.thompson_acq_optimizer import (
+from ennx.turbo.config.morbo_tr_config import MorboTRConfig, MultiObjectiveConfig
+from ennx.turbo.python_fallback.components.thompson_acq_optimizer import (
     ThompsonAcqOptimizer,
 )
-from enn.turbo.python_fallback.components.ucb_acq_optimizer import UCBAcqOptimizer
-from enn.turbo.python_fallback.morbo_trust_region import MorboTrustRegion
+from ennx.turbo.python_fallback.components.ucb_acq_optimizer import UCBAcqOptimizer
+from ennx.turbo.python_fallback.morbo_trust_region import MorboTrustRegion
 
 
 class _TieSurrogate:
@@ -21,7 +21,7 @@ class _TieSurrogate:
         return np.ones((num_arms, n, m), dtype=float)
 
     def predict(self, x_cand: np.ndarray):
-        from enn.turbo.python_fallback.components.posterior_result import (
+        from ennx.turbo.python_fallback.components.posterior_result import (
             PosteriorResult,
         )
 

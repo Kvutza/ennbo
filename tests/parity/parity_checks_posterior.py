@@ -37,11 +37,11 @@ def _record_posterior_case(
 def run_posterior_simple(report: ParityReport) -> None:
     import numpy as np
 
-    from enn import EpistemicNearestNeighbors
-    from enn.enn.enn_params import ENNParams, PosteriorFlags
+    from ennx import EpistemicNearestNeighbors
+    from ennx.ennx.enn_params import ENNParams, PosteriorFlags
 
     try:
-        from enn._rust import EpistemicNearestNeighbors as RustENN
+        from ennx._rust import EpistemicNearestNeighbors as RustENN
     except ImportError:
         report.cases.append(
             ParityCase(
@@ -125,11 +125,11 @@ def run_posterior_simple(report: ParityReport) -> None:
 def run_posterior_observation_noise(report: ParityReport) -> None:
     import numpy as np
 
-    from enn import EpistemicNearestNeighbors
-    from enn.enn.enn_params import ENNParams, PosteriorFlags
+    from ennx import EpistemicNearestNeighbors
+    from ennx.ennx.enn_params import ENNParams, PosteriorFlags
 
     try:
-        from enn._rust import EpistemicNearestNeighbors as RustENN
+        from ennx._rust import EpistemicNearestNeighbors as RustENN
     except ImportError:
         report.cases.append(
             ParityCase(

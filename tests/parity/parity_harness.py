@@ -23,7 +23,7 @@ from .parity_types import ParityReport
 
 
 def run_harness() -> ParityReport:
-    from enn.turbo.config import (
+    from ennx.turbo.config import (
         AcqType,
         ENNFitConfig,
         ENNSurrogateConfig,
@@ -34,7 +34,7 @@ def run_harness() -> ParityReport:
 
     report = ParityReport()
     try:
-        from enn._rust import EpistemicNearestNeighbors as _  # noqa: F401
+        from ennx._rust import EpistemicNearestNeighbors as _  # noqa: F401
 
         report.rust_available = True
     except ImportError:

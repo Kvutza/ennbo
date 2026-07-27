@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from enn.turbo.optimizer_fixtures import load_fixture
+from ennx.turbo.optimizer_fixtures import load_fixture
 
 try:
-    from enn._rust import Optimizer  # noqa: F401
+    from ennx._rust import Optimizer  # noqa: F401
 
     RUST_AVAILABLE = True
 except ImportError:

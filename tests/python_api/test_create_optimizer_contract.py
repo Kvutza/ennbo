@@ -6,9 +6,9 @@ import inspect
 
 import numpy as np
 
-from enn import create_optimizer, turbo_enn_config, turbo_one_config, turbo_zero_config
-from enn.turbo.config import ENNSurrogateConfig, lhd_only_config
-from enn.turbo.rust_optimizer import RustOptimizer
+from ennx import create_optimizer, turbo_enn_config, turbo_one_config, turbo_zero_config
+from ennx.turbo.config import ENNSurrogateConfig, lhd_only_config
+from ennx.turbo.rust_optimizer import RustOptimizer
 
 
 class TestCreateOptimizerContract:
@@ -50,7 +50,7 @@ class TestCreateOptimizerContract:
 
     def test_telemetry_returns_telemetry_obj(self):
         """Optimizer.telemetry() returns Telemetry with dt_fit, dt_gen, dt_sel, dt_tell."""
-        from enn import Telemetry
+        from ennx import Telemetry
 
         bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
         config = turbo_one_config(num_init=2)

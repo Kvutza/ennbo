@@ -1,16 +1,15 @@
 [project]
-name = "ennbo"
+name = "ennx"
 version = "0.3.14"
 description = "Epistemic Nearest Neighbors"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13,<3.14"
 license = { file = "LICENSE" }
-dependencies = []
+dependencies = ["numpy>=2.1"]
 
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Scientific/Engineering :: Mathematics",
@@ -19,13 +18,11 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Kvutza/ennbo"
-Source = "https://github.com/Kvutza/ennbo"
+Homepage = "https://github.com/Kvutza/ennx"
+Source = "https://github.com/Kvutza/ennx"
 
 [project.optional-dependencies]
 with-deps = [
-    "numpy>=1.26.4,<2.0.0; python_version < '3.13'",
-    "numpy>=2.1; python_version >= '3.13'",
     "torch>=2.5.1",
     "gpytorch>=1.13",
     "scipy>=1.15.3",

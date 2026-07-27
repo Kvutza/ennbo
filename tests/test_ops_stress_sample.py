@@ -3,13 +3,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from enn.turbo.config.enn_index_driver import ENNIndexDriver
+from ennx.turbo.config.enn_index_driver import ENNIndexDriver
 
 pytestmark = pytest.mark.slow
 
 
 def _make_small_disk_bpann_store(work_dir, *, num_obs: int = 10, num_dim: int = 4):
-    from enn.enn.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
     from ops.stress import make_synthetic_observations
 
     train_x, train_y = make_synthetic_observations(num_obs, num_dim=num_dim, seed=0)
@@ -101,7 +101,7 @@ def test_disk_persisted_store_10k_reopens_fast(tmp_path):
     """After persist_index_to_disk, 10k-row reopen init should be mmap-fast."""
     import time
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
     from ops.stress import make_synthetic_observations
 
     work_dir = tmp_path / "enn_persist_reopen_10k"
@@ -146,7 +146,7 @@ def test_disk_persisted_store_reopens_fast(tmp_path):
     """
     import time
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
     from ops.stress import make_synthetic_observations
 
     work_dir = tmp_path / "enn_persist_reopen"

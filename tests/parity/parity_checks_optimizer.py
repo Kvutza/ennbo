@@ -13,7 +13,7 @@ def run_optimizer_parity(
     from .parity_checks_sobol import append_skipped_case
 
     try:
-        from enn._rust import Optimizer  # noqa: F401
+        from ennx._rust import Optimizer  # noqa: F401
     except ImportError:
         append_skipped_case(
             report,

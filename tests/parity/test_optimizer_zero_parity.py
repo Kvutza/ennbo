@@ -5,10 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from enn.turbo.config import turbo_zero_config
+from ennx.turbo.config import turbo_zero_config
 
 try:
-    from enn._rust import Optimizer  # noqa: F401
+    from ennx._rust import Optimizer  # noqa: F401
 
     RUST_AVAILABLE = True
 except ImportError:

@@ -56,7 +56,7 @@ The lockfiles cover:
 - `x86_64-pc-windows-msvc`.
 
 When Cargo manifests, supported triples, or crate annotations change, repin
-from the ENNBO repository root:
+from the ENNX repository root:
 
 ```sh
 CARGO_BAZEL_REPIN=1 bazel build //:rust_cpu
@@ -96,7 +96,7 @@ No user-specific path is part of the build or install contract.
 
 The repository contains two owner-boundary smoke fixtures:
 
-- `tests/bazel_consumer` consumes ENNBO as a non-root Bzlmod module;
+- `tests/bazel_consumer` consumes ENNX as a non-root Bzlmod module;
 - `tests/python_consumer/smoke.py` imports an installed wheel.
 
 They exist to catch root-only Crate Universe behavior and malformed wheel

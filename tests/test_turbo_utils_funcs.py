@@ -6,7 +6,7 @@ import pytest
 import turbo_utils_selection_helpers as selection_helpers
 from scipy.stats import qmc
 
-from enn.turbo.python_fallback.turbo_utils import (
+from ennx.turbo.python_fallback.turbo_utils import (
     argmax_random_tie,
     from_unit,
     generate_raasp_candidates,
@@ -120,7 +120,7 @@ def _raasp_perturb_test(rng, candidate_rv, num_dim=3, sobol_engine=None):
 
 
 def test_raasp_shape_and_bounds():
-    from enn.turbo.config import CandidateRV
+    from ennx.turbo.config import CandidateRV
 
     _raasp_perturb_test(
         np.random.default_rng(0),
@@ -131,7 +131,7 @@ def test_raasp_shape_and_bounds():
 
 
 def test_raasp_at_least_one_dimension_perturbed():
-    from enn.turbo.config import CandidateRV
+    from ennx.turbo.config import CandidateRV
 
     candidates, x_center = _raasp_perturb_test(
         np.random.default_rng(0),
@@ -144,7 +144,7 @@ def test_raasp_at_least_one_dimension_perturbed():
 
 
 def test_raasp_deterministic():
-    from enn.turbo.config import CandidateRV
+    from ennx.turbo.config import CandidateRV
 
     num_candidates, num_dim = 8, 2
     x_center = np.full(num_dim, 0.5)
@@ -176,7 +176,7 @@ def test_raasp_deterministic():
 
 
 def test_raasp_probability_scaling():
-    from enn.turbo.config import CandidateRV
+    from ennx.turbo.config import CandidateRV
 
     num_candidates = 100
     num_dim_low, num_dim_high = 5, 100
@@ -345,13 +345,13 @@ def _check_candidate_shape_and_bounds(candidates, num_candidates, num_dim, lb, u
 
 
 def test_raasp_uniform_shape_and_bounds():
-    from enn.turbo.config import CandidateRV
+    from ennx.turbo.config import CandidateRV
 
     _raasp_perturb_test(np.random.default_rng(0), CandidateRV.UNIFORM)
 
 
 def test_raasp_uniform_at_least_one_dimension_perturbed():
-    from enn.turbo.config import CandidateRV
+    from ennx.turbo.config import CandidateRV
 
     candidates, x_center = _raasp_perturb_test(
         np.random.default_rng(0), CandidateRV.UNIFORM, num_dim=5
@@ -361,7 +361,7 @@ def test_raasp_uniform_at_least_one_dimension_perturbed():
 
 
 def test_generate_raasp_candidates_shape_and_bounds():
-    from enn.turbo.config import CandidateRV
+    from ennx.turbo.config import CandidateRV
 
     num_candidates, num_dim = 10, 3
     x_center, lb, ub = np.full(num_dim, 0.5), np.zeros(num_dim), np.ones(num_dim)
@@ -428,7 +428,7 @@ def test_generate_raasp_candidates_uniform_respects_num_pert():
 
 @pytest.mark.slow
 def test_gp_thompson_sample_returns_valid_indices():
-    from enn.turbo.python_fallback.turbo_gp_fit import fit_gp
+    from ennx.turbo.python_fallback.turbo_gp_fit import fit_gp
 
     num_obs, num_dim = 10, 2
     rng = np.random.default_rng(42)

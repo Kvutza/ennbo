@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from enn import create_optimizer, turbo_enn_config, turbo_one_config
+from ennx import create_optimizer, turbo_enn_config, turbo_one_config
 from dataclasses import replace
 
-from enn.turbo.config import (
+from ennx.turbo.config import (
     CandidateGenConfig,
     ENNFitConfig,
     ENNSurrogateConfig,
@@ -13,13 +13,13 @@ from enn.turbo.config import (
     MultiObjectiveConfig,
     turbo_zero_config,
 )
-from enn.turbo.fallback_registry import (
+from ennx.turbo.fallback_registry import (
     FALLBACK_REGISTRY,
     FallbackEntry,
     fallback_reason,
     requires_python_optimizer_fallback,
 )
-from enn.turbo.rust_optimizer import RustOptimizer, is_rust_supported_config
+from ennx.turbo.rust_optimizer import RustOptimizer, is_rust_supported_config
 
 
 def test_registry_entries():

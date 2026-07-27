@@ -15,8 +15,8 @@ def _fit_model(
     params_warm_start=None,
     infer_aleatoric_variance_scale: bool = True,
 ):
-    from enn.enn.enn_fit import ENNIncrementalDelta, enn_fit
-    from enn.enn.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_fit import ENNIncrementalDelta, enn_fit
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
 
     fitter = ENNStatefulFitter(
         k=k,
@@ -46,9 +46,9 @@ def _assert_y_std_matches_batch(inc_std, batch_std) -> None:
 def test_subsample_loglik_and_enn_fit_improve_hyperparameters():
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_fit import subsample_loglik
-    from enn.enn.enn_params import ENNParams
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_fit import subsample_loglik
+    from ennx.ennx.enn_params import ENNParams
 
     rng = np.random.default_rng(0)
     x = rng.standard_normal((40, 2))
@@ -75,7 +75,7 @@ def test_subsample_loglik_and_enn_fit_improve_hyperparameters():
 def _capture_fit_sweep_result(model, params, num_fit_samples, eval_x, eval_y):
     import numpy as np
 
-    from enn.enn.enn_fit import subsample_loglik
+    from ennx.ennx.enn_fit import subsample_loglik
 
     loglik = subsample_loglik(
         model,
@@ -99,7 +99,7 @@ def _capture_fit_sweep_result(model, params, num_fit_samples, eval_x, eval_y):
 def _run_batch_fit_sweep(x_train, y_train, y_var_train, sample_sizes):
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
 
     captured = []
     for num_fit_samples in sample_sizes:
@@ -120,9 +120,9 @@ def _run_batch_fit_sweep(x_train, y_train, y_var_train, sample_sizes):
 def _run_incremental_fit_sweep(x_train, y_train, y_var_train, sample_sizes):
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_fit import ENNIncrementalDelta, enn_fit
-    from enn.enn.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_fit import ENNIncrementalDelta, enn_fit
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
 
     incremental_model = EpistemicNearestNeighbors(
         np.empty((0, x_train.shape[1])),
@@ -207,8 +207,8 @@ def _make_linear_1d_regression_data(
 def test_enn_fit_with_yvar_none():
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_params import ENNParams
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_params import ENNParams
 
     rng = np.random.default_rng(42)
     n = 30
@@ -233,8 +233,8 @@ def test_enn_fit_with_yvar_none():
 def test_enn_fit_with_warm_start():
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_params import ENNParams
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_params import ENNParams
 
     rng = np.random.default_rng(42)
     n = 30
@@ -267,9 +267,9 @@ def test_enn_fit_with_warm_start():
 def test_enn_fit_supports_multioutput_y():
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_fit import subsample_loglik
-    from enn.enn.enn_params import ENNParams
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_fit import subsample_loglik
+    from ennx.ennx.enn_params import ENNParams
 
     rng = np.random.default_rng(123)
     x = rng.standard_normal((60, 3))
@@ -294,8 +294,8 @@ def test_enn_fit_supports_multioutput_y():
 def test_enn_fit_can_disable_aleatoric_inference():
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_params import ENNParams
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_params import ENNParams
 
     rng = np.random.default_rng(42)
     x, y, yvar = _make_linear_1d_regression_data(
@@ -325,7 +325,7 @@ def test_enn_fitter_tell_rejects_non_finite_x():
     import numpy as np
     import pytest
 
-    from enn.enn.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
 
     fitter = ENNStatefulFitter(k=2, rng=np.random.default_rng(0))
     with pytest.raises(ValueError, match="finite"):
@@ -335,8 +335,8 @@ def test_enn_fitter_tell_rejects_non_finite_x():
 def test_enn_fitter_incremental_tell_matches_batch_tell():
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
 
     rng = np.random.default_rng(2020)
     x = rng.standard_normal((12, 2))
@@ -360,9 +360,9 @@ def test_enn_fitter_incremental_tell_matches_batch_tell():
 def test_enn_fitter_warm_start_affects_fit():
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_fitter import ENNStatefulFitter
-    from enn.enn.enn_params import ENNParams
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_params import ENNParams
 
     x = np.array(
         [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.5, 0.5]],
@@ -395,8 +395,8 @@ def test_enn_fitter_warm_start_affects_fit():
 def test_enn_fitter_model_tell_sync_produces_finite_params():
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
 
     rng = np.random.default_rng(88)
     x_all = rng.standard_normal((8, 2))
@@ -415,7 +415,7 @@ def test_enn_fitter_tell_rejects_non_finite():
     import numpy as np
     import pytest
 
-    from enn.enn.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
 
     fitter = ENNStatefulFitter(k=2, rng=np.random.default_rng(0))
     with pytest.raises(ValueError, match="finite"):
@@ -426,8 +426,8 @@ def test_enn_fitter_ask_without_tell_raises():
     import numpy as np
     import pytest
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
 
     x = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]], dtype=float)
     y = np.array([[0.0], [100.0], [200.0], [300.0]], dtype=float)
@@ -441,8 +441,8 @@ def test_enn_fitter_ask_without_tell_raises():
 def test_enn_fitter_incremental_y_std_matches_model_train_y_std():
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
 
     x = np.array(
         [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.5, 0.5]],
@@ -459,8 +459,8 @@ def test_enn_fitter_incremental_y_std_matches_model_train_y_std():
 def test_enn_fitter_incremental_y_std_multioutput():
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
 
     x = np.array(
         [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.5, 0.5]],
@@ -481,7 +481,7 @@ def test_enn_fitter_tell_rejects_non_finite_yvar():
     import numpy as np
     import pytest
 
-    from enn.enn.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
 
     fitter = ENNStatefulFitter(k=2, rng=np.random.default_rng(0))
     with pytest.raises(ValueError, match="finite"):
@@ -492,9 +492,9 @@ def test_enn_fitter_tell_rejects_non_finite_yvar():
 def test_enn_fitter_warm_start_is_evaluated_as_candidate():
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_fitter import ENNStatefulFitter
-    from enn.enn.enn_params import ENNParams
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_params import ENNParams
 
     x = np.array(
         [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
@@ -521,8 +521,8 @@ def test_enn_fitter_warm_start_is_evaluated_as_candidate():
 def test_enn_fitter_desynced_tell_ask_uses_partial_y_std():
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
 
     x = np.array(
         [
@@ -555,8 +555,8 @@ def test_enn_fitter_desynced_tell_ask_uses_partial_y_std():
 def test_enn_fitter_ask_returns_defaults_when_num_obs_lt_2():
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
 
     model = EpistemicNearestNeighbors(
         np.array([[0.0, 0.0]]),

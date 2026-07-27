@@ -4,10 +4,10 @@ from __future__ import annotations
 def test_enn_fit_after_every_add_uses_num_fit_candidates_one():
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_fit import ENNIncrementalDelta, enn_fit
-    from enn.enn.enn_fitter import ENNStatefulFitter
-    from enn.enn.enn_params import ENNParams
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_fit import ENNIncrementalDelta, enn_fit
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_params import ENNParams
 
     rng = np.random.default_rng(7)
     x_all = rng.standard_normal((12, 2))
@@ -41,9 +41,9 @@ def test_enn_fit_after_every_add_uses_num_fit_candidates_one():
 def test_enn_fit_incremental_metamorphic_matches_manual_tell_ask():
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
-    from enn.enn.enn_fit import ENNIncrementalDelta, enn_fit
-    from enn.enn.enn_fitter import ENNStatefulFitter
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_fit import ENNIncrementalDelta, enn_fit
+    from ennx.ennx.enn_fitter import ENNStatefulFitter
 
     rng = np.random.default_rng(99)
     x_all = rng.standard_normal((8, 2))

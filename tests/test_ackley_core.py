@@ -1,6 +1,6 @@
 import numpy as np
 
-from enn.benchmarks.ackley_core import ackley_core
+from ennx.benchmarks.ackley_core import ackley_core
 
 
 def test_ackley_core_1d():

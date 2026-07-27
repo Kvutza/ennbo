@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from enn.turbo.config import MultiObjectiveConfig
+from ennx.turbo.config import MultiObjectiveConfig
 
 
 def test_python_morbo_rejects_num_metrics_one():

@@ -3,11 +3,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from enn import EpistemicNearestNeighbors
-from enn.enn.enn_params import ENNParams, PosteriorFlags
+from ennx import EpistemicNearestNeighbors
+from ennx.ennx.enn_params import ENNParams, PosteriorFlags
 
 try:
-    from enn._rust import EpistemicNearestNeighbors as RustENN
+    from ennx._rust import EpistemicNearestNeighbors as RustENN
 
     RUST_AVAILABLE = True
 except ImportError:

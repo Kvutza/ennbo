@@ -18,7 +18,7 @@ _TESTMON_DB = (
 
 
 def _native_extension_path() -> Path | None:
-    for entry in (_ROOT / "src" / "enn").glob("enn_rust*.so"):
+    for entry in (_ROOT / "src" / "enn").glob("ennx_rust*.so"):
         return entry
     return None
 
@@ -56,7 +56,7 @@ def sphere_objective(x):
 
 
 def make_from_unit_fn(bounds):
-    from enn.turbo.python_fallback.turbo_utils import from_unit
+    from ennx.turbo.python_fallback.turbo_utils import from_unit
 
     def from_unit_fn(x):
         return from_unit(x, bounds)
@@ -65,7 +65,7 @@ def make_from_unit_fn(bounds):
 
 
 def make_select_sobol_fn(bounds, rng):
-    from enn.turbo.python_fallback.turbo_utils import from_unit
+    from ennx.turbo.python_fallback.turbo_utils import from_unit
 
     def select_sobol_fn(x, n):
         idx = rng.choice(x.shape[0], size=n, replace=False)
@@ -77,7 +77,7 @@ def make_select_sobol_fn(bounds, rng):
 def make_enn_model(n=20, d=3, seed=0, yvar_scale=0.1):
     import numpy as np
 
-    from enn.enn.enn_class import EpistemicNearestNeighbors
+    from ennx.ennx.enn_class import EpistemicNearestNeighbors
 
     rng = np.random.default_rng(seed)
     train_x = rng.standard_normal((n, d))

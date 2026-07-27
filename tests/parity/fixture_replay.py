@@ -1,1 +1,1 @@
-from enn.turbo.optimizer_fixtures.replay import *  # noqa: F403
+from ennx.turbo.optimizer_fixtures.replay import *  # noqa: F403

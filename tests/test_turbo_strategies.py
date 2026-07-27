@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from enn.turbo.config import (
+from ennx.turbo.config import (
     GPSurrogateConfig,
     HybridInit,
     InitConfig,
@@ -12,11 +12,11 @@ from enn.turbo.config import (
     RandomAcquisitionConfig,
     turbo_zero_config,
 )
-from enn.turbo.config.validation import validate_optimizer_config
-from enn.turbo.python_fallback.optimizer import Optimizer
-from enn.turbo.python_fallback.sampling import draw_lhd
-from enn.turbo.python_fallback.strategies.lhd_only_strategy import LHDOnlyStrategy
-from enn.turbo.python_fallback.strategies.turbo_hybrid_strategy import (
+from ennx.turbo.config.validation import validate_optimizer_config
+from ennx.turbo.python_fallback.optimizer import Optimizer
+from ennx.turbo.python_fallback.sampling import draw_lhd
+from ennx.turbo.python_fallback.strategies.lhd_only_strategy import LHDOnlyStrategy
+from ennx.turbo.python_fallback.strategies.turbo_hybrid_strategy import (
     TurboHybridStrategy,
 )
 
@@ -61,7 +61,7 @@ def test_validate_optimizer_config_lhd_only_requires_no_surrogate_direct_call():
 
 
 def test_optimizer_init_progress_and_telemetry_smoke():
-    from enn import create_optimizer
+    from ennx import create_optimizer
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(0)
@@ -78,7 +78,7 @@ def test_optimizer_init_progress_and_telemetry_smoke():
 
 
 def test_turbo_hybrid_fallback_executes_when_init_points_exhausted_mid_batch():
-    from enn import create_optimizer
+    from ennx import create_optimizer
 
     bounds = np.array([[-1.0, 1.0], [-1.0, 1.0]], dtype=float)
     rng = np.random.default_rng(0)
@@ -95,9 +95,9 @@ def test_turbo_hybrid_fallback_executes_when_init_points_exhausted_mid_batch():
 
 
 def test_optimizer_direct_constructor_builds_strategy_by_default():
-    from enn.turbo.config import turbo_one_config
-    from enn.turbo.python_fallback.components.surrogates import GPSurrogate
-    from enn.turbo.python_fallback.components.thompson_acq_optimizer import (
+    from ennx.turbo.config import turbo_one_config
+    from ennx.turbo.python_fallback.components.surrogates import GPSurrogate
+    from ennx.turbo.python_fallback.components.thompson_acq_optimizer import (
         ThompsonAcqOptimizer,
     )
 
