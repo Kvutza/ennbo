@@ -16,7 +16,7 @@ From repo root:
 
 ```bash
 cd /path/to/repo
-maturin develop --release
+pixi run -e ennbo check
 ```
 
 2. Run Python parity/contract tests:

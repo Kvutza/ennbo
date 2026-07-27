@@ -1,7 +1,7 @@
 use ennbo::{
     apply_sparse, blocks_for_words, draw_sparse, merge_values, missing_words, select_weights,
-    sparse_union, sparse_xor, take_words, AcquisitionKind, ComputeBackend, WeightAsk, WeightBlock,
-    WeightLeaf, WeightSearch, WeightSelectConfig, WeightTrial,
+    sparse_union, sparse_xor, take_words, AcquisitionKind, BpannHistory, ComputeBackend, WeightAsk,
+    WeightBlock, WeightLeaf, WeightSearch, WeightSelectConfig, WeightTrial,
 };
 use numpy::{Element, IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -56,6 +56,16 @@ fn trial_leaves(raw: Vec<(usize, usize, u8, f32, f32, f32)>) -> PyResult<Vec<Wei
         })
         .collect()
 }
+
+fn trial_leaves_with_encoding(raw: Vec<(usize, usize, u8, Option<String>, f32, f32, f32)>) -> PyResult<Vec<WeightLeaf>> {
+    raw.into_iter()
+        .map(|(offset, length, bits, mode, scale, weight, radius)| {
+            let encoding = ennbo::EncodingType::parse(bits, mode.as_deref()).map_err(err)?;
+            WeightLeaf::new_with_encoding(offset, length, bits, encoding, scale, weight, radius).map_err(err)
+        })
+        .collect()
+}
+
 
 #[pyclass(name = "WeightSearch", unsendable)]
 pub struct PyWeightSearch {
@@ -136,14 +146,105 @@ impl PyWeightSearch {
         self.inner.tell(trial, value, accept).map_err(err)
     }
 
+    fn replace_history(
+        &mut self,
+        rows: PyReadonlyArray2<'_, u8>,
+        values: PyReadonlyArray1<'_, f32>,
+    ) -> PyResult<()> {
+        self.inner
+            .replace_history(&array2_vec(&rows), &array1_vec(values))
+            .map_err(err)
+    }
+
     #[getter]
     fn history_len(&self) -> usize {
         self.inner.history_len()
     }
 
     #[getter]
+    fn history_capacity(&self) -> usize {
+        self.inner.history_capacity()
+    }
+
+    #[getter]
     fn row_bytes(&self) -> usize {
         self.inner.row_bytes()
+    }
+}
+
+#[pyclass(name = "BpannHistory", unsendable)]
+pub struct PyBpannHistory {
+    inner: BpannHistory,
+}
+
+#[pymethods]
+impl PyBpannHistory {
+    #[new]
+    fn new(work_dir: String, descriptor_dim: usize) -> PyResult<Self> {
+        Ok(Self {
+            inner: BpannHistory::new(work_dir.into(), descriptor_dim).map_err(err)?,
+        })
+    }
+
+    fn append(&mut self, descriptor: PyReadonlyArray1<'_, f64>, value: f32) -> PyResult<u64> {
+        self.inner
+            .append(&descriptor.as_array(), value)
+            .map(|id| id.0)
+            .map_err(err)
+    }
+
+    fn search(
+        &self,
+        descriptors: PyReadonlyArray2<'_, f64>,
+        neighbors: usize,
+    ) -> PyResult<Vec<Vec<u64>>> {
+        self.inner
+            .search(&descriptors.as_array(), neighbors)
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|row| row.into_iter().map(|id| id.0).collect())
+                    .collect()
+            })
+            .map_err(err)
+    }
+
+    fn shortlist(
+        &self,
+        descriptors: PyReadonlyArray2<'_, f64>,
+        neighbors_per_candidate: usize,
+        max_observations: usize,
+    ) -> PyResult<Vec<(u64, f32)>> {
+        self.inner
+            .shortlist(
+                &descriptors.as_array(),
+                neighbors_per_candidate,
+                max_observations,
+            )
+            .map(|items| {
+                items
+                    .into_iter()
+                    .map(|item| (item.id.0, item.value))
+                    .collect()
+            })
+            .map_err(err)
+    }
+
+    fn sync(&mut self) -> PyResult<()> {
+        self.inner.sync().map_err(err)
+    }
+
+    fn persist(&mut self) -> PyResult<()> {
+        self.inner.persist().map_err(err)
+    }
+
+    #[getter]
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    #[getter]
+    fn descriptor_dim(&self) -> usize {
+        self.inner.descriptor_dim()
     }
 }
 

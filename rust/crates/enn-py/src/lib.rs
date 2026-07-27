@@ -34,10 +34,11 @@ pub use pymodule_wrappers::{
     pymodule_util_kiss_hook,
 };
 
-/// Main module (`import enn.enn_rust` when built with maturin `module-name = "enn.enn_rust"`).
+/// Main module, packaged by Bazel as `enn.enn_rust`.
 #[pymodule]
 #[pyo3(name = "enn_rust")]
 pub(crate) fn pymodule_enn_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<py_optimizer::PyMultiTrustRegion>()?;
     m.add_wrapped(wrap_pymodule!(pymodule_hypervolume))?;
     m.add_wrapped(wrap_pymodule!(pymodule_hash))?;
     m.add_wrapped(wrap_pymodule!(pymodule_util))?;

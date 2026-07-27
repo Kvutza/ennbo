@@ -83,7 +83,10 @@ pub use surrogate::{ENNSurrogate, ENNSurrogateConfig, Surrogate, SurrogatePredic
 pub use traits::PosteriorComputation;
 pub use trust_region::{NoTrustRegion, TRLengthConfig, TrustRegionError, TurboTrustRegion};
 pub use trust_region_config::TrustRegionConfig;
-pub use trials::{Ask as WeightAsk, Leaf as WeightLeaf, Search as WeightSearch, Trial as WeightTrial};
+pub use trials::{
+    Ask as WeightAsk, BpannHistory, EncodingType, IndexedObservation, Leaf as WeightLeaf, ObservationId,
+    Search as WeightSearch, Trial as WeightTrial,
+};
 pub use util::{
     argmax_random_tie, calculate_sobol_indices, pareto_front_2d_maximize, standardize_y,
 };

@@ -1,7 +1,3 @@
-[build-system]
-requires = ["maturin>=1.4,<2"]
-build-backend = "maturin"
-
 [project]
 name = "ennbo"
 version = "0.3.14"
@@ -46,30 +42,6 @@ dev = [
     "nds>=0.4.3",
     "pandas>=2.0",
     "matplotlib>=3.8",
-]
-
-# Maturin builds wheels + sdist; do not publish Hatchling-only `py3-none-any` wheels (they lack `enn.enn_rust`).
-# So `maturin build` / `maturin develop` from repo root find the PyO3 crate (no Cargo.toml at repo root).
-# `module-name` places the extension as `enn.enn_rust` next to `src/enn/*.py` (see Maturin mixed-project docs).
-[tool.maturin]
-manifest-path = "rust/crates/enn-py/Cargo.toml"
-python-source = "src"
-module-name = "enn.enn_rust"
-profile = "release"
-# This is the legacy Cargo/Maturin developer path. Bazel owns release wheels.
-# Linux release builds should repair wheels; local macOS editable installs should skip repair.
-auditwheel = "skip"
-# `.cargo/` is outside the Rust workspace; include it for any workspace-level Cargo config.
-include = [
-    { path = ".cargo/**/*", format = "sdist" },
-    { path = "rust/.cargo/**/*", format = "sdist" },
-]
-# Agent / malvin working dirs at repo root (also in .gitignore); keep out of sdist/wheels.
-exclude = [
-    "_malvin/**/*",
-    "_kpop/**/*",
-    "malvin_memories/**/*",
-    ".malvin_memories/**/*",
 ]
 
 [tool.pytest.ini_options]

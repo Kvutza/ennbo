@@ -10,12 +10,16 @@ Build the wheel on the current platform:
 
 ```sh
 bazel build //:python_wheel --config=release
-python -m pip install bazel-bin/ennbo-*.whl
 ```
 
 Python consumers depend on the resulting `ennbo` wheel and import `enn`.
 They do not need Bazel, Cargo, FAISS headers, or a host package-manager FAISS
 installation.
+
+For the current fork workflow, consumers select the platform wheel directly in
+their `pixi.toml`; see
+[`examples/consumer/pixi.toml`](examples/consumer/pixi.toml). Pixi installs the
+prebuilt release asset and never invokes ENNBO's build system.
 
 The checked-in wheel target currently emits the CPython 3.13 ABI. Release
 automation must build additional ABI-tagged wheels for other supported Python

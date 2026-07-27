@@ -21,7 +21,10 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "CandidateRV": (".turbo.optimizer_config", "CandidateRV"),
     "InitStrategy": (".turbo.optimizer_config", "InitStrategy"),
     "AcqType": (".turbo.optimizer_config", "AcqType"),
+    "quantize_int4": (".quantization", "quantize_int4"),
+    "quantize_fp4_e2m1": (".quantization", "quantize_fp4_e2m1"),
 }
+
 
 
 def __getattr__(name: str):

@@ -1,6 +1,6 @@
 //! Optimizer Python bindings.
 
-use numpy::{IntoPyArray, PyArrayDyn, PyReadonlyArray2};
+use numpy::{IntoPyArray, PyArrayDyn, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rand::rngs::StdRng;
@@ -140,12 +140,24 @@ pub fn parse_config_overrides_from_dict(
         overrides.candidate_rv = Some(parse_candidate_rv(&rv.extract::<String>()?)?);
     }
     if let Some(v) = dict.get_item("trust_region")? {
-        overrides.trust_region_kind = Some(v.extract()?);
+        let s: String = v.extract()?;
+        let kind = match s.as_str() {
+            "turbo" => ennbo::config::TrustRegionKind::Turbo,
+            "morbo" => ennbo::config::TrustRegionKind::Morbo,
+            _ => return Err(PyValueError::new_err(format!("Invalid trust_region_kind: {}", s))),
+        };
+        overrides.trust_region_kind = Some(kind);
     }
     overrides.num_metrics = optional_usize(dict, "num_metrics")?;
     overrides.alpha = optional_f64(dict, "alpha")?;
     if let Some(v) = dict.get_item("rescalarize")? {
-        overrides.rescalarize = Some(v.extract()?);
+        let s: String = v.extract()?;
+        let resc = match s.as_str() {
+            "on_restart" => ennbo::morbo_trust_region::Rescalarize::OnRestart,
+            "on_propose" => ennbo::morbo_trust_region::Rescalarize::OnPropose,
+            _ => return Err(PyValueError::new_err(format!("Invalid rescalarize: {}", s))),
+        };
+        overrides.rescalarize = Some(resc);
     }
     if let Some(v) = dict.get_item("enn_storage")? {
         overrides.enn_storage = Some(parse_enn_storage(&v.extract::<String>()?)?);
@@ -357,6 +369,82 @@ pub fn create_optimizer_lhd_py(
     .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     Ok(PyOptimizer { inner: optimizer })
+}
+
+/// Python wrapper for MultiTrustRegion state machine
+#[pyclass(name = "MultiTrustRegion")]
+pub struct PyMultiTrustRegion {
+    inner: ennbo::optimizer::multi_tr::MultiTrustRegionState,
+}
+
+#[pymethods]
+impl PyMultiTrustRegion {
+    #[new]
+    #[pyo3(signature = (num_dim, num_regions=4, sharing_policy="shared", seed=42))]
+    pub fn new(
+        num_dim: usize,
+        num_regions: usize,
+        sharing_policy: &str,
+        seed: u64,
+    ) -> PyResult<Self> {
+        use ennbo::optimizer::multi_tr::{MultiTrustRegionConfig, MultiTrustRegionState, SharingPolicy};
+
+        let mut rng = StdRng::seed_from_u64(seed);
+        let policy = match sharing_policy {
+            "shared" => SharingPolicy::Shared,
+            "nearest_center" => SharingPolicy::NearestCenter,
+            "independent" => SharingPolicy::Independent,
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "Unknown sharing policy: {}",
+                    sharing_policy
+                )))
+            }
+        };
+        let mut config = MultiTrustRegionConfig::new(num_regions, Default::default());
+        config.sharing_policy = policy;
+
+        let state = MultiTrustRegionState::new(num_dim, config, None, &mut rng)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        Ok(Self { inner: state })
+    }
+
+    pub fn num_regions(&self) -> usize {
+        self.inner.num_regions()
+    }
+
+    pub fn num_dim(&self) -> usize {
+        self.inner.num_dim()
+    }
+
+    pub fn active_count(&self) -> usize {
+        self.inner.active_count()
+    }
+
+    pub fn get_centers<'py>(&self, py: Python<'py>) -> Bound<'py, PyArrayDyn<f64>> {
+        self.inner.centers.clone().into_dyn().into_pyarray_bound(py)
+    }
+
+    pub fn get_lengths<'py>(&self, py: Python<'py>) -> Bound<'py, PyArrayDyn<f64>> {
+        self.inner.lengths.clone().into_dyn().into_pyarray_bound(py)
+    }
+
+    pub fn get_incumbents<'py>(&self, py: Python<'py>) -> Bound<'py, PyArrayDyn<f64>> {
+        self.inner.incumbents_y.clone().into_dyn().into_pyarray_bound(py)
+    }
+
+    pub fn tell(
+        &mut self,
+        x_batch: PyReadonlyArray2<'_, f64>,
+        y_batch: PyReadonlyArray1<'_, f64>,
+    ) -> PyResult<()> {
+        let x_view = x_batch.as_array();
+        let y_view = y_batch.as_array();
+        self.inner
+            .tell_update(&x_view, &y_view)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
 }
 
 #[cfg(test)]

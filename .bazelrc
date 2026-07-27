@@ -1,4 +1,5 @@
 common --enable_bzlmod
+build --experimental_convenience_symlinks=ignore
 
 test --test_output=errors
 
@@ -9,11 +10,10 @@ build:constrained --local_resources=cpu=4
 build:constrained --local_resources=memory=6144
 test:constrained --test_arg=--test-threads=1
 
-# Stable platform entry points. Native dependencies use Bazel platform
-# constraints; these defines keep the user-facing configs explicit.
-build:macos --define=ennbo_platform=macos
-build:linux --define=ennbo_platform=linux
-build:windows --define=ennbo_platform=windows
-
-# Match the optimized Cargo/maturin build used by the original checkout.
+# Optimized native release build.
 build:release --compilation_mode=opt
+
+# macOS deployment target pin (hermeticity fix)
+build:macos --macos_minimum_os=11.0
+build --macos_minimum_os=11.0
+

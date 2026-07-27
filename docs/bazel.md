@@ -8,17 +8,13 @@ downstream Bazel project consumes the public module targets.
 
 | Target | Contents |
 | --- | --- |
-| `//:rust_cpu` | Rust ENNBO with FAISS and BPANN |
-| `//:rust_metal` | CPU target plus Metal kernels; macOS only |
-| `//:rust_opencl` | CPU target plus OpenCL kernels |
-| `//:rust_accelerators` | Host-selected Metal or OpenCL compatibility alias |
-| `//:python_extension` | Host-selected native Python extension |
-| `//:python_wheel` | Python sources plus the native extension |
+| `//:cpu` | Pure CPU target (FAISS CPU + BPANN) |
+| `//:gpu` | Hardware-accelerated GPU target (Metal on macOS, OpenCL on Linux/Windows) |
+| `//:wheel` | Prebuilt Python `.whl` release package |
+| `//:audit` | Release wheel artifact verification test |
+| `//:check` | Canonical test suite |
 
-`//:rust_core` remains a compatibility alias for `//:rust_cpu`.
-
-CPU, Metal, and OpenCL are separate Bazel targets. Metal and OpenCL are no
-longer forced into the same Rust feature closure.
+`//:python_wheel` and `//:rust_tests` remain as compatibility aliases for `//:wheel` and `//:check`.
 
 ## Native dependency contract
 
@@ -70,26 +66,19 @@ Consumers must never patch or regenerate ENNBO's lockfiles.
 
 ## Build and test
 
-macOS:
+Build and run tests directly with Bazel:
 
 ```sh
-bazel test //:rust_tests //bazel/faiss:faiss_index_smoke --config=macos
-bazel build //:python_wheel --config=macos --config=release
+bazel test //:check //:audit --config=release --config=constrained
+bazel build //:cpu //:gpu //:wheel --config=release --config=constrained
 ```
 
-Laptop-friendly resource limits are opt-in:
 
-```sh
-bazel build //:python_wheel --config=macos --config=release --config=constrained
-```
-
-The wheel appears under `bazel-bin/` and installs normally:
-
-```sh
-python -m venv .venv
-.venv/bin/python -m pip install bazel-bin/ennbo-*.whl
-.venv/bin/python -c "import enn, enn.enn_rust"
-```
+The wheel is a release artifact produced directly by `//:python_wheel`; local
+development and tests do not install it into a separate Python environment.
+Consumer workspaces reference the matching release wheel under a
+platform-specific `pypi-dependencies` table, as shown in
+[`examples/consumer/pixi.toml`](../examples/consumer/pixi.toml).
 
 The local wheel target is tagged for CPython 3.13. Other Python minor versions
 require separately compiled wheels; the native extension is not falsely marked

@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use ndarray::ArrayView2;
+
 use crate::weights::{AcquisitionKind, ComputeBackend};
 
 #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -8,14 +10,81 @@ mod metal;
 #[cfg(feature = "opencl")]
 mod opencl;
 
+mod bpann_history;
+
+pub use bpann_history::{BpannHistory, IndexedObservation, ObservationId};
+
 const MAX_HISTORY: usize = 16;
 const TILE_ELEMENTS: usize = 65_536;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncodingType {
+    Int4 = 0,
+    Int8 = 1,
+    Fp4E2M1 = 2,
+    Fp8E4M3 = 3,
+    Fp8E5M2 = 4,
+}
+
+impl EncodingType {
+    pub fn parse(bits: u8, mode: Option<&str>) -> Result<Self, String> {
+        match (bits, mode.map(|s| s.trim().to_ascii_lowercase()).as_deref()) {
+            (4, None | Some("int") | Some("int4")) => Ok(Self::Int4),
+            (8, None | Some("int") | Some("int8")) => Ok(Self::Int8),
+            (4, Some("fp4") | Some("fp4_e2m1") | Some("e2m1")) => Ok(Self::Fp4E2M1),
+            (8, Some("fp8") | Some("fp8_e4m3") | Some("e4m3")) => Ok(Self::Fp8E4M3),
+            (8, Some("fp8_e5m2") | Some("e5m2")) => Ok(Self::Fp8E5M2),
+            _ => Err(format!("unsupported encoding bits={bits}, mode={mode:?}")),
+        }
+    }
+}
+
+pub static FP4_E2M1_LUT: [f32; 16] = [
+    0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0,
+    -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0,
+];
+
+pub fn decode_code(code: u32, encoding: EncodingType, scale: f32) -> f32 {
+    match encoding {
+        EncodingType::Int4 | EncodingType::Int8 => code as f32 * scale,
+        EncodingType::Fp4E2M1 => FP4_E2M1_LUT[(code & 0x0f) as usize] * scale,
+        EncodingType::Fp8E4M3 => decode_fp8_e4m3(code as u8) * scale,
+        EncodingType::Fp8E5M2 => decode_fp8_e5m2(code as u8) * scale,
+    }
+}
+
+pub fn decode_fp8_e4m3(byte: u8) -> f32 {
+    let sign = if (byte & 0x80) != 0 { -1.0 } else { 1.0 };
+    let exp = (byte >> 3) & 0x0f;
+    let mant = byte & 0x07;
+    if exp == 0 {
+        sign * (mant as f32 / 8.0) * (2.0f32).powi(-6)
+    } else if exp == 15 && mant == 7 {
+        f32::NAN
+    } else {
+        sign * (1.0 + mant as f32 / 8.0) * (2.0f32).powi(exp as i32 - 7)
+    }
+}
+
+pub fn decode_fp8_e5m2(byte: u8) -> f32 {
+    let sign = if (byte & 0x80) != 0 { -1.0 } else { 1.0 };
+    let exp = (byte >> 2) & 0x1f;
+    let mant = byte & 0x03;
+    if exp == 0 {
+        sign * (mant as f32 / 4.0) * (2.0f32).powi(-14)
+    } else if exp == 31 {
+        if mant == 0 { sign * f32::INFINITY } else { f32::NAN }
+    } else {
+        sign * (1.0 + mant as f32 / 4.0) * (2.0f32).powi(exp as i32 - 15)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Leaf {
     pub offset: usize,
     pub length: usize,
     pub bits: u8,
+    pub encoding: EncodingType,
     pub scale: f32,
     pub weight: f32,
     pub radius: f32,
@@ -26,6 +95,18 @@ impl Leaf {
         offset: usize,
         length: usize,
         bits: u8,
+        scale: f32,
+        weight: f32,
+        radius: f32,
+    ) -> Result<Self, String> {
+        Self::new_with_encoding(offset, length, bits, EncodingType::parse(bits, None)?, scale, weight, radius)
+    }
+
+    pub fn new_with_encoding(
+        offset: usize,
+        length: usize,
+        bits: u8,
+        encoding: EncodingType,
         scale: f32,
         weight: f32,
         radius: f32,
@@ -45,6 +126,7 @@ impl Leaf {
             offset,
             length,
             bits,
+            encoding,
             scale,
             weight,
             radius,
@@ -59,6 +141,7 @@ impl Leaf {
         }
     }
 }
+
 
 #[derive(Debug, Clone, Copy)]
 pub struct Ask {
@@ -191,6 +274,92 @@ impl Search {
         })
     }
 
+
+    /// Execute multi-region trial candidate evaluation on GPU.
+    pub fn ask_multi_tr(
+        &mut self,
+        num_regions: usize,
+        seeds_per_region: usize,
+        seeds: &[u64],
+        config: Ask,
+    ) -> Result<Vec<(usize, f32)>, String> {
+        if self.pending.is_some() {
+            return Err("tell must finish the pending trial before ask".to_string());
+        }
+        check_ask(seeds, self.history.len(), config)?;
+        let history: Vec<(usize, f32)> = self
+            .history
+            .iter()
+            .map(|record| (record.slot, record.value))
+            .collect();
+        match &mut self.engine {
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            Engine::Metal(engine) => engine.ask_multi_tr(
+                self.base,
+                &history,
+                num_regions,
+                seeds_per_region,
+                seeds,
+                &self.leaves,
+                config,
+            ),
+            _ => {
+                let mut results = Vec::with_capacity(num_regions);
+                for r in 0..num_regions {
+                    let start = r * seeds_per_region;
+                    let end = start + seeds_per_region;
+                    let (index, score) = self.engine.ask(
+                        self.base,
+                        &history,
+                        0,
+                        &seeds[start..end],
+                        &self.leaves,
+                        config,
+                    )?;
+                    results.push((start + index, score));
+                }
+                Ok(results)
+            }
+        }
+    }
+
+
+    /// Use BPANN to shortlist compact candidate descriptors, stream-resolve
+    /// the matching full observations, and run the existing exact scorer.
+    ///
+    /// BPANN affects only shortlist retrieval. Candidate generation, exact
+    /// squared distance, ENN prediction, and acquisition remain unchanged.
+    pub fn ask_indexed<F>(
+        &mut self,
+        history: &BpannHistory,
+        candidate_descriptors: &ArrayView2<'_, f64>,
+        neighbors_per_candidate: usize,
+        seeds: &[u64],
+        config: Ask,
+        resolve: F,
+    ) -> Result<Trial, String>
+    where
+        F: FnMut(ObservationId) -> Result<Vec<u8>, String>,
+    {
+        if candidate_descriptors.nrows() != seeds.len() {
+            return Err(format!(
+                "candidate descriptor rows {} do not match seed count {}",
+                candidate_descriptors.nrows(),
+                seeds.len()
+            ));
+        }
+        let shortlist = history.shortlist(
+            candidate_descriptors,
+            neighbors_per_candidate,
+            self.capacity,
+        )?;
+        if shortlist.is_empty() {
+            return Err("BPANN history returned an empty shortlist".to_string());
+        }
+        self.replace_indexed_history(&shortlist, resolve)?;
+        self.ask(seeds, config)
+    }
+
     pub fn row(&self, trial: Trial) -> Result<Vec<u8>, String> {
         let pending = self.pending_for(trial)?;
         self.engine.read(pending.slot, self.row_bytes)
@@ -219,8 +388,117 @@ impl Search {
         self.history.len()
     }
 
+    pub fn history_capacity(&self) -> usize {
+        self.capacity
+    }
+
     pub fn row_bytes(&self) -> usize {
         self.row_bytes
+    }
+
+    /// Replace the resident ENN history with a shortlist resolved by an
+    /// external index such as [`BpannHistory`].
+    ///
+    /// `rows` is packed row-major using this search's quantized row layout.
+    /// The shortlist is allowed to contain at most `history_capacity()` rows;
+    /// one additional device slot remains free for the next generated trial.
+    pub fn replace_history(&mut self, rows: &[u8], values: &[f32]) -> Result<(), String> {
+        if self.pending.is_some() {
+            return Err("tell must finish the pending trial before replacing history".to_string());
+        }
+        if values.is_empty() {
+            return Err("replacement history requires at least one observation".to_string());
+        }
+        if values.len() > self.capacity {
+            return Err(format!(
+                "replacement history has {} rows, capacity is {}",
+                values.len(),
+                self.capacity
+            ));
+        }
+        let expected = values
+            .len()
+            .checked_mul(self.row_bytes)
+            .ok_or("replacement history byte count overflow")?;
+        if rows.len() != expected {
+            return Err(format!(
+                "replacement history has {} bytes, expected {expected}",
+                rows.len()
+            ));
+        }
+
+        let slots: Vec<usize> = (0..self.slots)
+            .filter(|slot| *slot != self.base)
+            .take(values.len())
+            .collect();
+        if slots.len() != values.len() {
+            return Err("not enough free model slots for replacement history".to_string());
+        }
+        for (row_index, &slot) in slots.iter().enumerate() {
+            let start = row_index * self.row_bytes;
+            self.engine
+                .write(slot, &rows[start..start + self.row_bytes])?;
+        }
+        self.history = slots
+            .into_iter()
+            .zip(values.iter().copied())
+            .map(|(slot, value)| Record { slot, value })
+            .collect();
+        Ok(())
+    }
+
+    /// Resolve a BPANN shortlist one observation at a time and load it into the
+    /// exact scorer without building a `neighbors × row_bytes` host matrix.
+    ///
+    /// The resolver may regenerate a row from a seed/checkpoint archive. Rows
+    /// are released after being copied into their device slots.
+    pub fn replace_indexed_history<F>(
+        &mut self,
+        observations: &[IndexedObservation],
+        mut resolve: F,
+    ) -> Result<(), String>
+    where
+        F: FnMut(ObservationId) -> Result<Vec<u8>, String>,
+    {
+        if self.pending.is_some() {
+            return Err("tell must finish the pending trial before replacing history".to_string());
+        }
+        if observations.is_empty() {
+            return Err("replacement history requires at least one observation".to_string());
+        }
+        if observations.len() > self.capacity {
+            return Err(format!(
+                "replacement history has {} rows, capacity is {}",
+                observations.len(),
+                self.capacity
+            ));
+        }
+        let slots: Vec<usize> = (0..self.slots)
+            .filter(|slot| *slot != self.base)
+            .take(observations.len())
+            .collect();
+        if slots.len() != observations.len() {
+            return Err("not enough free model slots for replacement history".to_string());
+        }
+
+        self.history.clear();
+        for (&slot, observation) in slots.iter().zip(observations) {
+            let row = resolve(observation.id)?;
+            if row.len() != self.row_bytes {
+                return Err(format!(
+                    "resolved observation {} has {} bytes, expected {}",
+                    observation.id.0,
+                    row.len(),
+                    self.row_bytes
+                ));
+            }
+            self.engine.write(slot, &row)?;
+            self.history.push_back(Record {
+                slot,
+                value: observation.value,
+            });
+        }
+        Ok(())
     }
 
     fn pending_for(&self, trial: Trial) -> Result<Pending, String> {
@@ -314,6 +592,23 @@ impl Engine {
             Self::OpenCl(engine) => engine.read(slot, row_bytes),
         }
     }
+
+    #[allow(unused_variables)]
+    fn write(&mut self, slot: usize, row: &[u8]) -> Result<(), String> {
+        match self {
+            Self::Cpu(engine) => {
+                engine.read_mut(slot).copy_from_slice(row);
+                Ok(())
+            }
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            Self::Metal(engine) => {
+                engine.write(slot, row);
+                Ok(())
+            }
+            #[cfg(feature = "opencl")]
+            Self::OpenCl(engine) => engine.write(slot, row),
+        }
+    }
 }
 
 struct Cpu {
@@ -346,8 +641,9 @@ impl Cpu {
         let draws = crate::weights::thompson_draws(seeds.len(), config.seed);
         let mut best_index = 0;
         let mut best_score = f32::NEG_INFINITY;
+        let mut nearest = vec![(f32::INFINITY, 0usize); config.neighbors];
         for (index, &seed) in seeds.iter().enumerate() {
-            let mut nearest = vec![(f32::INFINITY, 0usize); config.neighbors];
+            nearest.fill((f32::INFINITY, 0usize));
             for (observation_index, &(slot, _)) in history.iter().enumerate() {
                 let distance = trial_distance(&base, self.read(slot), leaves, &steps, seed);
                 insert_neighbor(&mut nearest, distance, observation_index);
@@ -358,6 +654,7 @@ impl Cpu {
                 best_score = score;
             }
         }
+
         let row = materialize(&base, leaves, &steps, seeds[best_index]);
         self.read_mut(trial_slot).copy_from_slice(&row);
         Ok((best_index, best_score))
@@ -379,6 +676,7 @@ pub(crate) struct Step {
     pub element_offset: u32,
     pub length: u32,
     pub bits: u32,
+    pub encoding: u32,
     pub scale: f32,
     pub weight: f32,
     pub whole: u32,
@@ -403,6 +701,7 @@ pub(crate) fn make_steps(leaves: &[Leaf], length: f32) -> Vec<Step> {
                 element_offset: leaf.offset as u32,
                 length: leaf.length as u32,
                 bits: u32::from(leaf.bits),
+                encoding: leaf.encoding as u32,
                 scale: leaf.scale,
                 weight: leaf.weight,
                 whole,
@@ -555,22 +854,39 @@ fn trial_distance(
     steps: &[Step],
     seed: u64,
 ) -> f32 {
-    let mut distance = 0.0;
+    let mut distance = 0.0f32;
     for (&leaf, &step) in leaves.iter().zip(steps) {
-        for element in 0..leaf.length {
-            let byte =
-                step.byte_offset as usize + if leaf.bits == 4 { element / 2 } else { element };
-            let shift = if leaf.bits == 4 { (element & 1) * 4 } else { 0 };
-            let mask = if leaf.bits == 4 { 0x0f } else { 0xff };
-            let code = u32::from((base[byte] >> shift) & mask);
-            let candidate = perturb(code, seed, leaf.offset as u32 + element as u32, step) as f32;
-            let observed = f32::from((observation[byte] >> shift) & mask);
-            let delta = (candidate - observed) * leaf.scale;
-            distance = delta.mul_add(delta * leaf.weight, distance);
+        let byte_offset = step.byte_offset as usize;
+        let element_offset = leaf.offset as u32;
+        if leaf.bits == 4 {
+            for element in 0..leaf.length {
+                let byte = byte_offset + element / 2;
+                let shift = (element & 1) * 4;
+                let code = u32::from((base[byte] >> shift) & 0x0f);
+                let candidate_code = perturb(code, seed, element_offset + element as u32, step);
+                let observed_code = u32::from((observation[byte] >> shift) & 0x0f);
+                let candidate_val = decode_code(candidate_code, leaf.encoding, leaf.scale);
+                let observed_val = decode_code(observed_code, leaf.encoding, leaf.scale);
+                let delta = candidate_val - observed_val;
+                distance = delta.mul_add(delta * leaf.weight, distance);
+            }
+        } else {
+            for element in 0..leaf.length {
+                let byte = byte_offset + element;
+                let code = u32::from(base[byte]);
+                let candidate_code = perturb(code, seed, element_offset + element as u32, step);
+                let observed_code = u32::from(observation[byte]);
+                let candidate_val = decode_code(candidate_code, leaf.encoding, leaf.scale);
+                let observed_val = decode_code(observed_code, leaf.encoding, leaf.scale);
+                let delta = candidate_val - observed_val;
+                distance = delta.mul_add(delta * leaf.weight, distance);
+            }
         }
     }
     distance
 }
+
+
 
 fn insert_neighbor(nearest: &mut [(f32, usize)], distance: f32, index: usize) {
     let Some(position) = nearest.iter().position(|&(other_distance, other_index)| {
@@ -605,6 +921,8 @@ fn score(nearest: &[(f32, usize)], history: &[(usize, f32)], draw: f32, config: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ndarray::{array, Axis};
+    use tempfile::TempDir;
 
     fn leaves() -> Vec<Leaf> {
         vec![
@@ -665,5 +983,154 @@ mod tests {
         let next = search.ask(&[5], config).unwrap();
         let expected = control.ask(&[5], config).unwrap();
         assert_eq!(search.row(next).unwrap(), control.row(expected).unwrap());
+    }
+
+    #[test]
+    fn replacement_history_drives_exact_scoring_and_preserves_base() {
+        let base = [0x76, 0x98, 0x0a, 100, 120, 140, 160];
+        let mut search = Search::new(&base, 0.0, leaves(), 3, ComputeBackend::Cpu).unwrap();
+        let rows = [
+            0x11, 0x22, 0x03, 10, 20, 30, 40, 0x44, 0x55, 0x06, 70, 80, 90, 100,
+        ];
+        search.replace_history(&rows, &[3.0, 7.0]).unwrap();
+        assert_eq!(search.history_len(), 2);
+        assert_eq!(search.history_capacity(), 3);
+
+        let trial = search
+            .ask(
+                &[17, 23],
+                Ask {
+                    neighbors: 1,
+                    length: 1.0,
+                    ..Ask::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(search.row(trial).unwrap().len(), base.len());
+        search.tell(trial, 9.0, false).unwrap();
+
+        let next = search
+            .ask(
+                &[17],
+                Ask {
+                    neighbors: 1,
+                    length: 1.0,
+                    ..Ask::default()
+                },
+            )
+            .unwrap();
+        let mut control = Search::new(&base, 0.0, leaves(), 3, ComputeBackend::Cpu).unwrap();
+        control.replace_history(&rows, &[3.0, 7.0]).unwrap();
+        let expected = control
+            .ask(
+                &[17],
+                Ask {
+                    neighbors: 1,
+                    length: 1.0,
+                    ..Ask::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(search.row(next).unwrap(), control.row(expected).unwrap());
+    }
+
+    #[test]
+    fn replacement_history_validates_shape_and_pending_state() {
+        let base = [0x76, 0x98, 0x0a, 100, 120, 140, 160];
+        let mut search = Search::new(&base, 0.0, leaves(), 2, ComputeBackend::Cpu).unwrap();
+        assert!(search.replace_history(&[], &[]).is_err());
+        assert!(search.replace_history(&base, &[1.0, 2.0]).is_err());
+        let trial = search
+            .ask(
+                &[7],
+                Ask {
+                    neighbors: 1,
+                    ..Ask::default()
+                },
+            )
+            .unwrap();
+        assert!(search.replace_history(&base, &[1.0]).is_err());
+        search.tell(trial, 1.0, false).unwrap();
+    }
+
+    #[test]
+    fn indexed_history_resolves_one_row_at_a_time() {
+        let base = [0x76, 0x98, 0x0a, 100, 120, 140, 160];
+        let rows = [
+            [0x11, 0x22, 0x03, 10, 20, 30, 40],
+            [0x44, 0x55, 0x06, 70, 80, 90, 100],
+        ];
+        let observations = [
+            IndexedObservation {
+                id: ObservationId(1),
+                value: 3.0,
+            },
+            IndexedObservation {
+                id: ObservationId(0),
+                value: 7.0,
+            },
+        ];
+        let mut resolved = Vec::new();
+        let mut search = Search::new(&base, 0.0, leaves(), 2, ComputeBackend::Cpu).unwrap();
+        search
+            .replace_indexed_history(&observations, |id| {
+                resolved.push(id);
+                Ok(rows[id.0 as usize].to_vec())
+            })
+            .unwrap();
+        assert_eq!(resolved, vec![ObservationId(1), ObservationId(0)]);
+        assert_eq!(search.history_len(), 2);
+        assert!(search
+            .ask(
+                &[31],
+                Ask {
+                    neighbors: 2,
+                    ..Ask::default()
+                }
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn indexed_ask_connects_bpann_shortlist_to_exact_search() {
+        let base = [0x76, 0x98, 0x0a, 100, 120, 140, 160];
+        let archive = [
+            [0x11, 0x22, 0x03, 10, 20, 30, 40],
+            [0x44, 0x55, 0x06, 70, 80, 90, 100],
+            [0x77, 0x88, 0x09, 110, 120, 130, 140],
+        ];
+        let descriptors = array![[0.0, 0.0], [1.0, 0.0], [4.0, 0.0]];
+        let dir = TempDir::new().unwrap();
+        let mut history = BpannHistory::new(dir.path().to_path_buf(), 2).unwrap();
+        for (index, descriptor) in descriptors.axis_iter(Axis(0)).enumerate() {
+            history
+                .append(&descriptor, (index as f32 + 1.0) * 10.0)
+                .unwrap();
+        }
+
+        let candidate_descriptors = array![[0.1, 0.0], [3.9, 0.0]];
+        let mut resolved = Vec::new();
+        let mut search = Search::new(&base, 0.0, leaves(), 3, ComputeBackend::Cpu).unwrap();
+        let trial = search
+            .ask_indexed(
+                &history,
+                &candidate_descriptors.view(),
+                1,
+                &[17, 23],
+                Ask {
+                    neighbors: 1,
+                    length: 1.0,
+                    ..Ask::default()
+                },
+                |id| {
+                    resolved.push(id);
+                    Ok(archive[id.0 as usize].to_vec())
+                },
+            )
+            .unwrap();
+        assert_eq!(resolved, vec![ObservationId(0), ObservationId(2)]);
+        assert_eq!(search.history_len(), 2);
+        assert!(trial.index < 2);
+        assert_eq!(search.row(trial).unwrap().len(), base.len());
     }
 }

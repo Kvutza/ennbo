@@ -56,6 +56,7 @@ pub(super) struct Engine {
     distance: ComputePipelineState,
     score: ComputePipelineState,
     pick: ComputePipelineState,
+    multi_tr_pick: ComputePipelineState,
     write: ComputePipelineState,
     scratch: Scratch,
 }
@@ -70,6 +71,7 @@ impl Engine {
         let distance = pipeline(&device, &library, "distance_trials")?;
         let score = pipeline(&device, &library, "score_trials")?;
         let pick = pipeline(&device, &library, "pick_trial")?;
+        let multi_tr_pick = pipeline(&device, &library, "multi_tr_pick_trials")?;
         let write = pipeline(&device, &library, "write_trial")?;
         let row_bytes = base.len();
         let tiles = make_tiles(leaves);
@@ -115,6 +117,7 @@ impl Engine {
             distance,
             score,
             pick,
+            multi_tr_pick,
             write,
             scratch,
         })
@@ -231,11 +234,123 @@ impl Engine {
         Ok((index, scores[index]))
     }
 
+    #[allow(dead_code)]
+    pub(super) fn ask_multi_tr(
+        &mut self,
+        base_slot: usize,
+        history: &[(usize, f32)],
+        num_regions: usize,
+        seeds_per_region: usize,
+        seeds: &[u64],
+        leaves: &[Leaf],
+        config: Ask,
+    ) -> Result<Vec<(usize, f32)>, String> {
+        let total_candidates = num_regions * seeds_per_region;
+        self.ensure_candidates(total_candidates)?;
+        let history_slots: Vec<u32> = history
+            .iter()
+            .map(|&(slot, _)| to_u32(slot, "history slot"))
+            .collect::<Result<_, _>>()?;
+        let outcomes: Vec<f32> = history.iter().map(|&(_, y)| y).collect();
+        let draws = crate::weights::thompson_draws(seeds.len(), config.seed);
+        let steps = make_steps(leaves, config.length);
+        copy_to(&self.scratch.history_slots, &history_slots);
+        copy_to(&self.scratch.outcomes, &outcomes);
+        copy_to(&self.scratch.seeds, &seeds);
+        copy_to(&self.scratch.draws, &draws);
+        copy_to(&self.scratch.leaves, &steps);
+
+        let params = Params {
+            row_bytes: to_u32(self.row_bytes, "row bytes")?,
+            history: to_u32(history.len(), "history length")?,
+            candidates: to_u32(seeds.len(), "candidate count")?,
+            leaves: to_u32(leaves.len(), "leaf count")?,
+            tiles: to_u32(self.tile_count, "tile count")?,
+            neighbors: to_u32(config.neighbors, "neighbor count")?,
+            base_slot: to_u32(base_slot, "base slot")?,
+            trial_slot: to_u32(base_slot, "trial slot")?,
+            acquisition: crate::weights::acquisition_code(config.acquisition),
+            epistemic_scale: config.epistemic_scale,
+            aleatoric_scale: config.aleatoric_scale,
+            y_scale: config.y_scale,
+            beta: config.beta,
+        };
+
+        let command = self.queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&self.distance);
+        encoder.set_buffer(0, Some(&self.rows), 0);
+        encoder.set_buffer(1, Some(&self.scratch.history_slots), 0);
+        encoder.set_buffer(2, Some(&self.scratch.seeds), 0);
+        encoder.set_buffer(3, Some(&self.scratch.leaves), 0);
+        encoder.set_buffer(4, Some(&self.scratch.tiles), 0);
+        encoder.set_buffer(5, Some(&self.scratch.partials), 0);
+        set_params(encoder, 6, &params);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: (seeds.len().div_ceil(2) * params.tiles as usize) as u64,
+                height: 1,
+                depth: 1,
+            },
+            group(THREADS),
+        );
+
+        encoder.set_compute_pipeline_state(&self.score);
+        encoder.set_buffer(0, Some(&self.scratch.partials), 0);
+        encoder.set_buffer(1, Some(&self.scratch.outcomes), 0);
+        encoder.set_buffer(2, Some(&self.scratch.draws), 0);
+        encoder.set_buffer(3, Some(&self.scratch.scores), 0);
+        set_params(encoder, 4, &params);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: seeds.len() as u64,
+                height: 1,
+                depth: 1,
+            },
+            group(THREADS),
+        );
+
+        encoder.end_encoding();
+        command.commit();
+        command.wait_until_completed();
+
+        let scores = read_slice::<f32>(&self.scratch.scores, seeds.len());
+        let mut results = Vec::with_capacity(num_regions);
+        for r in 0..num_regions {
+            let start = r * seeds_per_region;
+            let end = start + seeds_per_region;
+            let region_scores = &scores[start..end];
+            let mut best_local_idx = 0;
+            let mut best_val = region_scores[0];
+            for (idx, &s) in region_scores.iter().enumerate().skip(1) {
+                if s > best_val {
+                    best_val = s;
+                    best_local_idx = idx;
+                }
+            }
+            let global_idx = start + best_local_idx;
+            results.push((global_idx, best_val));
+        }
+        Ok(results)
+    }
+
+
     pub(super) fn read(&self, slot: usize, row_bytes: usize) -> Vec<u8> {
         let start = slot * row_bytes;
         unsafe {
             std::slice::from_raw_parts(self.rows.contents().cast::<u8>().add(start), row_bytes)
                 .to_vec()
+        }
+    }
+
+    pub(super) fn write(&self, slot: usize, row: &[u8]) {
+        let start = slot * self.row_bytes;
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                row.as_ptr(),
+                self.rows.contents().cast::<u8>().add(start),
+                row.len(),
+            );
         }
     }
 

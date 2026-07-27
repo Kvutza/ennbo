@@ -1,38 +1,16 @@
-.PHONY: all install clean test build-ext rust-test python-test python-test-body python-slow-test lint wheels wheelsl \
-	pypi-build pypi-publish pypi-auth-check
+.PHONY: all clean test rust-test python-test-body python-slow-test lint wheels wheelsl
 
-UNAME_S := $(shell uname -s)
-ifeq ($(UNAME_S),Darwin)
-MATURIN_AUDITWHEEL := --auditwheel skip
-# PyO3 `extension-module` omits libpython; macOS ld rejects undefined `_Py*` when nextest
-# links ennbo-py as a cdylib. Linux GNU ld allows it. Scoped to rust-test only — maturin
-# release builds must not inherit this (they use pyo3-build-config link args instead).
-RUST_TEST_ENV := RUSTFLAGS="-C link-arg=-undefined -C link-arg=dynamic_lookup"
-else
-MATURIN_AUDITWHEEL :=
-RUST_TEST_ENV :=
-endif
-
-# Default: build a release extension for the local platform.
+# Bazel owns native builds and wheel packaging.
 all:
-	maturin build --release $(MATURIN_AUDITWHEEL)
+	bazel build //:python_wheel --config=release --config=constrained
 
-# Install the mixed Python/Rust package in editable mode (USearch always on; see pyproject [tool.maturin]).
-install:
-	@echo "Building and installing Python/Rust package (see pyproject [tool.maturin])..."
-	maturin develop --release
-	@echo "Installation complete!"
-
-# Build the PyO3 extension into src/enn/ for PYTHONPATH=src pytest runs.
-build-ext:
-	maturin develop --release
-
-# Run all tests (Rust then Python; build-ext once — parallel rust-test + maturin races cargo).
-test: build-ext rust-test python-test-body
+# Canonical native test gate.
+test:
+	bazel test //:rust_tests //bazel/faiss:faiss_index_smoke --config=release --config=constrained
 
 # Run Rust tests only
 rust-test:
-	cd rust && $(RUST_TEST_ENV) cargo nextest run --test-threads=8
+	bazel test //:rust_tests --config=release --config=constrained
 
 # Run Python tests only (fast gate: skips modules collected only for slow/integration coverage).
 PYTHON_FAST_PLUGINS = \
@@ -76,8 +54,6 @@ PYTHON_SLOW_IGNORE = \
 	--ignore=tests/test_impl_helpers.py \
 	--ignore=tests/test_rust_optimizer_kiss_tokens.py \
 	--ignore=tests/test_rust_wrapper_coverage.py
-python-test: build-ext python-test-body
-
 python-test-body:
 	PYTHONPATH=src pytest tests --tb=short -m "not slow" -q $(PYTHON_FAST_PLUGINS) $(PYTHON_SLOW_IGNORE)
 
@@ -114,21 +90,9 @@ lint:
 
 # Build local PyPI wheel artifacts for the supported release tags.
 wheels:
-	scripts/build_wheels.sh
+	bazel build //:python_wheel --config=release
 
 wheelsl: wheels
-
-# --- PyPI (ennbo): token in MATURIN_PYPI_TOKEN, or credentials in ~/.pypirc ---
-pypi-build:
-	maturin build --release $(MATURIN_AUDITWHEEL)
-
-# Note: `maturin publish` builds again before upload (same as a clean "build then publish").
-pypi-publish:
-	maturin publish --non-interactive
-
-# Hits PyPI with your credentials but skips files already on the index (good auth smoke test).
-pypi-auth-check: pypi-build
-	maturin publish --non-interactive --skip-existing
 
 # Clean build artifacts
 clean:

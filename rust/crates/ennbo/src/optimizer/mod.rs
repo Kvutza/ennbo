@@ -1,6 +1,7 @@
 //! Optimizer state machine for ask/tell pattern.
 
 mod incumbent;
+pub mod multi_tr;
 pub mod obs_access;
 mod observation_delta;
 mod tr_state;
@@ -107,11 +108,8 @@ impl Optimizer {
             SurrogateConfig::ENN(enn_config) => tracker_m_from_enn_k(enn_config.k),
             SurrogateConfig::None => tracker_m_no_surrogate(),
         };
-        let noise_aware = config.noise_aware
-            || tr_state
-                .morbo()
-                .map(|m| m.noise_aware())
-                .unwrap_or(false);
+        let noise_aware =
+            config.noise_aware || tr_state.morbo().map(|m| m.noise_aware()).unwrap_or(false);
         let incumbent_tracker =
             IncrementalIncumbentTracker::new(tracker_m, noise_aware, num_metrics);
 

@@ -88,3 +88,18 @@ rust_test(
     aliases = aliases(normal_dev = True, proc_macro_dev = True),
     deps = all_crate_deps(normal_dev = True, proc_macro_dev = True),
 )
+
+rust_test(
+    name = "trial_search_metal_test",
+    srcs = ["tests/trial_search.rs"],
+    aliases = aliases(normal_dev = True, proc_macro_dev = True),
+    crate_features = ["metal"],
+    crate_name = "trial_search_metal_test",
+    crate_root = "tests/trial_search.rs",
+    edition = crate_edition(),
+    deps = all_crate_deps(normal_dev = True, proc_macro_dev = True) + [
+        ":ennbo_metal",
+        "@crates//:ndarray",
+    ],
+    target_compatible_with = ["@platforms//os:macos"],
+)

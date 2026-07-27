@@ -68,8 +68,10 @@ pub fn pymodule_fit(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[pyo3(name = "optimizer")]
 pub fn pymodule_optimizer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::py_optimizer::PyOptimizer>()?;
+    m.add_class::<crate::py_optimizer::PyMultiTrustRegion>()?;
     m.add_class::<crate::py_optimizer::PyTelemetry>()?;
     m.add_class::<crate::py_weights::PyWeightSearch>()?;
+    m.add_class::<crate::py_weights::PyBpannHistory>()?;
     m.add_function(wrap_pyfunction!(
         crate::py_optimizer::create_optimizer_enn_py,
         m

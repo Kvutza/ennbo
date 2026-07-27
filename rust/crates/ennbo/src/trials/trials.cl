@@ -1,11 +1,52 @@
 #define THREADS 256u
 #define MAX_HISTORY 16u
 
+__constant float kFp4E2M1LUT[16] = {
+    0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f,
+   -0.0f,-0.5f,-1.0f,-1.5f,-2.0f,-3.0f,-4.0f,-6.0f
+};
+
+inline float decode_fp8_e4m3(uint code) {
+    uint sign = (code & 0x80u) != 0u ? 1u : 0u;
+    uint exp = (code >> 3u) & 0x0fu;
+    uint mant = code & 0x07u;
+    float s = sign != 0u ? -1.0f : 1.0f;
+    if (exp == 0u) {
+        return s * (float)(mant) / 8.0f * 0.015625f;
+    }
+    return s * (1.0f + (float)(mant) / 8.0f) * pown(2.0f, (int)(exp) - 7);
+}
+
+inline float decode_fp8_e5m2(uint code) {
+    uint sign = (code & 0x80u) != 0u ? 1u : 0u;
+    uint exp = (code >> 2u) & 0x1fu;
+    uint mant = code & 0x03u;
+    float s = sign != 0u ? -1.0f : 1.0f;
+    if (exp == 0u) {
+        return s * (float)(mant) / 4.0f * 0.00006103515625f;
+    }
+    return s * (1.0f + (float)(mant) / 4.0f) * pown(2.0f, (int)(exp) - 15);
+}
+
+inline float decode_code(uint code, uint encoding, float scale) {
+    if (encoding == 0u || encoding == 1u) {
+        return (float)(code) * scale;
+    } else if (encoding == 2u) {
+        return kFp4E2M1LUT[code & 0x0fu] * scale;
+    } else if (encoding == 3u) {
+        return decode_fp8_e4m3(code) * scale;
+    } else if (encoding == 4u) {
+        return decode_fp8_e5m2(code) * scale;
+    }
+    return (float)(code) * scale;
+}
+
 typedef struct {
     uint byte_offset;
     uint element_offset;
     uint length;
     uint bits;
+    uint encoding;
     float scale;
     float weight;
     uint whole;
@@ -18,6 +59,7 @@ typedef struct {
     uint length;
     uint pad;
 } Tile;
+
 
 typedef struct {
     uint low;
@@ -143,87 +185,90 @@ __kernel void distance_trials(
                     );
                 }
             }
-            for (uint h = 0u; h < params.history; ++h) {
-                __global const uchar* observation =
-                    rows + ((ulong)history_slots[h]) * ((ulong)params.row_bytes);
-                uchar observed = observation[leaf.byte_offset + first_byte + local_byte];
-                float first_low_delta =
-                    ((float)first_low - (float)(observed & 0x0fu)) * leaf.scale;
-                first_distances[h] = fma(
-                    first_low_delta,
-                    first_low_delta * leaf.weight,
-                    first_distances[h]
-                );
-                if (first + 1u < leaf.length) {
-                    float first_high_delta =
-                        ((float)first_high - (float)(observed >> 4u)) * leaf.scale;
+                float first_low_val = decode_code(first_low, leaf.encoding, leaf.scale);
+                float first_high_val = decode_code(first_high, leaf.encoding, leaf.scale);
+                float second_low_val = decode_code(second_low, leaf.encoding, leaf.scale);
+                float second_high_val = decode_code(second_high, leaf.encoding, leaf.scale);
+                for (uint h = 0u; h < params.history; ++h) {
+                    __global const uchar* observation =
+                        rows + ((ulong)history_slots[h]) * ((ulong)params.row_bytes);
+                    uchar observed = observation[leaf.byte_offset + first_byte + local_byte];
+                    float obs_low_val = decode_code((uint)(observed & 0x0fu), leaf.encoding, leaf.scale);
+                    float first_low_delta = first_low_val - obs_low_val;
                     first_distances[h] = fma(
-                        first_high_delta,
-                        first_high_delta * leaf.weight,
+                        first_low_delta,
+                        first_low_delta * leaf.weight,
                         first_distances[h]
                     );
-                }
-                if (has_second) {
-                    float second_low_delta =
-                        ((float)second_low - (float)(observed & 0x0fu)) * leaf.scale;
-                    second_distances[h] = fma(
-                        second_low_delta,
-                        second_low_delta * leaf.weight,
-                        second_distances[h]
-                    );
                     if (first + 1u < leaf.length) {
-                        float second_high_delta =
-                            ((float)second_high - (float)(observed >> 4u)) * leaf.scale;
+                        float obs_high_val = decode_code((uint)(observed >> 4u), leaf.encoding, leaf.scale);
+                        float first_high_delta = first_high_val - obs_high_val;
+                        first_distances[h] = fma(
+                            first_high_delta,
+                            first_high_delta * leaf.weight,
+                            first_distances[h]
+                        );
+                    }
+                    if (has_second) {
+                        float second_low_delta = second_low_val - obs_low_val;
                         second_distances[h] = fma(
-                            second_high_delta,
-                            second_high_delta * leaf.weight,
+                            second_low_delta,
+                            second_low_delta * leaf.weight,
+                            second_distances[h]
+                        );
+                        if (first + 1u < leaf.length) {
+                            float obs_high_val = decode_code((uint)(observed >> 4u), leaf.encoding, leaf.scale);
+                            float second_high_delta = second_high_val - obs_high_val;
+                            second_distances[h] = fma(
+                                second_high_delta,
+                                second_high_delta * leaf.weight,
+                                second_distances[h]
+                            );
+                        }
+                    }
+                }
+            }
+        } else {
+            uint end = tile.start + tile.length;
+            for (uint element = tile.start + thread_index; element < end; element += THREADS) {
+                uint first_value = perturb_code(
+                    (uint)base[leaf.byte_offset + element],
+                    first_seed,
+                    leaf.element_offset + element,
+                    leaf
+                );
+                uint second_value = has_second
+                    ? perturb_code(
+                        (uint)base[leaf.byte_offset + element],
+                        second_seed,
+                        leaf.element_offset + element,
+                        leaf
+                    )
+                    : 0u;
+                float first_val = decode_code(first_value, leaf.encoding, leaf.scale);
+                float second_val = decode_code(second_value, leaf.encoding, leaf.scale);
+                for (uint h = 0u; h < params.history; ++h) {
+                    __global const uchar* observation =
+                        rows + ((ulong)history_slots[h]) * ((ulong)params.row_bytes);
+                    float obs_val = decode_code((uint)observation[leaf.byte_offset + element], leaf.encoding, leaf.scale);
+                    float first_delta = first_val - obs_val;
+                    first_distances[h] = fma(
+                        first_delta,
+                        first_delta * leaf.weight,
+                        first_distances[h]
+                    );
+                    if (has_second) {
+                        float second_delta = second_val - obs_val;
+                        second_distances[h] = fma(
+                            second_delta,
+                            second_delta * leaf.weight,
                             second_distances[h]
                         );
                     }
                 }
             }
         }
-    } else {
-        uint end = tile.start + tile.length;
-        for (uint element = tile.start + thread_index; element < end; element += THREADS) {
-            uint first_value = perturb_code(
-                (uint)base[leaf.byte_offset + element],
-                first_seed,
-                leaf.element_offset + element,
-                leaf
-            );
-            uint second_value = has_second
-                ? perturb_code(
-                    (uint)base[leaf.byte_offset + element],
-                    second_seed,
-                    leaf.element_offset + element,
-                    leaf
-                )
-                : 0u;
-            for (uint h = 0u; h < params.history; ++h) {
-                __global const uchar* observation =
-                    rows + ((ulong)history_slots[h]) * ((ulong)params.row_bytes);
-                float first_delta =
-                    ((float)first_value - (float)observation[leaf.byte_offset + element])
-                    * leaf.scale;
-                first_distances[h] = fma(
-                    first_delta,
-                    first_delta * leaf.weight,
-                    first_distances[h]
-                );
-                if (has_second) {
-                    float second_delta =
-                        ((float)second_value - (float)observation[leaf.byte_offset + element])
-                        * leaf.scale;
-                    second_distances[h] = fma(
-                        second_delta,
-                        second_delta * leaf.weight,
-                        second_distances[h]
-                    );
-                }
-            }
-        }
-    }
+
 
     __local float partials[THREADS];
     for (uint h = 0u; h < params.history; ++h) {

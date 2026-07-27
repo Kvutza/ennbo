@@ -25,13 +25,9 @@ def test_enn_index_driver_to_rust_maps_all():
     assert ENN_INDEX_DRIVER_TO_RUST[ENNIndexDriver.OPENCL] == "opencl"
 
 
-@pytest.mark.parametrize(
-    "index_driver", [ENNIndexDriver.METAL, ENNIndexDriver.OPENCL]
-)
+@pytest.mark.parametrize("index_driver", [ENNIndexDriver.METAL, ENNIndexDriver.OPENCL])
 def test_accelerator_index_matches_flat(index_driver):
-    train_x = np.array(
-        [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [2.0, 2.0]], dtype=float
-    )
+    train_x = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [2.0, 2.0]], dtype=float)
     query = np.array([[0.1, 0.2], [1.1, 0.1]], dtype=float)
     flat = _enn(train_x)
     try:

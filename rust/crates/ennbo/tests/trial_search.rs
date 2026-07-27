@@ -1,4 +1,8 @@
-use ennbo::{AcquisitionKind, ComputeBackend, WeightAsk, WeightLeaf, WeightSearch};
+use ennbo::{
+    AcquisitionKind, BpannHistory, ComputeBackend, WeightAsk, WeightLeaf, WeightSearch,
+};
+use ndarray::{array, Axis};
+use tempfile::TempDir;
 
 fn leaves() -> Vec<WeightLeaf> {
     vec![
@@ -69,6 +73,86 @@ fn metal_matches_cpu_trial_bytes() {
         assert!((metal.1 - cpu.1).abs() <= 1.0e-5, "{metal:?} != {cpu:?}");
         assert_eq!(metal.2, cpu.2);
     }
+}
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+#[test]
+fn metal_matches_cpu_with_external_history_shortlist() {
+    let packed_rows: Vec<u8> = [base(), base()]
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .map(|(index, value)| value.wrapping_add((index % 7) as u8))
+        .collect();
+    let values = [0.5, 1.5];
+    let run = |backend| -> Result<(usize, f32, Vec<u8>), String> {
+        let mut search = WeightSearch::new(&base(), 0.25, leaves(), 4, backend)?;
+        search.replace_history(&packed_rows, &values)?;
+        let trial = search.ask(
+            &[19, 23, 29, 31],
+            WeightAsk {
+                neighbors: 2,
+                length: 0.65,
+                beta: 1.3,
+                seed: 41,
+                ..WeightAsk::default()
+            },
+        )?;
+        Ok((trial.index, trial.score, search.row(trial)?))
+    };
+    let cpu = run(ComputeBackend::Cpu).unwrap();
+    let metal = run(ComputeBackend::Metal).unwrap();
+    assert_eq!(metal.0, cpu.0);
+    assert!((metal.1 - cpu.1).abs() <= 1.0e-5, "{metal:?} != {cpu:?}");
+    assert_eq!(metal.2, cpu.2);
+}
+
+fn ask_with_bpann(backend: ComputeBackend) -> Result<(usize, f32, Vec<u8>), String> {
+    let archive = [
+        base(),
+        base()
+            .into_iter()
+            .map(|value| value.wrapping_add(17))
+            .collect(),
+        base()
+            .into_iter()
+            .map(|value| value.wrapping_add(31))
+            .collect(),
+    ];
+    let descriptors = array![[0.0, 0.0], [1.0, 0.0], [4.0, 0.0]];
+    let dir = TempDir::new().map_err(|error| error.to_string())?;
+    let mut history = BpannHistory::new(dir.path().to_path_buf(), 2)?;
+    for (index, descriptor) in descriptors.axis_iter(Axis(0)).enumerate() {
+        history.append(&descriptor, (index as f32 + 1.0) * 10.0)?;
+    }
+
+    let candidate_descriptors = array![[0.1, 0.0], [3.9, 0.0]];
+    let mut search = WeightSearch::new(&base(), 0.25, leaves(), 4, backend)?;
+    let trial = search.ask_indexed(
+        &history,
+        &candidate_descriptors.view(),
+        1,
+        &[19, 23],
+        WeightAsk {
+            neighbors: 1,
+            length: 0.65,
+            beta: 1.3,
+            seed: 41,
+            ..WeightAsk::default()
+        },
+        |id| Ok(archive[id.0 as usize].clone()),
+    )?;
+    Ok((trial.index, trial.score, search.row(trial)?))
+}
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+#[test]
+fn bpann_shortlist_to_metal_exact_search_matches_cpu() {
+    let cpu = ask_with_bpann(ComputeBackend::Cpu).unwrap();
+    let metal = ask_with_bpann(ComputeBackend::Metal).unwrap();
+    assert_eq!(metal.0, cpu.0);
+    assert!((metal.1 - cpu.1).abs() <= 1.0e-5, "{metal:?} != {cpu:?}");
+    assert_eq!(metal.2, cpu.2);
 }
 
 #[cfg(feature = "opencl")]

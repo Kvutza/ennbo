@@ -1,5 +1,7 @@
 load("@rules_python//python:packaging.bzl", "py_wheel")
+load("@rules_python//python:defs.bzl", "py_test")
 load("//:bazel/python_extension.bzl", "copy_extension")
+
 
 package(default_visibility = ["//visibility:public"])
 
@@ -11,52 +13,20 @@ exports_files([
 ])
 
 alias(
-    name = "rust_core",
-    actual = ":rust_cpu",
-)
-
-alias(
-    name = "rust_cpu",
+    name = "cpu",
     actual = "//rust/crates/ennbo:ennbo_cpu",
 )
 
 alias(
-    name = "rust_ndarray",
-    actual = "@crates//:ndarray",
-)
-
-alias(
-    name = "rust_rand",
-    actual = "@crates//:rand",
-)
-
-alias(
-    name = "rust_serde",
-    actual = "@crates//:serde",
-)
-
-alias(
-    name = "rust_accelerators",
+    name = "gpu",
     actual = select({
-        "@platforms//os:linux": ":rust_opencl",
-        "@platforms//os:macos": ":rust_metal",
-        "@platforms//os:windows": ":rust_opencl",
-        "//conditions:default": ":rust_cpu",
+        "@platforms//os:macos": "//rust/crates/ennbo:ennbo_metal",
+        "//conditions:default": "//rust/crates/ennbo:ennbo_opencl",
     }),
 )
 
 alias(
-    name = "rust_metal",
-    actual = "//rust/crates/ennbo:ennbo_metal",
-)
-
-alias(
-    name = "rust_opencl",
-    actual = "//rust/crates/ennbo:ennbo_opencl",
-)
-
-alias(
-    name = "python_extension",
+    name = "ext",
     actual = "//rust/crates/enn-py:python_extension",
 )
 
@@ -75,6 +45,7 @@ copy_extension(
     }),
 )
 
+
 copy_extension(
     name = "wheel_extension_windows",
     src = "//rust/crates/enn-py:python_extension_windows",
@@ -91,7 +62,7 @@ alias(
 )
 
 py_wheel(
-    name = "python_wheel",
+    name = "wheel",
     abi = "cp313",
     author = "YUBO Lab",
     author_email = "david.sweet@yu.edu",
@@ -99,6 +70,7 @@ py_wheel(
         ":python_sources",
         ":wheel_extension",
     ],
+
     description_file = "README.md",
     distribution = "ennbo",
     extra_requires = {
@@ -124,10 +96,41 @@ py_wheel(
     version = "0.3.14",
 )
 
+# Compatibility alias for //:python_wheel
+alias(
+    name = "python_wheel",
+    actual = ":wheel",
+)
+
 test_suite(
-    name = "rust_tests",
+    name = "check",
     tests = [
         "//rust/crates/bpann:bpann_test",
         "//rust/crates/ennbo:ennbo_test",
+        "//rust/crates/ennbo:trial_search_metal_test",
+        "//bazel/faiss:faiss_index_smoke",
     ],
 )
+
+# Compatibility alias for //:rust_tests
+alias(
+    name = "rust_tests",
+    actual = ":check",
+)
+
+py_test(
+    name = "audit",
+    srcs = ["bazel/audit_wheel.py"],
+    args = ["$(location :wheel)"],
+    data = [":wheel"],
+    main = "bazel/audit_wheel.py",
+)
+
+# Compatibility alias for //:wheel_artifact_audit
+alias(
+    name = "wheel_artifact_audit",
+    actual = ":audit",
+)
+
+
+

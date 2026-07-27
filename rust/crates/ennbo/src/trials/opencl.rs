@@ -260,6 +260,15 @@ impl Engine {
         Ok(row)
     }
 
+    pub(super) fn write(&mut self, slot: usize, row: &[u8]) -> Result<(), String> {
+        unsafe {
+            self.queue
+                .enqueue_write_buffer(&mut self.rows, CL_BLOCKING, slot * self.row_bytes, row, &[])
+                .map_err(|error| format!("failed to write OpenCL trial row: {error}"))?;
+        }
+        Ok(())
+    }
+
     fn ensure_candidates(&mut self, count: usize) -> Result<(), String> {
         if count <= self.scratch.candidate_capacity {
             return Ok(());

@@ -30,6 +30,7 @@ from .surrogate import (
 from .trust_region import (
     InitStrategy,
     MorboTRConfig,
+    MultiTRConfig,
     MultiObjectiveConfig,
     NoTRConfig,
     RescalePolicyConfig,
@@ -80,6 +81,7 @@ __all__ = [
     "LHDOnlyInit",
     "lhd_only_config",
     "MorboTRConfig",
+    "MultiTRConfig",
     "MultiObjectiveConfig",
     "NDSOptimizerConfig",
     "NoSurrogateConfig",

@@ -56,6 +56,7 @@ pub struct WeightBlock {
     pub offset: usize,
     pub length: usize,
     pub bits: u8,
+    pub encoding: crate::trials::EncodingType,
     pub quantization_scale: f32,
     pub metric_scale: f32,
     pub weight: f32,
@@ -66,6 +67,26 @@ impl WeightBlock {
         offset: usize,
         length: usize,
         bits: u8,
+        quantization_scale: f32,
+        metric_scale: f32,
+        weight: f32,
+    ) -> Result<Self, String> {
+        Self::new_with_encoding(
+            offset,
+            length,
+            bits,
+            crate::trials::EncodingType::parse(bits, None)?,
+            quantization_scale,
+            metric_scale,
+            weight,
+        )
+    }
+
+    pub fn new_with_encoding(
+        offset: usize,
+        length: usize,
+        bits: u8,
+        encoding: crate::trials::EncodingType,
         quantization_scale: f32,
         metric_scale: f32,
         weight: f32,
@@ -91,11 +112,13 @@ impl WeightBlock {
             offset,
             length,
             bits,
+            encoding,
             quantization_scale,
             metric_scale,
             weight,
         })
     }
+
 
     fn row_bytes(&self) -> usize {
         match self.bits {
@@ -400,8 +423,10 @@ pub fn weight_distance(left: &[u8], right: &[u8], blocks: &[WeightBlock]) -> f32
                 for element in 0..block.length {
                     let byte = byte_base + element / 2;
                     let shift = if element % 2 == 0 { 0 } else { 4 };
-                    let a = f32::from((left[byte] >> shift) & 0x0f) * scale;
-                    let b = f32::from((right[byte] >> shift) & 0x0f) * scale;
+                    let code_a = u32::from((left[byte] >> shift) & 0x0f);
+                    let code_b = u32::from((right[byte] >> shift) & 0x0f);
+                    let a = crate::trials::decode_code(code_a, block.encoding, scale);
+                    let b = crate::trials::decode_code(code_b, block.encoding, scale);
                     let delta = a - b;
                     distance = delta.mul_add(delta * weight, distance);
                 }
@@ -409,8 +434,10 @@ pub fn weight_distance(left: &[u8], right: &[u8], blocks: &[WeightBlock]) -> f32
             8 => {
                 for element in 0..block.length {
                     let byte = byte_base + element;
-                    let a = f32::from(left[byte]) * scale;
-                    let b = f32::from(right[byte]) * scale;
+                    let code_a = u32::from(left[byte]);
+                    let code_b = u32::from(right[byte]);
+                    let a = crate::trials::decode_code(code_a, block.encoding, scale);
+                    let b = crate::trials::decode_code(code_b, block.encoding, scale);
                     let delta = a - b;
                     distance = delta.mul_add(delta * weight, distance);
                 }
@@ -421,6 +448,7 @@ pub fn weight_distance(left: &[u8], right: &[u8], blocks: &[WeightBlock]) -> f32
     }
     distance
 }
+
 
 fn standard_normal(rng: &mut StdRng) -> f32 {
     let mut u1: f32 = Standard.sample(rng);
