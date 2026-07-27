@@ -1,7 +1,5 @@
 # ENNBO
 
-Rust/Python Bayesian optimization with epistemic nearest-neighbor models.
-
 ## Build
 
 ```sh
