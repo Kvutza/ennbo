@@ -69,4 +69,4 @@ pip install ennbo[with-deps]
 
 ## License
 
-MIT. See [repository](https://github.com/yubo-research/enn) for details.
+MIT. See the repository for license details.

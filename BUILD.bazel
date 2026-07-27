@@ -64,8 +64,6 @@ alias(
 py_wheel(
     name = "wheel",
     abi = "cp313",
-    author = "YUBO Lab",
-    author_email = "david.sweet@yu.edu",
     deps = [
         ":python_sources",
         ":wheel_extension",
@@ -131,6 +129,5 @@ alias(
     name = "wheel_artifact_audit",
     actual = ":audit",
 )
-
 
 

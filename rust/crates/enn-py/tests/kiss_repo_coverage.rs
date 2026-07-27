@@ -122,7 +122,6 @@ fn kiss_imports_link_pyo3_wrappers() {
         py_optimizer::create_optimizer_lhd_py,
         py_optimizer::parse_config_overrides_from_dict,
         link_rpath::blas_libs_present,
-        link_rpath::install_patchelf_if_needed,
         link_rpath::emit_linux_rpath_link_args,
         ennbo::link_search::emit_faiss_link_search,
     );
@@ -135,13 +134,10 @@ fn kiss_enn_py_build_main() {
         enn_py_build::run_enn_py_build as fn(),
         enn_py_build::kiss_enn_py_build_touch_01 as fn(),
         enn_py_build::kiss_enn_py_build_touch_02 as fn(),
-        enn_py_build::kiss_enn_py_build_touch_03 as fn(),
         enn_py_build::kiss_enn_py_build_touch_04 as fn(),
         enn_py_build::kiss_enn_py_build_touch_05 as fn(),
         enn_py_build::kiss_enn_py_build_touch_06 as fn(),
         enn_py_build::kiss_enn_py_build_touch_07 as fn(),
-        enn_py_build::kiss_enn_py_build_touch_08 as fn(),
-        enn_py_build::kiss_enn_py_build_touch_09 as fn(),
         enn_py_build::kiss_enn_py_build_touch_10 as fn(),
     );
 }

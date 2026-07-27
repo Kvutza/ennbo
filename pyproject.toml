@@ -5,9 +5,6 @@ description = "Epistemic Nearest Neighbors"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
-authors = [
-  { name = "YUBO Lab", email = "david.sweet@yu.edu" },
-]
 dependencies = []
 
 classifiers = [

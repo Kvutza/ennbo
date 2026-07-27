@@ -10,8 +10,8 @@ resolver = "2"
 version = "0.3.14"
 edition = "2021"
 license = "MIT"
-authors = ["YUBO Lab <david.sweet@yu.edu>"]
-repository = "https://github.com/yubo-research/enn"
+authors = ["ENNBO Contributors"]
+repository = "https://github.com/Kvutza/ennbo"
 keywords = ["bayesian", "optimization", "ENN", "turbo", "turbo-enn"]
 categories = ["science", "simulation"]
 

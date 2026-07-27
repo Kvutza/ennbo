@@ -6,13 +6,12 @@ This document describes the next ENNBO backend. The target is a Rust ENNBO
 optimizer that can keep its hot numerical path on an Apple Metal GPU or an
 Intel GPU through OpenCL.
 
-The goal is not to add another wrapper in Yubo. ENNBO already owns the Rust
-optimizer, ENN semantics, trust-region state, and the `ask`/`tell` contract.
-The work belongs in this repository.
+Keep the optimizer, ENN semantics, trust-region state, and `ask`/`tell`
+contract in ENNBO. Do not add another wrapper elsewhere.
 
 ## Why this work
 
-The current Yubo experiments already run pure BO over approximately one
+The current experiments already run pure BO over approximately one
 billion quantized model parameters. That demonstrates that the optimizer can
 accept the search space. It does not mean that the ENN loop is GPU-resident.
 
@@ -33,7 +32,7 @@ OpenCL perform the large numerical operations.
 ## Current upstream state
 
 The fork is `Kvutza/ennbo`. Its configured upstream is
-`yubo-research/enn`.
+the prior implementation.
 
 The upstream `main` branch recently introduced a substantial BPANN backend
 refactor. It removed the previous experimental Metal and OpenCL files from
@@ -348,7 +347,7 @@ exact reference.
 - Run the existing CPU and disk BPANN tests.
 
 Exit condition: upstream-aligned fork passes its existing tests and the
-current Yubo `turbo-enn` experiment still starts.
+the current `turbo-enn` experiment still starts.
 
 ### Phase 1: exact Metal KNN
 
@@ -378,7 +377,7 @@ fixtures within defined floating-point tolerances.
 - Return a candidate handle or seed to the evaluator boundary.
 - Add asynchronous append and update operations.
 
-Exit condition: a Yubo BO run uses the Metal ENN path without materializing
+Exit condition: a BO run uses the Metal ENN path without materializing
 the full candidate in Python.
 
 ### Phase 4: OpenCL parity
@@ -453,7 +452,7 @@ The first complete backend is done when:
 1. ENNBO keeps the hot ENN state on Metal or OpenCL.
 2. KNN, posterior, and UCB execute without NumPy arrays in the loop.
 3. CPU, Metal, and OpenCL pass shared semantic tests.
-4. Yubo uses the existing `ask`/`tell` surface.
+4. The experiment uses the existing `ask`/`tell` surface.
 5. The 1B-dimensional experiment can run through the new path.
 6. Host transfer volume is measured and documented.
 7. BPANN remains available as the large-history storage tier.

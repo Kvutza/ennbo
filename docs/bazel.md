@@ -1,8 +1,7 @@
-# Bazel build and distribution
+# Build and distribution
 
-Bazel owns native dependency resolution, Rust/C++ compilation, tests, and
-Python wheel creation. A downstream Python project consumes the wheel; a
-downstream Bazel project consumes the public module targets.
+Bazel resolves dependencies, builds native code, runs tests, and creates the
+wheel. Python uses the wheel. Bazel projects use the public targets.
 
 ## Public targets
 
@@ -14,7 +13,8 @@ downstream Bazel project consumes the public module targets.
 | `//:audit` | Release wheel artifact verification test |
 | `//:check` | Canonical test suite |
 
-`//:python_wheel` and `//:rust_tests` remain as compatibility aliases for `//:wheel` and `//:check`.
+`//:python_wheel` and `//:rust_tests` are compatibility aliases for `//:wheel`
+and `//:check`.
 
 ## Native dependency contract
 
@@ -62,7 +62,7 @@ from the ENNBO repository root:
 CARGO_BAZEL_REPIN=1 bazel build //:rust_cpu
 ```
 
-Consumers must never patch or regenerate ENNBO's lockfiles.
+Consumers must not patch or regenerate these lockfiles.
 
 ## Build and test
 
@@ -71,6 +71,12 @@ Build and run tests directly with Bazel:
 ```sh
 bazel test //:check //:audit --config=release --config=constrained
 bazel build //:cpu //:gpu //:wheel --config=release --config=constrained
+```
+
+Format Bazel files locally:
+
+```sh
+bazel run @buildifier_prebuilt//:buildifier -- -r .
 ```
 
 

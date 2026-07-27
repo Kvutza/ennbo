@@ -1,5 +1,5 @@
 {
-  "checksum": "a96048ca017148711e33d44206171ebad8662b53111dbd5872e2dad7381b5b9d",
+  "checksum": "0f1a0cb7f7a6d6a38154130861fc0f2c5338e116536d6a1b0d93d66c2cf23450",
   "crates": {
     "adler32 1.2.0": {
       "name": "adler32",
@@ -265,7 +265,7 @@
     "bpann 0.3.14": {
       "name": "bpann",
       "version": "0.3.14",
-      "package_url": "https://github.com/yubo-research/enn",
+      "package_url": "https://github.com/Kvutza/ennbo",
       "repository": null,
       "targets": [
         {
@@ -859,7 +859,7 @@
     "ennbo 0.3.14": {
       "name": "ennbo",
       "version": "0.3.14",
-      "package_url": "https://github.com/yubo-research/enn",
+      "package_url": "https://github.com/Kvutza/ennbo",
       "repository": null,
       "targets": [
         {
@@ -996,7 +996,7 @@
     "ennbo-py 0.3.14": {
       "name": "ennbo-py",
       "version": "0.3.14",
-      "package_url": "https://github.com/yubo-research/enn",
+      "package_url": "https://github.com/Kvutza/ennbo",
       "repository": null,
       "targets": [
         {
