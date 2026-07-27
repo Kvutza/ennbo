@@ -7,7 +7,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.3.14"
+version = "0.0.0"
 edition = "2021"
 license = "MIT"
 authors = ["ENNX Contributors"]
@@ -16,6 +16,7 @@ keywords = ["bayesian", "optimization", "ENN", "turbo", "turbo-enn"]
 categories = ["science", "simulation"]
 
 [workspace.dependencies]
+ennx = { path = "crates/ennx" }
 ndarray = "0.16"
 ndarray-linalg = "0.17"
 numpy = "0.22"

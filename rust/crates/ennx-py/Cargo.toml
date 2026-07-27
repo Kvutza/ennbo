@@ -16,10 +16,10 @@ name = "ennx_rust"
 crate-type = ["cdylib", "rlib"]
 
 [build-dependencies]
-ennx = { path = "../ennx", version = "0.3" }
+ennx = { workspace = true }
 
 [dependencies]
-ennx = { path = "../ennx", version = "0.3" }
+ennx = { workspace = true }
 ndarray = { workspace = true }
 numpy = { workspace = true }
 pyo3 = { workspace = true }

@@ -1,5 +1,5 @@
 {
-  "checksum": "fa273fb9cd3854cb8b1d6be10ad54977d2f929d90db88decff6e5ba27b064ea5",
+  "checksum": "2c74ba615d057b7c6f510463f11719bc26e814e26799a57dc45e381b383c421b",
   "crates": {
     "adler32 1.2.0": {
       "name": "adler32",
@@ -262,9 +262,9 @@
       ],
       "license_file": "LICENSE-APACHE"
     },
-    "bpann 0.3.14": {
+    "bpann 0.0.0": {
       "name": "bpann",
-      "version": "0.3.14",
+      "version": "0.0.0",
       "package_url": "https://github.com/Kvutza/ennx",
       "repository": null,
       "targets": [
@@ -337,7 +337,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.3.14"
+        "version": "0.0.0"
       },
       "license": "MIT",
       "license_ids": [
@@ -856,9 +856,9 @@
       ],
       "license_file": "LICENSE-APACHE"
     },
-    "ennx 0.3.14": {
+    "ennx 0.0.0": {
       "name": "ennx",
-      "version": "0.3.14",
+      "version": "0.0.0",
       "package_url": "https://github.com/Kvutza/ennx",
       "repository": null,
       "targets": [
@@ -901,7 +901,7 @@
         "deps": {
           "common": [
             {
-              "id": "ennx 0.3.14",
+              "id": "ennx 0.0.0",
               "target": "build_script_ennx_build"
             },
             {
@@ -965,7 +965,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.3.14"
+        "version": "0.0.0"
       },
       "build_script_attrs": {
         "compile_data_glob": [
@@ -993,9 +993,9 @@
       ],
       "license_file": null
     },
-    "ennx-py 0.3.14": {
+    "ennx-py 0.0.0": {
       "name": "ennx-py",
-      "version": "0.3.14",
+      "version": "0.0.0",
       "package_url": "https://github.com/Kvutza/ennx",
       "repository": null,
       "targets": [
@@ -1038,7 +1038,7 @@
         "deps": {
           "common": [
             {
-              "id": "ennx-py 0.3.14",
+              "id": "ennx-py 0.0.0",
               "target": "build_script_ennx_py_build"
             },
             {
@@ -1061,7 +1061,7 @@
           "selects": {}
         },
         "edition": "2021",
-        "version": "0.3.14"
+        "version": "0.0.0"
       },
       "build_script_attrs": {
         "compile_data_glob": [
@@ -7412,9 +7412,9 @@
   },
   "binary_crates": [],
   "workspace_members": {
-    "bpann 0.3.14": "rust/crates/bpann",
-    "ennx 0.3.14": "rust/crates/ennx",
-    "ennx-py 0.3.14": "rust/crates/ennx-py"
+    "bpann 0.0.0": "rust/crates/bpann",
+    "ennx 0.0.0": "rust/crates/ennx",
+    "ennx-py 0.0.0": "rust/crates/ennx-py"
   },
   "conditions": {
     "aarch64-apple-darwin": [
