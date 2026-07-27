@@ -5,6 +5,14 @@ constant uint kThreads = 256;
 constant uint kTileRows = 1024;
 constant uint kMergeRows = 2048;
 
+inline uint merge_width(uint k) {
+    uint width = 1;
+    while (width < 2 * k) {
+        width <<= 1;
+    }
+    return width;
+}
+
 struct Params {
     uint rows;
     uint dim;
@@ -115,7 +123,8 @@ kernel void merge_topk(
     uint query_index [[threadgroup_position_in_grid]]) {
     threadgroup float values[kMergeRows];
     threadgroup uint indices[kMergeRows];
-    for (uint i = tid; i < kMergeRows; i += kThreads) {
+    uint width = merge_width(params.k);
+    for (uint i = tid; i < width; i += kThreads) {
         if (i < params.k) {
             values[i] = result_distances[query_index * params.k + i];
             indices[i] = result_indices[query_index * params.k + i];
@@ -129,9 +138,9 @@ kernel void merge_topk(
         }
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    for (uint size = 2; size <= kMergeRows; size <<= 1) {
+    for (uint size = 2; size <= width; size <<= 1) {
         for (uint stride = size >> 1; stride > 0; stride >>= 1) {
-            for (uint i = tid; i < kMergeRows; i += kThreads) {
+            for (uint i = tid; i < width; i += kThreads) {
                 uint partner = i ^ stride;
                 if (partner > i) {
                     order_pair(values, indices, i, partner, (i & size) == 0);
