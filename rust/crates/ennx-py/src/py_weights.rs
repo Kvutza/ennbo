@@ -57,15 +57,17 @@ fn trial_leaves(raw: Vec<(usize, usize, u8, f32, f32, f32)>) -> PyResult<Vec<Wei
         .collect()
 }
 
-fn trial_leaves_with_encoding(raw: Vec<(usize, usize, u8, Option<String>, f32, f32, f32)>) -> PyResult<Vec<WeightLeaf>> {
+fn trial_leaves_with_encoding(
+    raw: Vec<(usize, usize, u8, Option<String>, f32, f32, f32)>,
+) -> PyResult<Vec<WeightLeaf>> {
     raw.into_iter()
         .map(|(offset, length, bits, mode, scale, weight, radius)| {
             let encoding = ennx::EncodingType::parse(bits, mode.as_deref()).map_err(err)?;
-            WeightLeaf::new_with_encoding(offset, length, bits, encoding, scale, weight, radius).map_err(err)
+            WeightLeaf::new_with_encoding(offset, length, bits, encoding, scale, weight, radius)
+                .map_err(err)
         })
         .collect()
 }
-
 
 #[pyclass(name = "WeightSearch", unsendable)]
 pub struct PyWeightSearch {

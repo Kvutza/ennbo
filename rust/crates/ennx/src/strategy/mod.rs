@@ -204,12 +204,7 @@ fn tell_common(
     }
     if let Some(surrogate) = optimizer.surrogate_mut() {
         let start = std::time::Instant::now();
-        surrogate.fit_append(
-            &delta.x_new_view(),
-            &delta.y_new_view(),
-            None,
-            rng,
-        )?;
+        surrogate.fit_append(&delta.x_new_view(), &delta.y_new_view(), None, rng)?;
         if let Some(tel) = telemetry {
             tel.dt_fit = start.elapsed().as_secs_f64();
         }
@@ -230,10 +225,9 @@ fn tell_common(
                 .incumbent_y_scalar()
                 .ok_or_else(|| ENNError::InvalidParameter("Missing incumbent y".to_string()))?
                 .to_owned();
-            optimizer.trust_region_mut().morbo_update_incumbent_only(
-                &y_inc.view(),
-                num_obs,
-            )?;
+            optimizer
+                .trust_region_mut()
+                .morbo_update_incumbent_only(&y_inc.view(), num_obs)?;
         }
     }
 
@@ -340,15 +334,11 @@ fn tell_turbo(
         // full y history — critical for disk-backed N ≫ 1e6.
         if optimizer.trust_region().turbo_prev_num_obs() == 0 {
             let prev = num_obs.saturating_sub(y.nrows());
-            optimizer
-                .trust_region_mut()
-                .set_turbo_prev_num_obs(prev);
+            optimizer.trust_region_mut().set_turbo_prev_num_obs(prev);
         }
-        optimizer.trust_region_mut().tell_update_new_batch(
-            y,
-            &y_incumbent.view(),
-            num_obs,
-        )?;
+        optimizer
+            .trust_region_mut()
+            .tell_update_new_batch(y, &y_incumbent.view(), num_obs)?;
     }
     if optimizer.trust_region().needs_restart() {
         optimizer.trust_region_mut().restart(Some(rng));

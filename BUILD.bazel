@@ -91,7 +91,7 @@ py_wheel(
     requires = ["numpy>=2.1"],
     strip_path_prefixes = ["src"],
     summary = "Epistemic Nearest Neighbors",
-    version = "0.3.14",
+    version = "0.0.0",
 )
 
 # Compatibility alias for //:python_wheel
@@ -129,4 +129,3 @@ alias(
     name = "wheel_artifact_audit",
     actual = ":audit",
 )
-

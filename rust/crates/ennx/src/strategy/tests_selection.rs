@@ -221,7 +221,8 @@ fn ask_scores_full_configured_candidate_pool() {
     opt.tell(&xf.view(), &yf.view(), &mut rng).unwrap();
     let _ = opt.ask(num_arms, &mut rng).unwrap();
     assert_eq!(
-        opt.telemetry().num_candidates, expected_pool,
+        opt.telemetry().num_candidates,
+        expected_pool,
         "ask must score the full configured RAASP pool (no silent cap)"
     );
     assert!(

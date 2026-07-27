@@ -6,7 +6,9 @@ use tempfile::TempDir;
 #[test]
 fn bpann_validate_dim_limits() {
     bpann::observation::bpann_validate_dim_limits(4).unwrap();
-    assert!(bpann::observation::bpann_validate_dim_limits(bpann::observation::MAX_NUM_DIM + 1).is_err());
+    assert!(
+        bpann::observation::bpann_validate_dim_limits(bpann::observation::MAX_NUM_DIM + 1).is_err()
+    );
 }
 
 #[test]
@@ -26,7 +28,10 @@ fn bpann_validate_index_backend() {
 fn bpann_load_indexed_rows() {
     let dir = TempDir::new().unwrap();
     bpann::observation::bpann_write_metadata(dir.path(), 0, 4, 1, false, 2).unwrap();
-    assert_eq!(bpann::observation::bpann_load_indexed_rows(dir.path()), Some(2));
+    assert_eq!(
+        bpann::observation::bpann_load_indexed_rows(dir.path()),
+        Some(2)
+    );
 }
 
 #[test]
@@ -48,17 +53,24 @@ fn bpann_write_metadata() {
 #[test]
 fn bpann_open_or_append_yvar() {
     let dir = TempDir::new().unwrap();
-    assert!(bpann::observation::bpann_open_or_append_yvar(dir.path(), 1, Some(&array![[0.1]]))
-        .unwrap()
-        .is_some());
+    assert!(
+        bpann::observation::bpann_open_or_append_yvar(dir.path(), 1, Some(&array![[0.1]]))
+            .unwrap()
+            .is_some()
+    );
 }
 
 #[test]
 fn bpann_append_yvar_on_add() {
     let dir = TempDir::new().unwrap();
     let mut slot = None;
-    bpann::observation::bpann_append_yvar_on_add(dir.path(), 1, &mut slot, Some(&array![[0.2]].view()))
-        .unwrap();
+    bpann::observation::bpann_append_yvar_on_add(
+        dir.path(),
+        1,
+        &mut slot,
+        Some(&array![[0.2]].view()),
+    )
+    .unwrap();
     assert!(slot.is_some());
 }
 
@@ -88,7 +100,10 @@ fn num_obs_counter_and_sidecars() {
     bpann::observation::write_num_obs(dir.path(), 7).unwrap();
     assert_eq!(bpann::observation::bpann_load_num_obs(dir.path()), Some(7));
     bpann::observation::write_indexed_rows(dir.path(), 5).unwrap();
-    assert_eq!(bpann::observation::bpann_load_indexed_rows(dir.path()), Some(5));
+    assert_eq!(
+        bpann::observation::bpann_load_indexed_rows(dir.path()),
+        Some(5)
+    );
 }
 
 #[test]

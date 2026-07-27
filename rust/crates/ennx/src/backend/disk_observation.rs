@@ -25,15 +25,11 @@ pub fn check_append_row_limit(new_n: usize) -> Result<(), ENNError> {
 }
 
 pub fn set_index_stale(index_stale: &Mutex<bool>) {
-    *index_stale
-        .lock()
-        .expect("index_stale mutex poisoned") = true;
+    *index_stale.lock().expect("index_stale mutex poisoned") = true;
 }
 
 pub fn read_index_stale(index_stale: &Mutex<bool>) -> bool {
-    *index_stale
-        .lock()
-        .expect("index_stale mutex poisoned")
+    *index_stale.lock().expect("index_stale mutex poisoned")
 }
 
 pub fn mmap_train_rows_at(
@@ -52,9 +48,7 @@ pub fn mmap_train_rows_at(
     }
     let x = train_x.mmap_gather(indices)?;
     let y = train_y.mmap_gather(indices)?;
-    let yvar = train_yvar
-        .map(|s| s.mmap_gather(indices))
-        .transpose()?;
+    let yvar = train_yvar.map(|s| s.mmap_gather(indices)).transpose()?;
     Ok((x, y, yvar))
 }
 
@@ -73,8 +67,7 @@ pub fn open_or_append_yvar(
     if let Some(yv) = train_yvar {
         let yv_path = work_dir.join("train_yvar.bin");
         let known_nrows = load_num_obs(work_dir);
-        let mut store =
-            MmapColumnStore::mmap_open_or_create(yv_path, num_metrics, known_nrows)?;
+        let mut store = MmapColumnStore::mmap_open_or_create(yv_path, num_metrics, known_nrows)?;
         if store.nrows == 0 {
             store.mmap_append(&yv.view())?;
         }
@@ -143,9 +136,7 @@ pub fn append_mmap_observation_rows(
 }
 
 pub fn mark_index_dirty(index_dirty: &Mutex<bool>) {
-    *index_dirty
-        .lock()
-        .expect("index_dirty mutex poisoned") = true;
+    *index_dirty.lock().expect("index_dirty mutex poisoned") = true;
 }
 
 pub fn disk_train_rows_at(
@@ -334,7 +325,10 @@ mod disk_observation_tests {
         )
         .unwrap();
         assert_eq!(load_indexed_rows(dir.path()), None);
-        assert_eq!(load_index_backend(dir.path()), Some("bpann_disk".to_string()));
+        assert_eq!(
+            load_index_backend(dir.path()),
+            Some("bpann_disk".to_string())
+        );
         std::fs::write(dir.path().join("metadata.json"), "{\"indexed_rows\":5}").unwrap();
         assert_eq!(load_index_backend(dir.path()), None);
         std::fs::write(dir.path().join("metadata.json"), "{\"format_version\":1}").unwrap();
@@ -351,7 +345,10 @@ mod disk_observation_tests {
             Some("bpann_disk")
         );
         assert_eq!(parse_json_string_field(text, "missing"), None);
-        assert_eq!(parse_json_string_field("{\"index_backend\":", "index_backend"), None);
+        assert_eq!(
+            parse_json_string_field("{\"index_backend\":", "index_backend"),
+            None
+        );
     }
 
     #[test]
@@ -379,8 +376,7 @@ mod disk_observation_tests {
         let mut y_store = MmapColumnStore::mmap_open_or_create(y_path, 1, None).unwrap();
         x_store.mmap_append(&array![[0.0, 0.0]].view()).unwrap();
         y_store.mmap_append(&array![[0.0]].view()).unwrap();
-        let (tx, ty, _) =
-            train_rows_for_disk_backend(1, &x_store, &y_store, None, &[0]).unwrap();
+        let (tx, ty, _) = train_rows_for_disk_backend(1, &x_store, &y_store, None, &[0]).unwrap();
         assert_eq!(tx[[0, 0]], 0.0);
         assert_eq!(ty[[0, 0]], 0.0);
     }
@@ -396,9 +392,7 @@ mod disk_observation_tests {
         x_store
             .mmap_append(&array![[0.0, 0.0], [1.0, 0.0]].view())
             .unwrap();
-        y_store
-            .mmap_append(&array![[0.0], [1.0]].view())
-            .unwrap();
+        y_store.mmap_append(&array![[0.0], [1.0]].view()).unwrap();
         let stale = Mutex::new(false);
         set_index_stale(&stale);
         assert!(*stale.lock().unwrap());
@@ -445,13 +439,7 @@ mod disk_observation_tests {
         )
         .unwrap();
         assert!(!*dirty2.lock().unwrap());
-        append_yvar_on_add(
-            dir.path(),
-            1,
-            &mut yvar_slot,
-            Some(&array![[0.6]].view()),
-        )
-        .unwrap();
+        append_yvar_on_add(dir.path(), 1, &mut yvar_slot, Some(&array![[0.6]].view())).unwrap();
         assert_eq!(yvar_slot.as_ref().unwrap().nrows, 2);
         mark_index_dirty(&dirty2);
         assert!(*dirty2.lock().unwrap());
@@ -506,8 +494,16 @@ mod kiss_coverage_tests {
         use tempfile::TempDir;
         let dir = TempDir::new().unwrap();
         crate::backend::disk_observation::check_append_row_limit(10).unwrap();
-        crate::backend::disk_observation::write_metadata(dir.path(), 0, 4, 1, false, 0, "bpann_disk")
-            .unwrap();
+        crate::backend::disk_observation::write_metadata(
+            dir.path(),
+            0,
+            4,
+            1,
+            false,
+            0,
+            "bpann_disk",
+        )
+        .unwrap();
         crate::backend::disk_observation::validate_index_backend(dir.path(), "bpann_disk").unwrap();
         crate::backend::disk_observation::validate_dim_limits(4, 1).unwrap();
         assert!(crate::backend::disk_observation::validate_dim_limits(

@@ -25,12 +25,7 @@ pub enum Page {
 
 impl Page {
     /// Empty (mmap-backed) leaf over a contiguous row span.
-    pub fn empty_range_leaf(
-        page_id: u32,
-        start: u32,
-        end: u32,
-        centroid: Vec<f32>,
-    ) -> Self {
+    pub fn empty_range_leaf(page_id: u32, start: u32, end: u32, centroid: Vec<f32>) -> Self {
         debug_assert!(start <= end);
         Page::Leaf {
             page_id,
@@ -103,7 +98,9 @@ impl Page {
                 for (&child_id, centroid) in child_page_ids.iter().zip(centroids.iter()) {
                     buf.extend_from_slice(&child_id.to_le_bytes());
                     for j in 0..num_dim {
-                        buf.extend_from_slice(&centroid.get(j).copied().unwrap_or(0.0).to_le_bytes());
+                        buf.extend_from_slice(
+                            &centroid.get(j).copied().unwrap_or(0.0).to_le_bytes(),
+                        );
                     }
                 }
             }
@@ -123,7 +120,9 @@ impl Page {
                     buf.extend_from_slice(&end.to_le_bytes());
                     let centroid = stored_centroid.as_deref().unwrap_or(&[]);
                     for j in 0..num_dim {
-                        buf.extend_from_slice(&centroid.get(j).copied().unwrap_or(0.0).to_le_bytes());
+                        buf.extend_from_slice(
+                            &centroid.get(j).copied().unwrap_or(0.0).to_le_bytes(),
+                        );
                     }
                     return buf;
                 }
@@ -137,7 +136,9 @@ impl Page {
                     }
                     let centroid = stored_centroid.as_deref().unwrap_or(&[]);
                     for j in 0..num_dim {
-                        buf.extend_from_slice(&centroid.get(j).copied().unwrap_or(0.0).to_le_bytes());
+                        buf.extend_from_slice(
+                            &centroid.get(j).copied().unwrap_or(0.0).to_le_bytes(),
+                        );
                     }
                     return buf;
                 }
@@ -281,7 +282,11 @@ impl Page {
     }
 }
 
-pub fn write_pages_index(pages: &[Page], num_dim: usize, w: &mut impl Write) -> std::io::Result<()> {
+pub fn write_pages_index(
+    pages: &[Page],
+    num_dim: usize,
+    w: &mut impl Write,
+) -> std::io::Result<()> {
     w.write_all(&(pages.len() as u32).to_le_bytes())?;
     for page in pages {
         let bytes = page.serialize(num_dim);
@@ -303,7 +308,8 @@ pub fn read_pages_index(r: &mut impl Read) -> std::io::Result<Vec<Page>> {
         let mut data = vec![0u8; len];
         r.read_exact(&mut data)?;
         pages.push(
-            Page::deserialize(&data).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?,
+            Page::deserialize(&data)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?,
         );
     }
     Ok(pages)

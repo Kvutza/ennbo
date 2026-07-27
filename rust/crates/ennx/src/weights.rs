@@ -3,6 +3,8 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
 
+use crate::util::insert_neighbor;
+
 #[cfg(all(target_os = "macos", feature = "metal"))]
 mod metal_weights;
 
@@ -118,7 +120,6 @@ impl WeightBlock {
             weight,
         })
     }
-
 
     fn row_bytes(&self) -> usize {
         match self.bits {
@@ -400,18 +401,6 @@ fn weighted_prediction(
     Prediction { mean, se }
 }
 
-fn insert_neighbor(nearest: &mut [(f32, usize)], distance: f32, index: usize) {
-    let Some(position) = nearest.iter().position(|&(other_distance, other_index)| {
-        distance < other_distance || (distance == other_distance && index < other_index)
-    }) else {
-        return;
-    };
-    for i in (position + 1..nearest.len()).rev() {
-        nearest[i] = nearest[i - 1];
-    }
-    nearest[position] = (distance, index);
-}
-
 pub fn weight_distance(left: &[u8], right: &[u8], blocks: &[WeightBlock]) -> f32 {
     let mut distance = 0.0f32;
     let mut byte_base = 0usize;
@@ -448,7 +437,6 @@ pub fn weight_distance(left: &[u8], right: &[u8], blocks: &[WeightBlock]) -> f32
     }
     distance
 }
-
 
 fn standard_normal(rng: &mut StdRng) -> f32 {
     let mut u1: f32 = Standard.sample(rng);

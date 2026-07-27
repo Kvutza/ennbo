@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+import numpy as np
+
 from .config.acquisition import (
     DrawAcquisitionConfig,
     ParetoAcquisitionConfig,
@@ -159,6 +161,8 @@ def _config_to_rust_overrides(config: OptimizerConfig) -> dict[str, Any] | None:
             overrides["enn_storage"] = surrogate.enn_storage
         if surrogate.work_dir is not None:
             overrides["work_dir"] = os.fspath(surrogate.work_dir)
+        if surrogate.y_bounds is not None:
+            overrides["y_bounds"] = np.asarray(surrogate.y_bounds, dtype=float)
     return overrides if overrides else None
 
 
@@ -167,9 +171,7 @@ def is_rust_supported_config(config: OptimizerConfig) -> bool:
         return False
     if isinstance(config.surrogate, ENNSurrogateConfig):
         return True
-    if isinstance(config.surrogate, NoSurrogateConfig):
-        return True
-    return False
+    return bool(isinstance(config.surrogate, NoSurrogateConfig))
 
 
 def _is_lhd_only_config(config: OptimizerConfig) -> bool:

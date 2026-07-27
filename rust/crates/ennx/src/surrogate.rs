@@ -112,6 +112,7 @@ pub struct ENNSurrogateConfig {
     pub index_driver: IndexDriver,
     pub storage: EnnStorage,
     pub work_dir: Option<PathBuf>,
+    pub y_bounds: Option<Array2<f64>>,
 }
 
 impl Default for ENNSurrogateConfig {
@@ -125,6 +126,7 @@ impl Default for ENNSurrogateConfig {
             index_driver: IndexDriver::Exact,
             storage: EnnStorage::InMemory,
             work_dir: None,
+            y_bounds: None,
         }
     }
 }
@@ -160,14 +162,17 @@ impl ENNSurrogate {
         y: &ArrayView2<f64>,
         yvar: Option<&ArrayView2<f64>>,
     ) -> Result<EpistemicNearestNeighbors, ENNError> {
-        EpistemicNearestNeighbors::new_with_storage(
+        EpistemicNearestNeighbors::new_with_options(
             x.to_owned(),
             y.to_owned(),
             yvar.map(|v| v.to_owned()),
-            self.config.scale_x,
-            self.config.index_driver,
-            self.config.storage,
-            self.config.work_dir.clone(),
+            crate::ModelOptions {
+                scale_x: self.config.scale_x,
+                driver: self.config.index_driver,
+                storage: self.config.storage,
+                work_dir: self.config.work_dir.clone(),
+                y_bounds: self.config.y_bounds.clone(),
+            },
         )
     }
 
@@ -182,11 +187,7 @@ impl ENNSurrogate {
             let (train_x, train_y, train_yvar) = model.rows().train_rows_at(&indices)?;
             let mut fitter = ENNFitter::new(self.config.k, self.config.infer_aleatoric_variance);
             let yvar_view = train_yvar.as_ref().map(|v| v.view());
-            fitter.tell(
-                &train_x.view(),
-                &train_y.view(),
-                yvar_view.as_ref(),
-            )?;
+            fitter.tell(&train_x.view(), &train_y.view(), yvar_view.as_ref())?;
             if let Some(p) = self.params {
                 fitter.set_params(p);
             }
@@ -413,8 +414,7 @@ impl Surrogate for ENNSurrogate {
             }
         };
 
-        let flags = PosteriorFlags::new()
-            .with_tie_break_neighbors(false);
+        let flags = PosteriorFlags::new().with_tie_break_neighbors(false);
         let posterior = model.posterior(x, &params, &flags)?;
 
         // Convert from dynamic dimension to fixed 2D
@@ -521,14 +521,26 @@ mod tests {
         sur_inc
             .fit(&x1.view(), &y1.view(), Some(&yvar1.view()), &mut rng_a)
             .unwrap();
-        let v_inc = sur_inc.model().unwrap().rows().row_yvar(0).unwrap().unwrap()[[0]];
+        let v_inc = sur_inc
+            .model()
+            .unwrap()
+            .rows()
+            .row_yvar(0)
+            .unwrap()
+            .unwrap()[[0]];
 
         let mut rng_b = StdRng::seed_from_u64(11);
         let mut sur_full = ENNSurrogate::new(config);
         sur_full
             .fit(&x1.view(), &y1.view(), Some(&yvar1.view()), &mut rng_b)
             .unwrap();
-        let v_full = sur_full.model().unwrap().rows().row_yvar(0).unwrap().unwrap()[[0]];
+        let v_full = sur_full
+            .model()
+            .unwrap()
+            .rows()
+            .row_yvar(0)
+            .unwrap()
+            .unwrap()[[0]];
 
         assert!(
             (v_inc - v_full).abs() < 1e-9,
@@ -620,7 +632,8 @@ mod tests {
             })
             .unwrap_or(0);
         assert_eq!(
-            indexed, model.len(),
+            indexed,
+            model.len(),
             "indexed_rows.bin must match num_obs after fit_append sync-before-fit"
         );
     }

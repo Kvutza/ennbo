@@ -41,7 +41,7 @@ pub struct PyEpistemicNearestNeighbors {
 #[pymethods]
 impl PyEpistemicNearestNeighbors {
     #[new]
-    #[pyo3(signature = (train_x, train_y, train_yvar=None, scale_x=false, index_driver="Exact", work_dir=None, enn_storage=None))]
+    #[pyo3(signature = (train_x, train_y, train_yvar=None, scale_x=false, index_driver="Exact", work_dir=None, enn_storage=None, y_bounds=None))]
     fn new(
         train_x: PyReadonlyArray2<f64>,
         train_y: PyReadonlyArray2<f64>,
@@ -50,6 +50,7 @@ impl PyEpistemicNearestNeighbors {
         index_driver: &str,
         work_dir: Option<&str>,
         enn_storage: Option<&str>,
+        y_bounds: Option<PyReadonlyArray2<f64>>,
     ) -> PyResult<Self> {
         let driver = match index_driver {
             "Exact" | "exact" | "FLAT" | "flat" => ennx::IndexDriver::Exact,
@@ -74,14 +75,17 @@ impl PyEpistemicNearestNeighbors {
             }
         };
         let work_dir = work_dir.map(PathBuf::from);
-        let model = ennx::EpistemicNearestNeighbors::new_with_storage(
+        let model = ennx::EpistemicNearestNeighbors::new_with_options(
             train_x.as_array().to_owned(),
             train_y.as_array().to_owned(),
             train_yvar.map(|v| v.as_array().to_owned()),
-            scale_x,
-            driver,
-            storage,
-            work_dir,
+            ennx::ModelOptions {
+                scale_x,
+                driver,
+                storage,
+                work_dir,
+                y_bounds: y_bounds.map(|v| v.as_array().to_owned()),
+            },
         )
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Self {
@@ -136,6 +140,11 @@ impl PyEpistemicNearestNeighbors {
             .index_access()
             .memory_bytes()
             .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    #[getter]
+    fn y_bounds<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        self.inner.y_bounds().clone().into_pyarray_bound(py)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -412,8 +421,7 @@ impl PyEpistemicNearestNeighbors {
     ) -> PyResult<TrainRowsAtPyOut<'py>> {
         let (x, y, yvar) = self
             .inner
-            .rows()
-            .train_rows_at(&indices)
+            .natural_rows(&indices)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok((
             x.into_pyarray_bound(py),
@@ -434,8 +442,7 @@ impl PyEpistemicNearestNeighbors {
     fn row_y<'py>(&self, py: Python<'py>, i: usize) -> PyResult<Bound<'py, PyArray2<f64>>> {
         let row = self
             .inner
-            .rows()
-            .row_y(i)
+            .natural_y(i)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(row.insert_axis(ndarray::Axis(0)).into_pyarray_bound(py))
     }

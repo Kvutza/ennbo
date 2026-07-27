@@ -189,6 +189,14 @@ _KISS_STATIC_UNIT_NAMES = (
     "row_yvar",
     "ensure_index_sync",
     "persist_index_to_disk",
+    "audit_wheel",
+    "quantize_int4",
+    "quantize_fp4_e2m1",
+    "ENNDistanceMetric",
+    "MultiTRConfig",
+    "length_init",
+    "length_min",
+    "length_max",
 )
 
 

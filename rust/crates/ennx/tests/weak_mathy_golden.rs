@@ -1,7 +1,7 @@
 //! Golden tests for mathy paths listed in `weak_tests.md` (integration crate tests).
 
 use ennx::{
-    compute_conditional_posterior_internals, EpistemicNearestNeighbors, ENNParams, IndexDriver,
+    compute_conditional_posterior_internals, ENNParams, EpistemicNearestNeighbors, IndexDriver,
     ParetoAcquisition, PosteriorComputation, PosteriorFlags,
 };
 use ndarray::array;

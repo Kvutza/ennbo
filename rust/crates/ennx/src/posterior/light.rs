@@ -8,7 +8,13 @@ use crate::params::{ENNParams, PosteriorFlags};
 
 use super::{empty_posterior_internals, index_search};
 
-pub(crate) type PosteriorLightOut = (Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>, Array2<i64>);
+pub(crate) type PosteriorLightOut = (
+    Array2<f64>,
+    Array2<f64>,
+    Array2<f64>,
+    Array2<f64>,
+    Array2<i64>,
+);
 
 pub(crate) fn idx_nested_to_array2(idx: &[Vec<usize>]) -> Array2<i64> {
     let n_query = idx.len();
@@ -185,8 +191,7 @@ mod tests {
         let n = 32;
         let d = 4;
         let m = 2;
-        let train_x =
-            Array2::from_shape_fn((n, d), |(i, j)| (i as f64 * 0.1) + (j as f64 * 0.01));
+        let train_x = Array2::from_shape_fn((n, d), |(i, j)| (i as f64 * 0.1) + (j as f64 * 0.01));
         let train_y = Array2::from_shape_fn((n, m), |(i, j)| (i as f64) + (j as f64));
         let model = EpistemicNearestNeighbors::new(
             train_x.clone(),
@@ -205,10 +210,22 @@ mod tests {
 
         assert_eq!(mu_light.shape(), full.mu.shape());
         assert_eq!(se_light.shape(), full.se.shape());
-        assert!((mu_light - &full.mu).mapv(f64::abs).iter().all(|&d| d < 1e-12));
-        assert!((se_light - &full.se).mapv(f64::abs).iter().all(|&d| d < 1e-12));
-        assert!((se_epi_light - &full.se_epi).mapv(f64::abs).iter().all(|&d| d < 1e-12));
-        assert!((se_ale_light - &full.se_ale).mapv(f64::abs).iter().all(|&d| d < 1e-12));
+        assert!((mu_light - &full.mu)
+            .mapv(f64::abs)
+            .iter()
+            .all(|&d| d < 1e-12));
+        assert!((se_light - &full.se)
+            .mapv(f64::abs)
+            .iter()
+            .all(|&d| d < 1e-12));
+        assert!((se_epi_light - &full.se_epi)
+            .mapv(f64::abs)
+            .iter()
+            .all(|&d| d < 1e-12));
+        assert!((se_ale_light - &full.se_ale)
+            .mapv(f64::abs)
+            .iter()
+            .all(|&d| d < 1e-12));
         assert_eq!(idx_light, idx_nested_to_array2(&full.idx));
     }
 
@@ -317,13 +334,8 @@ mod tests {
         let flags = PosteriorFlags::new();
         let all: Vec<usize> = (0..model.len()).collect();
         let (tx, _, _) = model.rows().train_rows_at(&all).unwrap();
-        let (mu, se, _se_epi, _se_ale, idx) = compute_posterior_light(
-            &model,
-            &tx.view(),
-            &params,
-            &flags,
-        )
-        .unwrap();
+        let (mu, se, _se_epi, _se_ale, idx) =
+            compute_posterior_light(&model, &tx.view(), &params, &flags).unwrap();
         assert_eq!(mu.ncols(), 2);
         assert_eq!(se.ncols(), 2);
         assert_eq!(idx.ncols(), 2);

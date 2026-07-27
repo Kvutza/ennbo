@@ -156,12 +156,7 @@ fn test_noise_aware_config_and_incumbent_after_tell() {
         create_optimizer_enn_with_overrides(bounds, 3, 0, &mut rng, Some(&overrides)).unwrap();
     assert!(opt.config().noise_aware);
 
-    let x = array![
-        [0.2, 0.3],
-        [0.4, 0.5],
-        [0.6, 0.7],
-        [0.8, 0.9],
-    ];
+    let x = array![[0.2, 0.3], [0.4, 0.5], [0.6, 0.7], [0.8, 0.9],];
     let y = array![[0.0], [1.0], [2.0], [0.5]];
     opt.tell(&x.view(), &y.view(), &mut rng).unwrap();
     assert!(opt.incumbent_x_unit().is_some());
@@ -210,7 +205,10 @@ fn turbo_length_restart_keeps_incumbent_tracker_synced() {
             "tracker must stay synced after tell (incl. post-restart)"
         );
     }
-    assert!(opt.restart_generation() >= 1, "expected at least one TR restart");
+    assert!(
+        opt.restart_generation() >= 1,
+        "expected at least one TR restart"
+    );
 }
 
 #[test]

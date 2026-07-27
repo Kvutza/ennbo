@@ -56,6 +56,19 @@ impl PosteriorComputation for EpistemicNearestNeighbors {
                 idx_nested_to_array2(&internals.idx),
             )
         };
+        let mut mu = mu;
+        let mut se = se;
+        let mut se_epi = se_epi;
+        let mut se_ale = se_ale;
+        if self.has_bounded_outputs() {
+            crate::y_bounds::naturalize(
+                &mut mu,
+                &mut se,
+                &mut se_epi,
+                &mut se_ale,
+                self.y_bounds(),
+            );
+        }
         Ok(ENNNormal::new(
             mu.into_dyn(),
             se.into_dyn(),
@@ -112,6 +125,15 @@ impl PosteriorComputation for EpistemicNearestNeighbors {
             )?;
         }
 
+        if self.has_bounded_outputs() {
+            crate::y_bounds::naturalize_batch(
+                &mut mu_all,
+                &mut se_all,
+                &mut se_epi_all,
+                &mut se_ale_all,
+                self.y_bounds(),
+            );
+        }
         Ok(ENNNormal::new(
             mu_all.into_dyn(),
             se_all.into_dyn(),
@@ -129,7 +151,10 @@ impl PosteriorComputation for EpistemicNearestNeighbors {
         flags: &PosteriorFlags,
     ) -> Result<(Array3<f64>, Vec<Vec<usize>>), ENNError> {
         let internals = compute_posterior_internals(self, x, params, flags)?;
-        let draws = draw_from_internals(self, &internals, function_seeds)?;
+        let mut draws = draw_from_internals(self, &internals, function_seeds)?;
+        if self.has_bounded_outputs() {
+            crate::y_bounds::inverse_draws(&mut draws, self.y_bounds());
+        }
         Ok((draws, internals.idx))
     }
 
@@ -141,13 +166,37 @@ impl PosteriorComputation for EpistemicNearestNeighbors {
         params: &ENNParams,
         flags: &PosteriorFlags,
     ) -> Result<ENNNormal, ENNError> {
-        let internals =
-            compute_conditional_posterior_internals(self, x, x_whatif, y_whatif, params, flags)?;
+        let y_whatif = if self.has_bounded_outputs() {
+            crate::y_bounds::warp_y(*y_whatif, self.y_bounds())?
+        } else {
+            y_whatif.to_owned()
+        };
+        let internals = compute_conditional_posterior_internals(
+            self,
+            x,
+            x_whatif,
+            &y_whatif.view(),
+            params,
+            flags,
+        )?;
+        let mut mu = internals.mu;
+        let mut se = internals.se;
+        let mut se_epi = internals.se_epi;
+        let mut se_ale = internals.se_ale;
+        if self.has_bounded_outputs() {
+            crate::y_bounds::naturalize(
+                &mut mu,
+                &mut se,
+                &mut se_epi,
+                &mut se_ale,
+                self.y_bounds(),
+            );
+        }
         Ok(ENNNormal::new(
-            internals.mu.into_dyn(),
-            internals.se.into_dyn(),
-            internals.se_epi.into_dyn(),
-            internals.se_ale.into_dyn(),
+            mu.into_dyn(),
+            se.into_dyn(),
+            se_epi.into_dyn(),
+            se_ale.into_dyn(),
             Some(idx_nested_to_array2(&internals.idx)),
         ))
     }
@@ -161,9 +210,23 @@ impl PosteriorComputation for EpistemicNearestNeighbors {
         function_seeds: &[i64],
         flags: &PosteriorFlags,
     ) -> Result<(Array3<f64>, Vec<Vec<usize>>), ENNError> {
-        let internals =
-            compute_conditional_posterior_internals(self, x, x_whatif, y_whatif, params, flags)?;
-        let draws = draw_from_internals(self, &internals, function_seeds)?;
+        let y_whatif = if self.has_bounded_outputs() {
+            crate::y_bounds::warp_y(*y_whatif, self.y_bounds())?
+        } else {
+            y_whatif.to_owned()
+        };
+        let internals = compute_conditional_posterior_internals(
+            self,
+            x,
+            x_whatif,
+            &y_whatif.view(),
+            params,
+            flags,
+        )?;
+        let mut draws = draw_from_internals(self, &internals, function_seeds)?;
+        if self.has_bounded_outputs() {
+            crate::y_bounds::inverse_draws(&mut draws, self.y_bounds());
+        }
         Ok((draws, internals.idx))
     }
 }
@@ -198,8 +261,13 @@ fn compute_batch_with_shared_neighbors(
     se_epi_all: &mut Array3<f64>,
     se_ale_all: &mut Array3<f64>,
 ) -> Result<(), ENNError> {
-    let neighbor_data =
-        get_neighbor_data(model, x, &paramss[0], flags.exclude_nearest, flags.tie_break_neighbors)?;
+    let neighbor_data = get_neighbor_data(
+        model,
+        x,
+        &paramss[0],
+        flags.exclude_nearest,
+        flags.tie_break_neighbors,
+    )?;
 
     if let Some(data) = neighbor_data {
         let wp_data = WeightedPosteriorData {
@@ -259,12 +327,16 @@ fn assign_posterior_results(
     se_all
         .slice_axis_mut(Axis(0), slice)
         .assign(&internals.se.slice_axis(Axis(0), ndarray::Slice::from(..)));
-    se_epi_all
-        .slice_axis_mut(Axis(0), slice)
-        .assign(&internals.se_epi.slice_axis(Axis(0), ndarray::Slice::from(..)));
-    se_ale_all
-        .slice_axis_mut(Axis(0), slice)
-        .assign(&internals.se_ale.slice_axis(Axis(0), ndarray::Slice::from(..)));
+    se_epi_all.slice_axis_mut(Axis(0), slice).assign(
+        &internals
+            .se_epi
+            .slice_axis(Axis(0), ndarray::Slice::from(..)),
+    );
+    se_ale_all.slice_axis_mut(Axis(0), slice).assign(
+        &internals
+            .se_ale
+            .slice_axis(Axis(0), ndarray::Slice::from(..)),
+    );
 }
 
 /// Data for weighted posterior computation.
@@ -302,7 +374,11 @@ pub fn compute_weighted_posterior(
         for i in 0..n_query {
             for (j, &neighbor_idx) in data.idx[i].iter().enumerate() {
                 if neighbor_idx < n_train {
-                    let yvar_row = model.rows().row_yvar(neighbor_idx).expect("row_yvar").expect("yvar");
+                    let yvar_row = model
+                        .rows()
+                        .row_yvar(neighbor_idx)
+                        .expect("row_yvar")
+                        .expect("yvar");
                     for m in 0..model.num_metrics() {
                         yvar_neighbors[[i * k + j, m]] = yvar_row[m];
                     }
@@ -347,7 +423,14 @@ fn stats_from_neighbor_weights(
     aleatoric_scale: f64,
     y_scale: &ArrayView1<f64>,
     y_scale_sq: &[f64],
-) -> (Array3<f64>, Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>) {
+) -> (
+    Array3<f64>,
+    Array2<f64>,
+    Array2<f64>,
+    Array2<f64>,
+    Array2<f64>,
+    Array2<f64>,
+) {
     let yvar_ref = yvar_neighbors.as_ref();
     let mut w_normalized = Array3::zeros((n_query, k, num_metrics));
     let mut l2 = Array2::zeros((n_query, num_metrics));
@@ -486,8 +569,13 @@ pub fn compute_posterior_internals(
         return Ok(empty_posterior_internals(model, batch_size));
     }
 
-    let neighbor_data =
-        get_neighbor_data(model, x, params, flags.exclude_nearest, flags.tie_break_neighbors)?;
+    let neighbor_data = get_neighbor_data(
+        model,
+        x,
+        params,
+        flags.exclude_nearest,
+        flags.tie_break_neighbors,
+    )?;
 
     if let Some(data) = neighbor_data {
         let wp_data = WeightedPosteriorData {

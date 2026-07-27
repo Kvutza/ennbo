@@ -267,9 +267,7 @@ mod tests {
 
         let history = BpannHistory::new(dir.path().to_path_buf(), 2).unwrap();
         assert_eq!(history.len(), 2);
-        let shortlist = history
-            .shortlist(&array![[2.9, 0.0]].view(), 1, 1)
-            .unwrap();
+        let shortlist = history.shortlist(&array![[2.9, 0.0]].view(), 1, 1).unwrap();
         assert_eq!(
             shortlist,
             vec![IndexedObservation {

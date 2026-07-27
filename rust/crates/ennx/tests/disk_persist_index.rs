@@ -9,18 +9,11 @@ use ennx::EpistemicNearestNeighbors;
 use ndarray::{Array2, ArrayView2};
 use tempfile::TempDir;
 
-fn append_rows(
-    model: &mut EpistemicNearestNeighbors,
-    x: &ArrayView2<f64>,
-    y: &ArrayView2<f64>,
-) {
+fn append_rows(model: &mut EpistemicNearestNeighbors, x: &ArrayView2<f64>, y: &ArrayView2<f64>) {
     model.add(x, y, None).expect("add");
 }
 
-fn build_reference_disk_model(
-    work_dir: &std::path::Path,
-    dim: usize,
-) -> EpistemicNearestNeighbors {
+fn build_reference_disk_model(work_dir: &std::path::Path, dim: usize) -> EpistemicNearestNeighbors {
     let rows = 2500usize;
     let x = Array2::from_shape_fn((rows, dim), |(i, j)| (i + j) as f64);
     let y = Array2::from_shape_fn((rows, 1), |(i, _)| i as f64);
@@ -85,12 +78,14 @@ fn disk_persist_index_multi_batch_reopen_is_fast_and_correct() {
         let post_persist_idx = model
             .neighbors(&query.view(), 5, false)
             .expect("neighbors post-persist");
-        assert_eq!(pre_idx, post_persist_idx, "in-session neighbors must not change on persist");
+        assert_eq!(
+            pre_idx, post_persist_idx,
+            "in-session neighbors must not change on persist"
+        );
         pre_idx
     };
 
-    let header_text =
-        fs::read_to_string(work_dir.join("index/header.json")).expect("header.json");
+    let header_text = fs::read_to_string(work_dir.join("index/header.json")).expect("header.json");
     assert!(header_text.contains(&format!("\"indexed_rows\": {rows}")));
 
     let ref_dir = TempDir::new().expect("ref tempdir");
@@ -115,11 +110,17 @@ fn disk_persist_index_multi_batch_reopen_is_fast_and_correct() {
         reopen_s < 1.0,
         "reopen took {reopen_s:.3}s; expected fast mmap open after persist"
     );
-    reopened.index_access().ensure_sync().expect("post-reopen sync");
+    reopened
+        .index_access()
+        .ensure_sync()
+        .expect("post-reopen sync");
     let post_idx = reopened
         .neighbors(&query.view(), 5, false)
         .expect("neighbors");
-    assert_eq!(ref_idx, post_idx, "post-reopen must match reference disk model");
+    assert_eq!(
+        ref_idx, post_idx,
+        "post-reopen must match reference disk model"
+    );
     let _ = pre_idx;
 }
 
@@ -133,9 +134,7 @@ fn disk_tell_does_not_rewrite_index() {
     let model = build_multi_batch_disk_model(&work_dir, dim);
     model.persist_index_to_disk().expect("persist");
     let checksum_after_persist = pages_checksum(&work_dir);
-    let neighbors_after_persist = model
-        .neighbors(&query.view(), 5, false)
-        .expect("neighbors");
+    let neighbors_after_persist = model.neighbors(&query.view(), 5, false).expect("neighbors");
 
     model.index_access().ensure_sync().expect("tell sync");
 
@@ -144,9 +143,7 @@ fn disk_tell_does_not_rewrite_index() {
         pages_checksum(&work_dir),
         "ensure_sync must not rewrite pages.bin"
     );
-    let neighbors_after_sync = model
-        .neighbors(&query.view(), 5, false)
-        .expect("neighbors");
+    let neighbors_after_sync = model.neighbors(&query.view(), 5, false).expect("neighbors");
     assert_eq!(neighbors_after_persist, neighbors_after_sync);
 }
 
@@ -175,7 +172,10 @@ fn schedule_soft_sync_leaves_pages_unchanged_until_persist() {
         model.index_access().ensure_sync().expect("wait");
     }
     model.index_access().ensure_sync().expect("soft drain");
-    assert!(!pages.exists(), "schedule/wait soft sync must not write pages.bin");
+    assert!(
+        !pages.exists(),
+        "schedule/wait soft sync must not write pages.bin"
+    );
 
     let query = Array2::from_shape_fn((1, dim), |(_, j)| j as f64 * 0.01);
     let idx = model

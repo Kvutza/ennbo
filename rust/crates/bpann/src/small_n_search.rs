@@ -1,4 +1,4 @@
-//! In-RAM exhaustive search for small/mid observation counts (N ≤ 4096).
+//! In-RAM exhaustive search for small/mid observation counts (N ≤ 8192).
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
@@ -8,8 +8,9 @@ use crate::merge::merge_topk_precomputed_dist;
 use rayon::prelude::*;
 
 /// When `len() ≤` this, search uses a resident flat f32 matrix + heap top-k.
-/// Covers turbo-enn mid checkpoints (N=1232, N=3000) under `--tell-all`.
-pub const SMALL_N_INCORE_SEARCH_LIMIT: usize = 4096;
+/// Covers turbo-enn mid checkpoints and the post-4096 pending window before
+/// the indexed path becomes preferable.
+pub const SMALL_N_INCORE_SEARCH_LIMIT: usize = 8192;
 
 /// Total order wrapper so squared distances can live in a binary heap.
 #[derive(Copy, Clone, Debug)]
@@ -105,8 +106,7 @@ pub fn score_queries_flat(
             let mut query_f32 = Vec::with_capacity(num_dim);
             bpann_row_to_f32(query_buf, scale_x, x_scale, &mut query_f32);
             let leg = topk_flat_sq_l2(&query_f32, flat, total, num_dim, pool_k);
-            let merged =
-                merge_topk_precomputed_dist(&leg, &[], k_eff, pool_k, exclude_nearest);
+            let merged = merge_topk_precomputed_dist(&leg, &[], k_eff, pool_k, exclude_nearest);
             let mut dist_row = vec![0.0; k_eff];
             let mut idx_row = vec![0; k_eff];
             for (j, (id, dist)) in merged.into_iter().enumerate() {
@@ -153,8 +153,8 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn small_n_incore_limit_is_4096() {
-        assert_eq!(SMALL_N_INCORE_SEARCH_LIMIT, 4096);
+    fn small_n_incore_limit_is_8192() {
+        assert_eq!(SMALL_N_INCORE_SEARCH_LIMIT, 8192);
     }
 
     #[test]
@@ -200,8 +200,8 @@ mod tests {
     #[test]
     fn small_n_cache_rebuilds_after_append() {
         let dir = TempDir::new().unwrap();
-        let mut b = crate::backend::BpannBackend::new_empty(dir.path().to_path_buf(), 1, 1)
-            .unwrap();
+        let mut b =
+            crate::backend::BpannBackend::new_empty(dir.path().to_path_buf(), 1, 1).unwrap();
         b.append_rows(&array![[0.0]].view(), &array![[0.0]].view(), None)
             .unwrap();
         let c1 = load_or_build_small_n_cache(&b, 1).unwrap();

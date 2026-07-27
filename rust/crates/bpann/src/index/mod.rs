@@ -6,9 +6,10 @@ pub mod search;
 pub mod sync;
 pub mod sync_forest;
 
-pub use build::{BpannIndex, DEFAULT_LEAF_CAPACITY, IndexHeader};
-pub use sync::IncrementalIndex;
+pub use build::{BpannIndex, IndexHeader, DEFAULT_LEAF_CAPACITY};
 pub use search::{
-    bpann_brute_force_topk, bpann_brute_force_topk_mmap, bpann_mean_recall_at_k, search_exhaustive_leaves,
-    search_greedy_blocks_only, search_with_skip_refinement, MmapSearchStore, TraversalLog,
+    bpann_brute_force_topk, bpann_brute_force_topk_mmap, bpann_mean_recall_at_k,
+    search_exhaustive_leaves, search_greedy_blocks_only, search_with_skip_refinement,
+    MmapSearchStore, TraversalLog,
 };
+pub use sync::IncrementalIndex;

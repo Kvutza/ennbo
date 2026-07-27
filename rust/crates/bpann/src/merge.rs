@@ -80,7 +80,8 @@ mod kiss_coverage_tests {
     #[test]
     fn merge_units_are_linked() {
         let dir = TempDir::new().unwrap();
-        let mut store = MmapColumnStore::mmap_open_or_create(dir.path().join("x.bin"), 2, None).unwrap();
+        let mut store =
+            MmapColumnStore::mmap_open_or_create(dir.path().join("x.bin"), 2, None).unwrap();
         store
             .mmap_append(&array![[0.0, 0.0], [1.0, 0.0]].view())
             .unwrap();

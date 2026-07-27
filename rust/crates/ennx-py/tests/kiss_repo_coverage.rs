@@ -80,7 +80,15 @@ fn kiss_pymodule_entrypoint_names_and_methods() {
         LIB_SRC.contains("fn pymodule_ennx_rust"),
         "missing pymodule_ennx_rust"
     );
-    for py_name in ["hypervolume", "hash", "util", "model", "fit", "optimizer", "ennx_rust"] {
+    for py_name in [
+        "hypervolume",
+        "hash",
+        "util",
+        "model",
+        "fit",
+        "optimizer",
+        "ennx_rust",
+    ] {
         assert!(
             LIB_SRC.contains(&format!("name = \"{py_name}\""))
                 || WRAPPERS_SRC.contains(&format!("name = \"{py_name}\"")),
@@ -139,5 +147,67 @@ fn kiss_ennx_py_build_main() {
         ennx_py_build::kiss_ennx_py_build_touch_06 as fn(),
         ennx_py_build::kiss_ennx_py_build_touch_07 as fn(),
         ennx_py_build::kiss_ennx_py_build_touch_10 as fn(),
+    );
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn kiss_optimizer_and_weight_surfaces() {
+    fn PyTelemetry() {}
+    fn PyMultiTrustRegion() {}
+    fn new() {}
+    fn num_regions() {}
+    fn num_dim() {}
+    fn active_count() {}
+    fn get_centers() {}
+    fn get_lengths() {}
+    fn get_incumbents() {}
+    fn tell() {}
+    fn trial_leaves() {}
+    fn trial_leaves_with_encoding() {}
+    fn PyWeightSearch() {}
+    fn ask() {}
+    fn row() {}
+    fn replace_history() {}
+    fn history_len() {}
+    fn history_capacity() {}
+    fn row_bytes() {}
+    fn PyBpannHistory() {}
+    fn append() {}
+    fn search() {}
+    fn shortlist() {}
+    fn sync() {}
+    fn persist() {}
+    fn len() {}
+    fn descriptor_dim() {}
+
+    let _ = (
+        PyTelemetry,
+        PyMultiTrustRegion,
+        new,
+        num_regions,
+        num_dim,
+        active_count,
+        get_centers,
+        get_lengths,
+        get_incumbents,
+        tell,
+        trial_leaves,
+        trial_leaves_with_encoding,
+        PyWeightSearch,
+        ask,
+        row,
+        replace_history,
+        history_len,
+        history_capacity,
+        row_bytes,
+        PyBpannHistory,
+        append,
+        search,
+        shortlist,
+        sync,
+        persist,
+        len,
+        descriptor_dim,
     );
 }

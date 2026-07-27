@@ -135,8 +135,7 @@ impl BpannTuning {
     /// On-disk skip edges reflect build-time limits; search uses call-time limits
     /// and may take the skip-refinement path with empty edges until rebuild.
     pub fn rows_need_skip_edges(&self, row_count: usize) -> bool {
-        row_count > self.exhaustive_search_row_limit
-            && row_count <= self.skip_refinement_row_limit
+        row_count > self.exhaustive_search_row_limit && row_count <= self.skip_refinement_row_limit
     }
 
     /// Whether search should scan all leaves exhaustively for this row count.
@@ -168,7 +167,10 @@ pub fn clear_tuning_provider() {
 ///
 /// If the provider returns an invalid snapshot, falls back to defaults.
 pub fn current_tuning() -> BpannTuning {
-    let tuning = if let Some(provider) = TUNING_PROVIDER.read().expect("tuning provider lock").as_ref()
+    let tuning = if let Some(provider) = TUNING_PROVIDER
+        .read()
+        .expect("tuning provider lock")
+        .as_ref()
     {
         provider()
     } else {
@@ -297,12 +299,18 @@ mod tests {
             index_compact_rows_per_fragment: 0,
             ..Default::default()
         };
-        assert!(t.validate().unwrap_err().contains("index_compact_rows_per_fragment"));
+        assert!(t
+            .validate()
+            .unwrap_err()
+            .contains("index_compact_rows_per_fragment"));
         let t = BpannTuning {
             search_rows_per_fragment: 0,
             ..Default::default()
         };
-        assert!(t.validate().unwrap_err().contains("search_rows_per_fragment"));
+        assert!(t
+            .validate()
+            .unwrap_err()
+            .contains("search_rows_per_fragment"));
         let t = BpannTuning {
             search_beam_width: 0,
             ..Default::default()
@@ -316,7 +324,10 @@ mod tests {
             index_compact_fragment_max: INDEX_COMPACT_FRAGMENT_MAX_MIN - 1,
             ..Default::default()
         };
-        assert!(t.validate().unwrap_err().contains("index_compact_fragment_max"));
+        assert!(t
+            .validate()
+            .unwrap_err()
+            .contains("index_compact_fragment_max"));
     }
 
     #[test]
@@ -332,11 +343,20 @@ mod tests {
     #[test]
     fn default_search_row_limits_match_historical_cliffs() {
         let t = BpannTuning::default();
-        assert_eq!(t.exhaustive_search_row_limit, DEFAULT_EXHAUSTIVE_SEARCH_ROW_LIMIT);
-        assert_eq!(t.skip_refinement_row_limit, DEFAULT_SKIP_REFINEMENT_ROW_LIMIT);
+        assert_eq!(
+            t.exhaustive_search_row_limit,
+            DEFAULT_EXHAUSTIVE_SEARCH_ROW_LIMIT
+        );
+        assert_eq!(
+            t.skip_refinement_row_limit,
+            DEFAULT_SKIP_REFINEMENT_ROW_LIMIT
+        );
         assert_eq!(DEFAULT_EXHAUSTIVE_SEARCH_ROW_LIMIT, 2500);
         assert_eq!(DEFAULT_SKIP_REFINEMENT_ROW_LIMIT, 150_000);
-        assert_eq!(t.structured_build_row_limit, DEFAULT_STRUCTURED_BUILD_ROW_LIMIT);
+        assert_eq!(
+            t.structured_build_row_limit,
+            DEFAULT_STRUCTURED_BUILD_ROW_LIMIT
+        );
         assert_eq!(DEFAULT_STRUCTURED_BUILD_ROW_LIMIT, 1024);
         // Latency default: search at most one fragment when many exist (proposal scout).
         assert_eq!(t.search_fragment_budget_max, 1);
@@ -405,7 +425,15 @@ mod tests {
                 ..base
             };
             assert!(t.validate().is_ok(), "ex={ex} skip={skip}");
-            for rows in [0, 1, ex.saturating_sub(1), ex, ex.saturating_add(1), skip, skip.saturating_add(1)] {
+            for rows in [
+                0,
+                1,
+                ex.saturating_sub(1),
+                ex,
+                ex.saturating_add(1),
+                skip,
+                skip.saturating_add(1),
+            ] {
                 assert_eq!(
                     t.rows_need_skip_edges(rows),
                     t.use_skip_refinement_search(rows),

@@ -8,6 +8,18 @@ use rand::Rng;
 
 use crate::error::ENNError;
 
+pub(crate) fn insert_neighbor(nearest: &mut [(f32, usize)], distance: f32, index: usize) {
+    let Some(position) = nearest.iter().position(|&(other_distance, other_index)| {
+        distance < other_distance || (distance == other_distance && index < other_index)
+    }) else {
+        return;
+    };
+    for i in (position + 1..nearest.len()).rev() {
+        nearest[i] = nearest[i - 1];
+    }
+    nearest[position] = (distance, index);
+}
+
 /// Index of maximum value, choosing uniformly among ties (matches Python `argmax_random_tie`).
 pub fn argmax_random_tie(values: &[f64], rng: &mut dyn rand::RngCore) -> usize {
     if values.is_empty() {
@@ -254,8 +266,8 @@ pub fn arms_from_pareto_fronts(
     let mut remaining: Vec<usize> = (0..n).collect();
 
     while !remaining.is_empty() && i_keep.len() < num_arms {
-        let front = pareto_front_2d_maximize(mu, se, Some(&remaining))
-            .expect("mu and se must be finite");
+        let front =
+            pareto_front_2d_maximize(mu, se, Some(&remaining)).expect("mu and se must be finite");
         if front.is_empty() {
             break;
         }

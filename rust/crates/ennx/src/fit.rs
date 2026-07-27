@@ -259,9 +259,16 @@ mod tests {
         let mut rng2 = StdRng::seed_from_u64(99);
         let all: Vec<usize> = (0..model.len()).collect();
         let (full_x, full_y, _) = model.rows().train_rows_at(&all).unwrap();
-        let via_views =
-            subsample_loglik(&model, &full_x.view(), &full_y.view(), &paramss, 2, &mut rng2, None)
-                .unwrap();
+        let via_views = subsample_loglik(
+            &model,
+            &full_x.view(),
+            &full_y.view(),
+            &paramss,
+            2,
+            &mut rng2,
+            None,
+        )
+        .unwrap();
         assert_eq!(via_model.len(), via_views.len());
         assert!(via_model[0].is_finite());
     }

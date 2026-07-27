@@ -2,12 +2,12 @@
 
 use ennx::backend::EnnStorage;
 use ennx::candidates::CandidateRV;
-use ennx::config::{CandidateConfig, OptimizerConfig, SurrogateConfig, turbo_enn_config};
+use ennx::config::{turbo_enn_config, CandidateConfig, OptimizerConfig, SurrogateConfig};
 use ennx::index::IndexDriver;
 use ennx::optimizer::Optimizer;
 use ennx::strategy::Strategy;
 use ennx::surrogate::ENNSurrogateConfig;
-use ennx::{InitStrategy, ENNError};
+use ennx::{ENNError, InitStrategy};
 use ndarray::{Array2, ArrayView2};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -130,10 +130,8 @@ fn turbo_disk_backend_matches_in_memory_incumbent() {
     let (xs, ys) =
         record_tell_schedule(mem_cfg.clone(), seed, num_init, num_arms, num_rounds).unwrap();
 
-    let (x_mem, y_mem, n_mem) =
-        replay_tells(mem_cfg, seed, num_init, &xs, &ys).unwrap();
-    let (x_disk, y_disk, n_disk) =
-        replay_tells(disk_cfg, seed, num_init, &xs, &ys).unwrap();
+    let (x_mem, y_mem, n_mem) = replay_tells(mem_cfg, seed, num_init, &xs, &ys).unwrap();
+    let (x_disk, y_disk, n_disk) = replay_tells(disk_cfg, seed, num_init, &xs, &ys).unwrap();
 
     assert_eq!(n_mem, n_disk);
     assert!(n_disk >= num_init + num_rounds * num_arms);

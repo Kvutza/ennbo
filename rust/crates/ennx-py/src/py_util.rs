@@ -42,9 +42,8 @@ pub fn pareto_front_2d_maximize_py<'py>(
         Some(i) => {
             let mut out = Vec::with_capacity(i.as_array().len());
             for &x in i.as_array().iter() {
-                let u = usize::try_from(x).map_err(|_| {
-                    PyValueError::new_err(format!("idx entry {x} is negative"))
-                })?;
+                let u = usize::try_from(x)
+                    .map_err(|_| PyValueError::new_err(format!("idx entry {x} is negative")))?;
                 if u >= n {
                     return Err(PyValueError::new_err(format!(
                         "idx entry {x} is out of bounds for length {n}"
@@ -64,7 +63,8 @@ pub fn pareto_front_2d_maximize_py<'py>(
         }
     }
 
-    let result = py.allow_threads(|| ennx::pareto_front_2d_maximize(&a_arr, &b_arr, idx_vec.as_deref()));
+    let result =
+        py.allow_threads(|| ennx::pareto_front_2d_maximize(&a_arr, &b_arr, idx_vec.as_deref()));
 
     let front = match result {
         Ok(v) => v,

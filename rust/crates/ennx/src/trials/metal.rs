@@ -334,7 +334,6 @@ impl Engine {
         Ok(results)
     }
 
-
     pub(super) fn read(&self, slot: usize, row_bytes: usize) -> Vec<u8> {
         let start = slot * row_bytes;
         unsafe {

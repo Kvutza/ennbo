@@ -104,7 +104,10 @@ fn test_empty_posterior_internals() {
     assert_eq!(internals.se.shape(), &[5, 1]);
     assert_eq!(internals.se_epi.shape(), &[5, 1]);
     assert_eq!(internals.se_ale.shape(), &[5, 1]);
-    assert!((internals.se - &internals.se_epi).mapv(f64::abs).iter().all(|&d| d < 1e-12));
+    assert!((internals.se - &internals.se_epi)
+        .mapv(f64::abs)
+        .iter()
+        .all(|&d| d < 1e-12));
     assert!(internals.se_ale.iter().all(|&v| v == 0.0));
 }
 
@@ -128,8 +131,7 @@ fn test_compute_posterior_internals_empty_model() {
     let train_x = array![[0.0, 0.0]];
     let train_y = array![[0.0]];
     let model =
-        EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact)
-            .unwrap();
+        EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap();
 
     let params = ENNParams::new(2, 1.0, 0.1).unwrap();
     let flags = PosteriorFlags::new();
@@ -207,8 +209,7 @@ fn test_draw_from_internals_with_neighbors() {
     let flags = PosteriorFlags::new();
     let query = array![[0.5, 0.5]];
 
-    let internals =
-        compute_posterior_internals(&model, &query.view(), &params, &flags).unwrap();
+    let internals = compute_posterior_internals(&model, &query.view(), &params, &flags).unwrap();
     let seeds = vec![1i64, 2];
 
     let result = draw_from_internals(&model, &internals, &seeds);
@@ -284,8 +285,7 @@ fn test_assign_posterior_results_direct() {
     let flags = PosteriorFlags::new();
     let query = array![[0.5, 0.5]];
 
-    let internals =
-        compute_posterior_internals(&model, &query.view(), &params, &flags).unwrap();
+    let internals = compute_posterior_internals(&model, &query.view(), &params, &flags).unwrap();
 
     let mut mu_all = Array3::zeros((3, 1, 1));
     let mut se_all = Array3::zeros((3, 1, 1));
@@ -293,9 +293,30 @@ fn test_assign_posterior_results_direct() {
     let mut se_ale_all = Array3::zeros((3, 1, 1));
 
     // Test assigning to different indices
-    assign_posterior_results(&internals, &mut mu_all, &mut se_all, &mut se_epi_all, &mut se_ale_all, 0);
-    assign_posterior_results(&internals, &mut mu_all, &mut se_all, &mut se_epi_all, &mut se_ale_all, 1);
-    assign_posterior_results(&internals, &mut mu_all, &mut se_all, &mut se_epi_all, &mut se_ale_all, 2);
+    assign_posterior_results(
+        &internals,
+        &mut mu_all,
+        &mut se_all,
+        &mut se_epi_all,
+        &mut se_ale_all,
+        0,
+    );
+    assign_posterior_results(
+        &internals,
+        &mut mu_all,
+        &mut se_all,
+        &mut se_epi_all,
+        &mut se_ale_all,
+        1,
+    );
+    assign_posterior_results(
+        &internals,
+        &mut mu_all,
+        &mut se_all,
+        &mut se_epi_all,
+        &mut se_ale_all,
+        2,
+    );
 
     // Verify the assignments were made (values should be non-zero from the computation)
     assert!(mu_all[[0, 0, 0]].is_finite());

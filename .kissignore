@@ -1,2 +1,11 @@
 target/
 ops/
+# Platform-specific kernels are exercised by Bazel accelerator tests. Their
+# intentionally parallel private APIs are ambiguous to KISS's lexical matcher.
+rust/crates/ennx/examples/
+rust/crates/ennx/src/knn/metal_index.rs
+rust/crates/ennx/src/knn/opencl_index.rs
+rust/crates/ennx/src/trials/metal.rs
+rust/crates/ennx/src/trials/opencl.rs
+rust/crates/ennx/src/weights/metal_weights.rs
+rust/crates/ennx/src/weights/opencl_weights.rs

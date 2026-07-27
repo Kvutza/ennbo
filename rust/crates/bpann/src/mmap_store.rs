@@ -123,7 +123,10 @@ impl MmapColumnStore {
         // `row.as_ptr()` would silently write the wrong values.
         if let Some(src) = rows.as_slice() {
             let src_bytes = unsafe {
-                std::slice::from_raw_parts(src.as_ptr() as *const u8, n * std::mem::size_of::<f64>())
+                std::slice::from_raw_parts(
+                    src.as_ptr() as *const u8,
+                    n * std::mem::size_of::<f64>(),
+                )
             };
             dst.copy_from_slice(src_bytes);
         } else {
@@ -228,9 +231,7 @@ mod tests {
         store.release_resident_pages().unwrap();
         assert_eq!(store.mmap_row_slice(0).unwrap(), &[1.0, 2.0]);
         assert_eq!(store.mmap_row_slice(2).unwrap(), &[5.0, 6.0]);
-        store
-            .mmap_append(&array![[7.0, 8.0]].view())
-            .unwrap();
+        store.mmap_append(&array![[7.0, 8.0]].view()).unwrap();
         store.release_resident_pages().unwrap();
         assert_eq!(store.mmap_row_slice(3).unwrap(), &[7.0, 8.0]);
     }

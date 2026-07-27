@@ -129,11 +129,8 @@ impl TurboTrustRegion {
     /// Compute failure tolerance based on num_arms and num_dim.
     fn compute_failure_tolerance(&mut self) {
         if let Some(num_arms) = self.num_arms {
-            let eff_dim = self
-                .failure_tolerance_dim
-                .unwrap_or(self.num_dim as f64);
-            let tolerance =
-                ((4.0 / num_arms as f64).max(eff_dim / num_arms as f64)).ceil() as i32;
+            let eff_dim = self.failure_tolerance_dim.unwrap_or(self.num_dim as f64);
+            let tolerance = ((4.0 / num_arms as f64).max(eff_dim / num_arms as f64)).ceil() as i32;
             self.failure_tolerance = Some(tolerance.max(1));
         }
     }
@@ -611,8 +608,7 @@ mod tests {
         for (b, &inc) in batches.iter().zip(incumbents.iter()) {
             y_all.extend_from_slice(b);
             let y_arr = ndarray::Array1::from_vec(y_all.clone());
-            full
-                .update_with_incumbent(&y_arr.view(), y_all.len(), inc)
+            full.update_with_incumbent(&y_arr.view(), y_all.len(), inc)
                 .unwrap();
             let y_new = ndarray::Array1::from_vec(b.to_vec());
             batch
@@ -639,8 +635,7 @@ mod tests {
         for (b, &inc) in pre.iter().zip([1.0_f64, 1.0].iter()) {
             y_all.extend_from_slice(b);
             let y_arr = ndarray::Array1::from_vec(y_all.clone());
-            full
-                .update_with_incumbent(&y_arr.view(), y_all.len(), inc)
+            full.update_with_incumbent(&y_arr.view(), y_all.len(), inc)
                 .unwrap();
             mixed
                 .update_with_incumbent(&y_arr.view(), y_all.len(), inc)
@@ -659,8 +654,7 @@ mod tests {
         for (b, &inc) in post.iter().zip(post_inc.iter()) {
             y_all.extend_from_slice(b);
             let y_arr = ndarray::Array1::from_vec(y_all.clone());
-            full
-                .update_with_incumbent(&y_arr.view(), y_all.len(), inc)
+            full.update_with_incumbent(&y_arr.view(), y_all.len(), inc)
                 .unwrap();
             let y_new = ndarray::Array1::from_vec(b.to_vec());
             mixed

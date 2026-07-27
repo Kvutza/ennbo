@@ -105,8 +105,7 @@ fn test_conditional_posterior_scaled_model() {
     let train_x = array![[0.0, 0.0], [2.0, 2.0], [4.0, 4.0]];
     let train_y = array![[0.0], [1.0], [2.0]];
     let model =
-        EpistemicNearestNeighbors::new(train_x, train_y, None, true, IndexDriver::Exact)
-            .unwrap();
+        EpistemicNearestNeighbors::new(train_x, train_y, None, true, IndexDriver::Exact).unwrap();
     let params = ENNParams::new(2, 1.0, 0.1).unwrap();
     let flags = PosteriorFlags::new();
     let query = array![[1.0, 1.0]];
@@ -130,8 +129,7 @@ fn test_conditional_scale_single_row() {
     let train_x = array![[0.0, 0.0]];
     let train_y = array![[1.0]];
     let model =
-        EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact)
-            .unwrap();
+        EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap();
     let params = ENNParams::new(1, 1.0, 0.1).unwrap();
     let flags = PosteriorFlags::new();
     let query = array![[0.0, 0.0]];
@@ -344,7 +342,10 @@ fn test_compute_weighted_posterior_empty_idx() {
     };
 
     let result = compute_weighted_posterior(&model, data, None);
-    assert!(result.is_ok(), "compute_weighted_posterior with empty idx should not panic");
+    assert!(
+        result.is_ok(),
+        "compute_weighted_posterior with empty idx should not panic"
+    );
 }
 
 #[test]

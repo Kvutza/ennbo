@@ -65,7 +65,13 @@ impl<'a> EnnIndexAccess<'a> {
         tie_break_neighbors: bool,
     ) -> Result<(Array2<f64>, Array2<i64>), ENNError> {
         let _ = tie_break_neighbors;
-        crate::posterior::index_search(self.model, x, search_k, exclude_nearest, tie_break_neighbors)
+        crate::posterior::index_search(
+            self.model,
+            x,
+            search_k,
+            exclude_nearest,
+            tie_break_neighbors,
+        )
     }
 }
 
@@ -79,10 +85,7 @@ impl<'a> EnnRowAccess<'a> {
         Self { model }
     }
 
-    pub fn train_rows_at(
-        &self,
-        indices: &[usize],
-    ) -> Result<TrainRowsAtResult, ENNError> {
+    pub fn train_rows_at(&self, indices: &[usize]) -> Result<TrainRowsAtResult, ENNError> {
         self.model.backend.train_rows_at(indices)
     }
 

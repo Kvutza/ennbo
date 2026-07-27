@@ -67,7 +67,12 @@ impl Optimizer {
                     y_rows[[r, m]] = y_row[m];
                 }
             }
-            if self.tr_state.morbo().map(|m| m.noise_aware()).unwrap_or(false) {
+            if self
+                .tr_state
+                .morbo()
+                .map(|m| m.noise_aware())
+                .unwrap_or(false)
+            {
                 if let Some(surrogate) = self.surrogate.as_ref() {
                     let mut x_cand = Array2::zeros((n_cand, self.num_dim));
                     for (r, &idx) in candidate_indices.iter().enumerate() {
@@ -98,11 +103,13 @@ impl Optimizer {
         let best_idx = candidate_indices
             .into_iter()
             .max_by(|&a, &b| {
-                self.obs_access().obs_row_y(a).and_then(|ya| {
-                    self.obs_access()
-                        .obs_row_y(b)
-                        .map(|yb| ya[0].total_cmp(&yb[0]))
-                })
+                self.obs_access()
+                    .obs_row_y(a)
+                    .and_then(|ya| {
+                        self.obs_access()
+                            .obs_row_y(b)
+                            .map(|yb| ya[0].total_cmp(&yb[0]))
+                    })
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
             .ok_or_else(|| ENNError::InvalidParameter("No incumbent candidates".to_string()))?;

@@ -99,9 +99,7 @@ pub(crate) fn topk_indices_from_row_dists_with_buffers(
         scratch.sort_by(|&a, &b| row[a].total_cmp(&row[b]).then(a.cmp(&b)));
         return scratch.clone();
     }
-    scratch.select_nth_unstable_by(k - 1, |&a, &b| {
-        row[a].total_cmp(&row[b]).then(a.cmp(&b))
-    });
+    scratch.select_nth_unstable_by(k - 1, |&a, &b| row[a].total_cmp(&row[b]).then(a.cmp(&b)));
     scratch.truncate(k);
     scratch.sort_by(|&a, &b| row[a].total_cmp(&row[b]).then(a.cmp(&b)));
     scratch.clone()
@@ -235,9 +233,8 @@ mod tests {
         apply_index_tie_break_at_cutoff, faiss_pool_might_need_escalation,
         faiss_pool_needs_full_row_scan_from_row, faiss_pool_needs_tie_resolution,
         finalize_faiss_pool_topk, resolve_pool_tie_break_at_cutoff, row_dists_for_check,
-        FaissPoolFinalizeCtx, PoolTieScratch,
         topk_indices_from_row_dists, topk_indices_from_row_dists_with_buffers,
-        try_resolve_boundary_tie_in_pool,
+        try_resolve_boundary_tie_in_pool, FaissPoolFinalizeCtx, PoolTieScratch,
     };
     use crate::index::IndexDriver;
     use crate::model::EpistemicNearestNeighbors;
@@ -276,7 +273,8 @@ mod tests {
         let row: Vec<f64> = (0..30).map(|i| ((i as f64 - 15.0).abs()).powi(2)).collect();
         let mut scratch = Vec::new();
         let mut float_buf = Vec::new();
-        let best = topk_indices_from_row_dists_with_buffers(&row, 5, true, &mut scratch, &mut float_buf);
+        let best =
+            topk_indices_from_row_dists_with_buffers(&row, 5, true, &mut scratch, &mut float_buf);
         assert_eq!(best.len(), 5);
         assert!(best.contains(&15));
     }
@@ -290,12 +288,7 @@ mod tests {
                 .unwrap();
         let precomputed = vec![0.0, 1.0, 4.0];
         let mut cache = None;
-        let out = row_dists_for_check(
-            &model,
-            array![0.0].view(),
-            Some(&precomputed),
-            &mut cache,
-        );
+        let out = row_dists_for_check(&model, array![0.0].view(), Some(&precomputed), &mut cache);
         assert_eq!(out, &[0.0, 1.0, 4.0]);
         assert!(cache.is_none());
     }
@@ -304,7 +297,10 @@ mod tests {
     fn resolve_pool_tie_break_at_cutoff_orders_cutoff_band() {
         let mut pairs = vec![(0.0, 2i64), (0.0, 0), (0.0, 1), (1.0, 3)];
         resolve_pool_tie_break_at_cutoff(&mut pairs, 3);
-        assert_eq!(pairs.iter().take(3).map(|p| p.1).collect::<Vec<_>>(), vec![0, 1, 2]);
+        assert_eq!(
+            pairs.iter().take(3).map(|p| p.1).collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
     }
 
     #[test]
@@ -333,9 +329,14 @@ mod tests {
     fn finalize_faiss_pool_topk_paths() {
         let train_x = array![[0.0], [0.0], [0.0], [1.0]];
         let train_y = array![[0.0], [1.0], [2.0], [3.0]];
-        let model =
-            EpistemicNearestNeighbors::new(train_x.clone(), train_y, None, false, IndexDriver::Exact)
-                .unwrap();
+        let model = EpistemicNearestNeighbors::new(
+            train_x.clone(),
+            train_y,
+            None,
+            false,
+            IndexDriver::Exact,
+        )
+        .unwrap();
         let query = array![[0.0]];
         let mut escalate = vec![(0.0, 0i64), (0.0, 1), (0.0, 2), (1.0, 3)];
         let pool_len = escalate.len();
@@ -353,10 +354,7 @@ mod tests {
             true,
             &mut ctx,
         ));
-        assert_eq!(
-            escalate.iter().map(|p| p.1).collect::<Vec<_>>(),
-            vec![0, 1]
-        );
+        assert_eq!(escalate.iter().map(|p| p.1).collect::<Vec<_>>(), vec![0, 1]);
 
         let train_x2 = array![[0.0], [0.0], [1.0], [2.0]];
         let train_y2 = array![[0.0], [1.0], [2.0], [3.0]];
@@ -398,7 +396,11 @@ mod tests {
         let mut below = Vec::new();
         let mut at_cut = Vec::new();
         assert!(try_resolve_boundary_tie_in_pool(
-            &mut pairs, 3, 6, &mut below, &mut at_cut
+            &mut pairs,
+            3,
+            6,
+            &mut below,
+            &mut at_cut
         ));
         assert_eq!(pairs.len(), 3);
         assert_eq!(pairs.iter().map(|p| p.1).collect::<Vec<_>>(), vec![2, 0, 1]);

@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 
 use ndarray::ArrayView2;
 
+use crate::util::insert_neighbor;
 use crate::weights::{AcquisitionKind, ComputeBackend};
 
 #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -40,8 +41,7 @@ impl EncodingType {
 }
 
 pub static FP4_E2M1_LUT: [f32; 16] = [
-    0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0,
-    -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0,
+    0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0,
 ];
 
 pub fn decode_code(code: u32, encoding: EncodingType, scale: f32) -> f32 {
@@ -73,7 +73,11 @@ pub fn decode_fp8_e5m2(byte: u8) -> f32 {
     if exp == 0 {
         sign * (mant as f32 / 4.0) * (2.0f32).powi(-14)
     } else if exp == 31 {
-        if mant == 0 { sign * f32::INFINITY } else { f32::NAN }
+        if mant == 0 {
+            sign * f32::INFINITY
+        } else {
+            f32::NAN
+        }
     } else {
         sign * (1.0 + mant as f32 / 4.0) * (2.0f32).powi(exp as i32 - 15)
     }
@@ -99,7 +103,15 @@ impl Leaf {
         weight: f32,
         radius: f32,
     ) -> Result<Self, String> {
-        Self::new_with_encoding(offset, length, bits, EncodingType::parse(bits, None)?, scale, weight, radius)
+        Self::new_with_encoding(
+            offset,
+            length,
+            bits,
+            EncodingType::parse(bits, None)?,
+            scale,
+            weight,
+            radius,
+        )
     }
 
     pub fn new_with_encoding(
@@ -141,7 +153,6 @@ impl Leaf {
         }
     }
 }
-
 
 #[derive(Debug, Clone, Copy)]
 pub struct Ask {
@@ -274,7 +285,6 @@ impl Search {
         })
     }
 
-
     /// Execute multi-region trial candidate evaluation on GPU.
     pub fn ask_multi_tr(
         &mut self,
@@ -322,7 +332,6 @@ impl Search {
             }
         }
     }
-
 
     /// Use BPANN to shortlist compact candidate descriptors, stream-resolve
     /// the matching full observations, and run the existing exact scorer.
@@ -884,20 +893,6 @@ fn trial_distance(
         }
     }
     distance
-}
-
-
-
-fn insert_neighbor(nearest: &mut [(f32, usize)], distance: f32, index: usize) {
-    let Some(position) = nearest.iter().position(|&(other_distance, other_index)| {
-        distance < other_distance || (distance == other_distance && index < other_index)
-    }) else {
-        return;
-    };
-    for i in (position + 1..nearest.len()).rev() {
-        nearest[i] = nearest[i - 1];
-    }
-    nearest[position] = (distance, index);
 }
 
 fn score(nearest: &[(f32, usize)], history: &[(usize, f32)], draw: f32, config: Ask) -> f32 {

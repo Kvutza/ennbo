@@ -179,8 +179,7 @@ impl ENNFitter {
         }
         if self.y_count == 0 {
             return Err(ENNError::InvalidParameter(
-                "tell must be called before ask to initialize incremental y statistics"
-                    .to_string(),
+                "tell must be called before ask to initialize incremental y statistics".to_string(),
             ));
         }
         let mut paramss = self.build_random_param_candidates(num_fit_candidates, rng)?;
@@ -195,9 +194,7 @@ impl ENNFitter {
                     0.0
                 },
             )
-            .map_err(|e| {
-                ENNError::InvalidParameter(format!("Invalid warm-start params: {e}"))
-            })?;
+            .map_err(|e| ENNError::InvalidParameter(format!("Invalid warm-start params: {e}")))?;
             paramss.push(warm_params);
         }
         let indices: Vec<usize> = {
@@ -264,25 +261,32 @@ mod tests {
         let y = array![[0.0]];
         assert!(fitter.tell(&x.view(), &y.view(), None).is_err());
         let yvar = array![[0.1, 0.2]];
-        assert!(fitter.tell(&x.view(), &y.view(), Some(&yvar.view())).is_err());
+        assert!(fitter
+            .tell(&x.view(), &y.view(), Some(&yvar.view()))
+            .is_err());
         let yvar_bad = array![[f64::INFINITY]];
-        assert!(fitter.tell(&x.view(), &y.view(), Some(&yvar_bad.view())).is_err());
+        assert!(fitter
+            .tell(&x.view(), &y.view(), Some(&yvar_bad.view()))
+            .is_err());
     }
 
     #[test]
     fn ask_uses_explicit_warm_start() {
         let train_x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
         let train_y = array![[0.0], [1.0], [1.0], [2.0]];
-        let model =
-            EpistemicNearestNeighbors::new(train_x.clone(), train_y.clone(), None, false, IndexDriver::Exact)
-                .unwrap();
+        let model = EpistemicNearestNeighbors::new(
+            train_x.clone(),
+            train_y.clone(),
+            None,
+            false,
+            IndexDriver::Exact,
+        )
+        .unwrap();
         let mut fitter = ENNFitter::new(2, true);
         fitter.tell(&train_x.view(), &train_y.view(), None).unwrap();
         let warm = ENNParams::new(2, 2.5, 0.3).unwrap();
         let mut rng = StdRng::seed_from_u64(7);
-        let p = fitter
-            .ask(&model, 0, 2, Some(&warm), &mut rng)
-            .unwrap();
+        let p = fitter.ask(&model, 0, 2, Some(&warm), &mut rng).unwrap();
         assert_eq!(p.k_num_neighbors, 2);
         assert!((p.epistemic_variance_scale - 2.5).abs() < 1e-12);
     }
@@ -300,9 +304,7 @@ mod tests {
         fitter.reset_y_stats(&ty.view());
         let warm = ENNParams::new(2, 2.5, 9.9).unwrap();
         let mut rng = StdRng::seed_from_u64(8);
-        let p = fitter
-            .ask(&model, 2, 2, Some(&warm), &mut rng)
-            .unwrap();
+        let p = fitter.ask(&model, 2, 2, Some(&warm), &mut rng).unwrap();
         assert_eq!(p.aleatoric_variance_scale, 0.0);
     }
 
@@ -323,13 +325,7 @@ mod tests {
 
     #[test]
     fn incremental_y_std_matches_batch_std() {
-        let train_x = array![
-            [0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 1.0],
-            [0.5, 0.5]
-        ];
+        let train_x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.5, 0.5]];
         let train_y = array![[0.0], [1.0], [1.0], [2.0], [1.5]];
         let _model = EpistemicNearestNeighbors::new(
             train_x.clone(),
@@ -349,9 +345,15 @@ mod tests {
         let inc_std = fitter.y_std();
         for (a, b) in inc_std.iter().zip(batch_std.iter()) {
             if *b > 1e-10 {
-                assert!((a - b).abs() < 1e-10, "incremental std {a} vs batch std {b}");
+                assert!(
+                    (a - b).abs() < 1e-10,
+                    "incremental std {a} vs batch std {b}"
+                );
             } else {
-                assert!((*a - 1.0).abs() < 1e-10, "zero-variance metric should clamp to 1.0");
+                assert!(
+                    (*a - 1.0).abs() < 1e-10,
+                    "zero-variance metric should clamp to 1.0"
+                );
             }
         }
     }

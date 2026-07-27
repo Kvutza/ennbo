@@ -292,8 +292,7 @@ impl MmapColumnStore {
         let src = contiguous
             .as_slice()
             .expect("as_standard_layout yields a contiguous f64 slice");
-        let src_bytes =
-            unsafe { std::slice::from_raw_parts(src.as_ptr() as *const u8, byte_len) };
+        let src_bytes = unsafe { std::slice::from_raw_parts(src.as_ptr() as *const u8, byte_len) };
         dst.copy_from_slice(src_bytes);
         self.nrows = new_nrows;
         Ok(())

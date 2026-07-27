@@ -60,7 +60,10 @@ fn disk_backend_roundtrip_and_search() {
     )
     .unwrap();
     assert_eq!(model.len(), 4);
-    let (_, y_all, _) = model.rows().train_rows_at(&(0..4).collect::<Vec<_>>()).unwrap();
+    let (_, y_all, _) = model
+        .rows()
+        .train_rows_at(&(0..4).collect::<Vec<_>>())
+        .unwrap();
     assert_eq!(y_all.nrows(), 4);
     let query = array![[0.9, 0.9]];
     let idx = model.neighbors(&query.view(), 1, false).unwrap();
@@ -133,7 +136,8 @@ fn scale_x_rejects_bpann_disk() {
     ) {
         Ok(_) => panic!("expected scale_x + BpAnnDisk to error"),
         Err(e) => assert!(
-            e.to_string().contains("scale_x=True is not compatible with BPANN_DISK"),
+            e.to_string()
+                .contains("scale_x=True is not compatible with BPANN_DISK"),
             "unexpected error: {e}"
         ),
     }

@@ -5,9 +5,9 @@ mod flush_controller;
 mod in_memory;
 pub(crate) mod row_storage;
 
-pub use in_memory::InMemoryEnnBackend;
 pub use crate::disk_bpann::DiskBpannEnnBackend;
 pub(crate) use flush_controller::DiskBackendHandle;
+pub use in_memory::InMemoryEnnBackend;
 
 use ndarray::{Array1, Array2, ArrayView2};
 use serde::{Deserialize, Serialize};
@@ -96,13 +96,7 @@ impl EnnBackend {
             ));
         }
         let inner = DiskBpannEnnBackend::new(
-            work_dir,
-            train_x,
-            train_y,
-            train_yvar,
-            scale_x,
-            x_scale,
-            driver,
+            work_dir, train_x, train_y, train_yvar, scale_x, x_scale, driver,
         )?;
         Ok(Self::Disk(DiskBackendHandle::new(inner)))
     }
@@ -117,14 +111,18 @@ impl EnnBackend {
     ) -> Result<Self, ENNError> {
         match storage {
             EnnStorage::InMemory => Ok(Self::InMemory(Box::new(InMemoryEnnBackend::new_empty(
-                num_dim, num_metrics, driver,
+                num_dim,
+                num_metrics,
+                driver,
             )?))),
             EnnStorage::Disk => {
-                let dir = work_dir.or_else(EnnStorage::work_dir_from_env).ok_or_else(|| {
-                    ENNError::InvalidParameter(
-                        "Disk storage requires work_dir or ENNX_WORK_DIR".to_string(),
-                    )
-                })?;
+                let dir = work_dir
+                    .or_else(EnnStorage::work_dir_from_env)
+                    .ok_or_else(|| {
+                        ENNError::InvalidParameter(
+                            "Disk storage requires work_dir or ENNX_WORK_DIR".to_string(),
+                        )
+                    })?;
                 if driver != IndexDriver::BpAnnDisk {
                     return Err(ENNError::InvalidParameter(
                         "Disk storage requires IndexDriver::BpAnnDisk".to_string(),
@@ -233,11 +231,7 @@ impl EnnBackend {
         }
     }
 
-    pub fn ensure_index_sync(
-        &self,
-        scale_x: bool,
-        x_scale: &Array1<f64>,
-    ) -> Result<(), ENNError> {
+    pub fn ensure_index_sync(&self, scale_x: bool, x_scale: &Array1<f64>) -> Result<(), ENNError> {
         self.wait_for_flush()?;
         match self {
             Self::InMemory(b) => b.ensure_index_sync(scale_x, x_scale),
@@ -245,10 +239,7 @@ impl EnnBackend {
         }
     }
 
-    pub fn train_rows_at(
-        &self,
-        indices: &[usize],
-    ) -> Result<TrainRowsAtResult, ENNError> {
+    pub fn train_rows_at(&self, indices: &[usize]) -> Result<TrainRowsAtResult, ENNError> {
         match self {
             Self::InMemory(b) => b.train_rows_at(indices),
             Self::Disk(h) => disk_read(h.data())?.train_rows_at(indices),

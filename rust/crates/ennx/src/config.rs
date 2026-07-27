@@ -1,9 +1,9 @@
 //! Configuration types for the optimizer.
 
+use crate::backend::EnnStorage;
 use crate::candidates::CandidateRV;
 use crate::index::IndexDriver;
 use crate::morbo_trust_region::{MorboTRSettings, Rescalarize};
-use crate::backend::EnnStorage;
 use crate::surrogate::ENNSurrogateConfig;
 use crate::trust_region::TRLengthConfig;
 use crate::trust_region_config::TrustRegionConfig;
@@ -141,6 +141,7 @@ pub struct ConfigOverrides {
     pub failure_tolerance_dim: Option<f64>,
     pub enn_storage: Option<EnnStorage>,
     pub work_dir: Option<PathBuf>,
+    pub y_bounds: Option<Vec<[f64; 2]>>,
     pub trust_region_kind: Option<TrustRegionKind>,
     pub num_metrics: Option<usize>,
     pub alpha: Option<f64>,
@@ -154,36 +155,35 @@ pub enum TrustRegionKind {
     Morbo,
 }
 
-fn apply_enn_surrogate_fields(
-    config: &mut OptimizerConfig,
-    index_driver: Option<IndexDriver>,
-    num_fit_samples: Option<usize>,
-    num_fit_candidates: Option<usize>,
-    scale_x: Option<bool>,
-    enn_storage: Option<EnnStorage>,
-    work_dir: Option<PathBuf>,
-) {
+fn apply_enn(config: &mut OptimizerConfig, overrides: &ConfigOverrides) {
     let SurrogateConfig::ENN(enn_cfg) = &config.surrogate else {
         return;
     };
     let mut enn = enn_cfg.clone();
-    if let Some(driver) = index_driver {
+    if let Some(driver) = overrides.index_driver {
         enn.index_driver = driver;
     }
-    if let Some(nfs) = num_fit_samples {
+    if let Some(nfs) = overrides.num_fit_samples {
         enn.num_fit_samples = nfs;
     }
-    if let Some(nfc) = num_fit_candidates {
+    if let Some(nfc) = overrides.num_fit_candidates {
         enn.num_fit_candidates = nfc;
     }
-    if let Some(sx) = scale_x {
+    if let Some(sx) = overrides.scale_x {
         enn.scale_x = sx;
     }
-    if let Some(storage) = enn_storage {
+    if let Some(storage) = overrides.enn_storage {
         enn.storage = storage;
     }
-    if let Some(dir) = work_dir {
+    if let Some(dir) = overrides.work_dir.clone() {
         enn.work_dir = Some(dir);
+    }
+    if let Some(rows) = overrides.y_bounds.as_ref() {
+        let flat = rows.iter().flatten().copied().collect::<Vec<_>>();
+        enn.y_bounds = Some(
+            ndarray::Array2::from_shape_vec((rows.len(), 2), flat)
+                .expect("fixed-width y_bounds rows"),
+        );
     }
     config.surrogate = SurrogateConfig::ENN(enn);
 }
@@ -269,16 +269,9 @@ impl ConfigOverrides {
             || self.scale_x.is_some()
             || self.enn_storage.is_some()
             || self.work_dir.is_some()
+            || self.y_bounds.is_some()
         {
-            apply_enn_surrogate_fields(
-                &mut config,
-                self.index_driver,
-                self.num_fit_samples,
-                self.num_fit_candidates,
-                self.scale_x,
-                self.enn_storage,
-                self.work_dir.clone(),
-            );
+            apply_enn(&mut config, self);
         }
         if let Some(na) = self.noise_aware {
             config.noise_aware = na;

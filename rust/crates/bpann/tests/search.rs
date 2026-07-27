@@ -32,13 +32,7 @@ fn tree_traversal_visits_candidate_blocks() {
     assert!(total_leaves > 1);
     let query = &vectors[0];
     let mut log = TraversalLog::new();
-    bpann::index::search::search_with_skip_refinement(
-        &index,
-        query,
-        10,
-        2,
-        &mut log.visited_pages,
-    );
+    bpann::index::search::search_with_skip_refinement(&index, query, 10, 2, &mut log.visited_pages);
     assert!(!log.visited_pages.is_empty());
     assert!(log.visited_pages.len() <= total_leaves);
     assert!(log.visited_pages.len() < 256);
@@ -145,10 +139,9 @@ fn brute_force_topk_mmap_scaled_distances_match_row_sq_l2() {
         .unwrap();
     let query = [2.0, 4.0];
     let x_scale = [2.0, 4.0];
-    let top = bpann::index::search::bpann_brute_force_topk_mmap(
-        &store, 0, 2, &query, 2, true, &x_scale,
-    )
-    .unwrap();
+    let top =
+        bpann::index::search::bpann_brute_force_topk_mmap(&store, 0, 2, &query, 2, true, &x_scale)
+            .unwrap();
     for (row_id, dist) in top {
         let row = store.mmap_row_slice(row_id as usize).unwrap();
         let expected = bpann::distance::row_sq_l2(
@@ -174,9 +167,7 @@ fn brute_force_topk_and_mmap_paths() {
     let mut store =
         MmapColumnStore::mmap_open_or_create(dir.path().join("x.bin"), 3, None).unwrap();
     store
-        .mmap_append(
-            &ndarray::Array2::from_shape_fn((4, 3), |(i, j)| vectors[i][j] as f64).view(),
-        )
+        .mmap_append(&ndarray::Array2::from_shape_fn((4, 3), |(i, j)| vectors[i][j] as f64).view())
         .unwrap();
     let scaled = bpann::index::search::bpann_brute_force_topk_mmap(
         &store,

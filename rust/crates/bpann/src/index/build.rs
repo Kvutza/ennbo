@@ -45,24 +45,21 @@ fn remap_page(page: &Page, id_map: &HashMap<u32, u32>) -> Page {
         } => Page::Internal {
             page_id: id_map[page_id],
             centroids: centroids.clone(),
-            child_page_ids: child_page_ids
-                .iter()
-                .map(|id| id_map[id])
-                .collect(),
+            child_page_ids: child_page_ids.iter().map(|id| id_map[id]).collect(),
         },
-            Page::Leaf {
-                page_id,
-                row_ids,
-                row_range,
-                vectors,
-                stored_centroid,
-            } => Page::Leaf {
-                page_id: id_map[page_id],
-                row_ids: row_ids.clone(),
-                row_range: *row_range,
-                vectors: vectors.clone(),
-                stored_centroid: stored_centroid.clone(),
-            },
+        Page::Leaf {
+            page_id,
+            row_ids,
+            row_range,
+            vectors,
+            stored_centroid,
+        } => Page::Leaf {
+            page_id: id_map[page_id],
+            row_ids: row_ids.clone(),
+            row_range: *row_range,
+            vectors: vectors.clone(),
+            stored_centroid: stored_centroid.clone(),
+        },
     }
 }
 
@@ -299,11 +296,7 @@ impl BpannIndex {
     ) -> Result<Self, BpannError> {
         if row_ids.len() <= leaf_capacity {
             return Self::build_single_leaf_from_rows_with_persist(
-                row_ids,
-                vectors,
-                num_dim,
-                index_dir,
-                persist,
+                row_ids, vectors, num_dim, index_dir, persist,
             );
         }
         let partition = PartitionTree::build(row_ids, vectors, leaf_capacity, seed);
@@ -338,10 +331,11 @@ impl BpannIndex {
         let header_path = index_dir.join("header.json");
         let text = fs::read_to_string(&header_path)
             .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
-        let header: IndexHeader = serde_json::from_str(&text)
-            .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+        let header: IndexHeader =
+            serde_json::from_str(&text).map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
         let pages_path = index_dir.join("pages.bin");
-        let file = File::open(&pages_path).map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+        let file =
+            File::open(&pages_path).map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
         let mut reader = BufReader::new(file);
         let pages = crate::index::page::read_pages_index(&mut reader)
             .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
@@ -368,16 +362,16 @@ impl BpannIndex {
     pub fn on_disk_index_matches(&self) -> Result<bool, BpannError> {
         let pages_path = self.index_dir.join("pages.bin");
         let skip_path = self.index_dir.join("skip_edges.bin");
-        let on_disk_pages = fs::read(&pages_path)
-            .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+        let on_disk_pages =
+            fs::read(&pages_path).map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
         let mut expected_pages = Vec::new();
         write_pages_index(&self.pages, self.header.num_dim, &mut expected_pages)
             .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
         if on_disk_pages != expected_pages {
             return Ok(false);
         }
-        let on_disk_skip = fs::read(&skip_path)
-            .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+        let on_disk_skip =
+            fs::read(&skip_path).map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
         Ok(on_disk_skip == skip_edges_bytes(&self.skip_edges))
     }
 
@@ -567,11 +561,7 @@ mod kiss_coverage_tests {
         let index_dir = dir.path().join("index");
         let index = BpannIndex::build_single_leaf_from_rows_with_persist(
             &[0u32, 1, 2],
-            &[
-                vec![0.0f32, 0.0],
-                vec![1.0, 0.0],
-                vec![0.5, 1.0],
-            ],
+            &[vec![0.0f32, 0.0], vec![1.0, 0.0], vec![0.5, 1.0]],
             2,
             index_dir.clone(),
             true,

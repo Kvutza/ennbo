@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crate::backend::{EnnBackend, EnnStorage};
 use crate::error::ENNError;
-use crate::index::{IndexDriver, is_disk_index_driver};
+use crate::index::{is_disk_index_driver, IndexDriver};
 
 type InitStats = (
     Array1<f64>,
@@ -19,6 +19,27 @@ type InitStats = (
 mod access;
 pub use access::{EnnIndexAccess, EnnRowAccess};
 
+#[derive(Debug, Clone)]
+pub struct ModelOptions {
+    pub scale_x: bool,
+    pub driver: IndexDriver,
+    pub storage: EnnStorage,
+    pub work_dir: Option<PathBuf>,
+    pub y_bounds: Option<Array2<f64>>,
+}
+
+impl Default for ModelOptions {
+    fn default() -> Self {
+        Self {
+            scale_x: false,
+            driver: IndexDriver::Exact,
+            storage: EnnStorage::InMemory,
+            work_dir: None,
+            y_bounds: None,
+        }
+    }
+}
+
 /// Epistemic Nearest Neighbors model.
 pub struct EpistemicNearestNeighbors {
     pub(crate) backend: EnnBackend,
@@ -28,10 +49,13 @@ pub struct EpistemicNearestNeighbors {
     pub(crate) scale_x: bool,
     pub(crate) x_scale: Array1<f64>,
     pub(crate) y_scale: Array1<f64>,
+    pub(crate) y_bounds: Array2<f64>,
+    pub(crate) bounded_outputs: bool,
     y_sum: Array1<f64>,
     y_sumsq: Array1<f64>,
     x_sum: Array1<f64>,
     x_sumsq: Array1<f64>,
+    work_dir: Option<PathBuf>,
 }
 
 impl EpistemicNearestNeighbors {
@@ -108,7 +132,66 @@ impl EpistemicNearestNeighbors {
         storage: EnnStorage,
         work_dir: Option<PathBuf>,
     ) -> Result<Self, ENNError> {
+        Self::new_with_options(
+            train_x,
+            train_y,
+            train_yvar,
+            ModelOptions {
+                scale_x,
+                driver,
+                storage,
+                work_dir,
+                y_bounds: None,
+            },
+        )
+    }
+
+    pub fn new_with_options(
+        train_x: Array2<f64>,
+        train_y: Array2<f64>,
+        train_yvar: Option<Array2<f64>>,
+        options: ModelOptions,
+    ) -> Result<Self, ENNError> {
+        let ModelOptions {
+            scale_x,
+            driver,
+            storage,
+            work_dir,
+            y_bounds,
+        } = options;
         Self::validate_shapes(&train_x, &train_y, train_yvar.as_ref())?;
+        let disk_work_dir = work_dir.clone().or_else(EnnStorage::work_dir_from_env);
+        let persisted_bounds = disk_work_dir.as_ref().and_then(|dir| {
+            crate::y_bounds::load_bounds_metadata(dir, train_y.ncols())
+                .ok()
+                .flatten()
+        });
+        let y_bounds = match (y_bounds, persisted_bounds) {
+            (Some(requested), Some(stored)) if requested != stored => {
+                return Err(ENNError::InvalidParameter(
+                    "requested y_bounds do not match persisted y_bounds".to_string(),
+                ));
+            }
+            (Some(requested), _) => requested,
+            (None, Some(stored)) => stored,
+            (None, None) => crate::y_bounds::unbounded_bounds(train_y.ncols()),
+        };
+        crate::y_bounds::validate_bounds(&y_bounds, train_y.ncols())?;
+        let bounded_outputs = !crate::y_bounds::is_identity_bounds(&y_bounds);
+        let (train_y, train_yvar) = if !bounded_outputs {
+            (train_y, train_yvar)
+        } else {
+            let warped_y = crate::y_bounds::warp_y(train_y.view(), &y_bounds)?;
+            let warped_yvar = match train_yvar {
+                Some(yv) => Some(crate::y_bounds::warp_yvar(
+                    train_y.view(),
+                    yv.view(),
+                    &y_bounds,
+                )?),
+                None => None,
+            };
+            (warped_y, warped_yvar)
+        };
         if scale_x && is_disk_index_driver(driver) {
             return Err(ENNError::InvalidParameter(
                 "scale_x=True is not compatible with BPANN_DISK".to_string(),
@@ -119,7 +202,6 @@ impl EpistemicNearestNeighbors {
         let num_metrics = train_y.ncols();
         let (y_scale, y_sum, y_sumsq, x_scale, x_sum, x_sumsq) =
             Self::init_stats(&train_x, &train_y, scale_x);
-        let disk_work_dir = work_dir.clone().or_else(EnnStorage::work_dir_from_env);
         let disk_reopen = matches!(storage, EnnStorage::Disk)
             && train_x.nrows() == 0
             && train_y.nrows() == 0
@@ -139,15 +221,16 @@ impl EpistemicNearestNeighbors {
             EnnStorage::Disk => {
                 if !is_disk_index_driver(driver) {
                     return Err(ENNError::InvalidParameter(
-                        "Disk storage requires IndexDriver::BpAnnDisk"
-                            .to_string(),
+                        "Disk storage requires IndexDriver::BpAnnDisk".to_string(),
                     ));
                 }
-                let dir = work_dir.or_else(EnnStorage::work_dir_from_env).ok_or_else(|| {
-                    ENNError::InvalidParameter(
-                        "Disk storage requires work_dir or ENNX_WORK_DIR".to_string(),
-                    )
-                })?;
+                let dir = work_dir
+                    .or_else(EnnStorage::work_dir_from_env)
+                    .ok_or_else(|| {
+                        ENNError::InvalidParameter(
+                            "Disk storage requires work_dir or ENNX_WORK_DIR".to_string(),
+                        )
+                    })?;
                 EnnBackend::new_disk(
                     dir,
                     train_x,
@@ -168,14 +251,18 @@ impl EpistemicNearestNeighbors {
             scale_x,
             x_scale,
             y_scale,
+            y_bounds,
+            bounded_outputs,
             y_sum,
             y_sumsq,
             x_sum,
             x_sumsq,
+            work_dir: disk_work_dir,
         };
         if disk_reopen || model.num_obs != model.backend.len() {
             sync_obs_stats_from_backend(&mut model)?;
         }
+        model.persist_y_bounds_metadata()?;
         Ok(model)
     }
 
@@ -187,6 +274,7 @@ impl EpistemicNearestNeighbors {
         work_dir: Option<PathBuf>,
         pending_flush_threshold: Option<usize>,
     ) -> Result<Self, ENNError> {
+        let stored_work_dir = work_dir.clone().or_else(EnnStorage::work_dir_from_env);
         let backend = EnnBackend::new_empty(
             num_dim,
             num_metrics,
@@ -203,10 +291,13 @@ impl EpistemicNearestNeighbors {
             scale_x: false,
             x_scale: Array1::ones(num_dim),
             y_scale: Array1::ones(num_metrics),
+            y_bounds: crate::y_bounds::unbounded_bounds(num_metrics),
+            bounded_outputs: false,
             y_sum: Array1::zeros(num_metrics),
             y_sumsq: Array1::zeros(num_metrics),
             x_sum: Array1::zeros(num_dim),
             x_sumsq: Array1::zeros(num_dim),
+            work_dir: stored_work_dir,
         })
     }
 
@@ -255,8 +346,19 @@ impl EpistemicNearestNeighbors {
         }
         if x.nrows() > 0 {
             self.backend.wait_for_flush()?;
-            self.backend.append_rows(x, y, yvar)?;
-            accumulate_columns(&mut self.y_sum, &mut self.y_sumsq, y.view());
+            if self.bounded_outputs {
+                let warped_y = crate::y_bounds::warp_y(*y, &self.y_bounds)?;
+                let warped_yvar = yvar
+                    .map(|yv| crate::y_bounds::warp_yvar(*y, *yv, &self.y_bounds))
+                    .transpose()?;
+                let warped_yvar_view = warped_yvar.as_ref().map(|v| v.view());
+                self.backend
+                    .append_rows(x, &warped_y.view(), warped_yvar_view.as_ref())?;
+                accumulate_columns(&mut self.y_sum, &mut self.y_sumsq, warped_y.view());
+            } else {
+                self.backend.append_rows(x, y, yvar)?;
+                accumulate_columns(&mut self.y_sum, &mut self.y_sumsq, y.view());
+            }
             let n = self.backend.len();
             self.y_scale = scale_from_moments(n, self.num_metrics, &self.y_sum, &self.y_sumsq, 0.0);
 
@@ -279,7 +381,8 @@ impl EpistemicNearestNeighbors {
 
     /// Merge in-memory index fragments and persist a single on-disk BPANN index.
     pub fn persist_index_to_disk(&self) -> Result<(), ENNError> {
-        crate::backend::persist_enn_backend_index(&self.backend)
+        crate::backend::persist_enn_backend_index(&self.backend)?;
+        self.persist_y_bounds_metadata()
     }
 
     pub fn len(&self) -> usize {
@@ -292,6 +395,40 @@ impl EpistemicNearestNeighbors {
 
     pub fn num_outputs(&self) -> usize {
         self.num_metrics
+    }
+
+    pub fn y_bounds(&self) -> &Array2<f64> {
+        &self.y_bounds
+    }
+
+    pub fn has_bounded_outputs(&self) -> bool {
+        self.bounded_outputs
+    }
+
+    pub fn natural_rows(
+        &self,
+        indices: &[usize],
+    ) -> Result<(Array2<f64>, Array2<f64>, Option<Array2<f64>>), ENNError> {
+        let (x, y_z, yvar_z) = self.rows().train_rows_at(indices)?;
+        if !self.bounded_outputs {
+            return Ok((x, y_z, yvar_z));
+        }
+        let y = crate::y_bounds::inv_y(y_z.view(), &self.y_bounds);
+        let yvar = yvar_z
+            .map(|zv| crate::y_bounds::naturalize_yvar(y_z.view(), zv.view(), &self.y_bounds));
+        Ok((x, y, yvar))
+    }
+
+    pub fn natural_y(&self, index: usize) -> Result<Array1<f64>, ENNError> {
+        let (_, y, _) = self.natural_rows(&[index])?;
+        Ok(y.row(0).to_owned())
+    }
+
+    pub(crate) fn persist_y_bounds_metadata(&self) -> Result<(), ENNError> {
+        match self.work_dir.as_ref() {
+            Some(dir) => crate::y_bounds::persist_bounds_metadata(dir, &self.y_bounds),
+            None => Ok(()),
+        }
     }
 
     pub fn is_scale_x(&self) -> bool {
@@ -418,10 +555,10 @@ fn sync_obs_stats_from_backend(model: &mut EpistemicNearestNeighbors) -> Result<
         let (x_sum, x_sumsq) = column_sums_and_sumsq(x.view());
         model.x_sum = x_sum;
         model.x_sumsq = x_sumsq;
-        model.x_scale =
-            scale_from_moments(n, model.num_dim, &model.x_sum, &model.x_sumsq, 1e-12);
+        model.x_scale = scale_from_moments(n, model.num_dim, &model.x_sum, &model.x_sumsq, 1e-12);
     }
-    model.backend
+    model
+        .backend
         .ensure_index_sync(model.scale_x, &model.x_scale)?;
     Ok(())
 }
@@ -478,7 +615,10 @@ pub(crate) fn scale_from_moments(
 mod tests {
     use super::*;
     use crate::backend::row_storage::RowStorage;
+    use crate::params::{ENNParams, PosteriorFlags};
+    use crate::traits::PosteriorComputation;
     use ndarray::array;
+    use tempfile::TempDir;
 
     #[test]
     fn test_enn_creation() {
@@ -567,5 +707,76 @@ mod tests {
         model
             .add(&array![[0.5, 0.5]].view(), &array![[0.5]].view(), None)
             .unwrap();
+    }
+
+    #[test]
+    fn bounded_model_round_trip() {
+        let bounds = array![[0.0, 1.0]];
+        let mut model = EpistemicNearestNeighbors::new_with_options(
+            array![[0.0], [1.0]],
+            array![[0.2], [0.8]],
+            None,
+            ModelOptions {
+                y_bounds: Some(bounds.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(model.has_bounded_outputs());
+        assert_eq!(model.y_bounds(), &bounds);
+        assert!((model.rows().row_y(0).unwrap()[0] - 0.2).abs() > 1e-6);
+        assert!((model.natural_y(0).unwrap()[0] - 0.2).abs() < 1e-12);
+
+        model
+            .add(&array![[2.0]].view(), &array![[0.6]].view(), None)
+            .unwrap();
+        assert!((model.natural_y(2).unwrap()[0] - 0.6).abs() < 1e-12);
+        assert!(model
+            .add(&array![[3.0]].view(), &array![[1.0]].view(), None)
+            .is_err());
+
+        let posterior = model
+            .posterior(
+                &array![[0.0]].view(),
+                &ENNParams::new(1, 1.0, 0.0).unwrap(),
+                &PosteriorFlags::new(),
+            )
+            .unwrap();
+        assert!(posterior.mu.iter().all(|v| *v > 0.0 && *v < 1.0));
+    }
+
+    #[test]
+    fn disk_bounds_reopen() {
+        let dir = TempDir::new().unwrap();
+        let bounds = array![[0.0, 1.0]];
+        let model = EpistemicNearestNeighbors::new_with_options(
+            array![[0.0], [1.0]],
+            array![[0.2], [0.8]],
+            None,
+            ModelOptions {
+                driver: IndexDriver::BpAnnDisk,
+                storage: EnnStorage::Disk,
+                work_dir: Some(dir.path().to_path_buf()),
+                y_bounds: Some(bounds.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        model.persist_index_to_disk().unwrap();
+
+        let reopened = EpistemicNearestNeighbors::new_with_options(
+            Array2::zeros((0, 1)),
+            Array2::zeros((0, 1)),
+            None,
+            ModelOptions {
+                driver: IndexDriver::BpAnnDisk,
+                storage: EnnStorage::Disk,
+                work_dir: Some(dir.path().to_path_buf()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(reopened.y_bounds(), &bounds);
+        assert!((reopened.natural_y(0).unwrap()[0] - 0.2).abs() < 1e-12);
     }
 }

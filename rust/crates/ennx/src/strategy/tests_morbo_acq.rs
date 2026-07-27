@@ -2,7 +2,6 @@
 
 use super::{select_with_thompson, select_with_ucb};
 use crate::config::{turbo_enn_config, AcquisitionConfig, InitStrategy};
-use approx::relative_eq;
 use crate::error::ENNError;
 use crate::morbo_trust_region::{MorboTRSettings, Rescalarize};
 use crate::optimizer::Optimizer;
@@ -10,6 +9,7 @@ use crate::strategy::Strategy;
 use crate::surrogate::{Surrogate, SurrogatePrediction};
 use crate::trust_region::TRLengthConfig;
 use crate::trust_region_config::TrustRegionConfig;
+use approx::relative_eq;
 use ndarray::{array, Array1, Array2, Array3, ArrayView2};
 use rand::rngs::StdRng;
 use rand::RngCore;
@@ -68,8 +68,7 @@ fn morbo_optimizer_scalarize_ready(seed: u64) -> Optimizer {
         rescalarize: Rescalarize::OnRestart,
         noise_aware: false,
     });
-    let mut opt =
-        Optimizer::new_with_strategy(bounds, cfg, Strategy::turbo(), &mut rng).unwrap();
+    let mut opt = Optimizer::new_with_strategy(bounds, cfg, Strategy::turbo(), &mut rng).unwrap();
     let y_fit = array![[1.0, 2.0], [2.0, 1.0], [1.5, 1.5]];
     let y_inc = array![2.0, 1.0];
     let morbo = opt.trust_region_mut().morbo_mut().expect("morbo tr");
@@ -81,12 +80,7 @@ fn morbo_optimizer_scalarize_ready(seed: u64) -> Optimizer {
 #[test]
 fn morbo_thompson_tie_break_should_vary_with_rng() {
     let opt = morbo_optimizer_scalarize_ready(10);
-    let x_cand = array![
-        [0.11, 0.21],
-        [0.12, 0.22],
-        [0.13, 0.23],
-        [0.14, 0.24],
-    ];
+    let x_cand = array![[0.11, 0.21], [0.12, 0.22], [0.13, 0.23], [0.14, 0.24],];
     let sur = TieSurrogate {
         sample_value: 1.0,
         mu: 0.0,

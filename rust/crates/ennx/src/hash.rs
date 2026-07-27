@@ -67,7 +67,8 @@ pub fn box_muller(u1: f64, u2: f64) -> f64 {
 #[inline(always)]
 pub fn normal_for_seed_index_metric(seed_u64: u64, unique_idx: i64, metric: usize) -> f64 {
     let unique_u64 = unique_idx as u64;
-    let base = (seed_u64.wrapping_mul(SEED_PRIME).wrapping_add(unique_u64)).wrapping_mul(SEED_PRIME);
+    let base =
+        (seed_u64.wrapping_mul(SEED_PRIME).wrapping_add(unique_u64)).wrapping_mul(SEED_PRIME);
     let metric_u64 = metric as u64;
     let combined1 = base.wrapping_add(metric_u64);
     let r1 = splitmix64(combined1);

@@ -4,9 +4,9 @@ use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 use rand::distributions::Uniform;
 use rand::Rng;
 use rand::RngCore;
+use serde::{Deserialize, Serialize};
 use sobol::params::JoeKuoD6;
 use sobol::Sobol;
-use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 
 use crate::error::ENNError;
@@ -517,7 +517,10 @@ mod tests {
         let out = run();
         let out2 = run();
         assert_eq!(out.shape(), &[3, 3]);
-        assert!(out.iter().zip(out2.iter()).all(|(a, b)| (a - b).abs() < 1e-15));
+        assert!(out
+            .iter()
+            .zip(out2.iter())
+            .all(|(a, b)| (a - b).abs() < 1e-15));
         assert!(out.iter().all(|&v| (0.0..=1.0).contains(&v)));
     }
 

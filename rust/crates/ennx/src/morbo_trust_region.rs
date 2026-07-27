@@ -136,15 +136,17 @@ impl MorboTrustRegion {
         self.inner.compute_bounds_1d(x_center, lengthscales)
     }
 
-    pub fn scalarize(&self, y: &ArrayView2<f64>, clip: bool) -> Result<Array1<f64>, TrustRegionError> {
+    pub fn scalarize(
+        &self,
+        y: &ArrayView2<f64>,
+        clip: bool,
+    ) -> Result<Array1<f64>, TrustRegionError> {
         let (y_min, y_max) = self
             .y_min
             .as_ref()
             .zip(self.y_max.as_ref())
             .ok_or_else(|| {
-                TrustRegionError::InvalidState(
-                    "scalarize called before observations".to_string(),
-                )
+                TrustRegionError::InvalidState("scalarize called before observations".to_string())
             })?;
         scalarize_with_ranges(
             y,
@@ -239,11 +241,8 @@ impl MorboTrustRegion {
             return Ok(());
         }
         let incumbent = self.incumbent_y_raw.as_ref().expect("incumbent");
-        let stacked = ndarray::stack(
-            ndarray::Axis(0),
-            &[incumbent.view(), y_incumbent.view()],
-        )
-        .map_err(|e| TrustRegionError::InvalidState(e.to_string()))?;
+        let stacked = ndarray::stack(ndarray::Axis(0), &[incumbent.view(), y_incumbent.view()])
+            .map_err(|e| TrustRegionError::InvalidState(e.to_string()))?;
         let scores = scalarize_with_ranges(
             &stacked.view(),
             &y_min.view(),
@@ -265,7 +264,10 @@ impl MorboTrustRegion {
         Ok(())
     }
 
-    pub fn rescalarize_incumbent_under_weights(&mut self, num_obs: usize) -> Result<(), TrustRegionError> {
+    pub fn rescalarize_incumbent_under_weights(
+        &mut self,
+        num_obs: usize,
+    ) -> Result<(), TrustRegionError> {
         let Some(ref y_inc) = self.incumbent_y_raw else {
             return Ok(());
         };
@@ -356,11 +358,8 @@ impl MorboTrustRegion {
         }
 
         let incumbent = self.incumbent_y_raw.as_ref().unwrap();
-        let stacked = ndarray::stack(
-            ndarray::Axis(0),
-            &[incumbent.view(), y_incumbent.view()],
-        )
-        .map_err(|e| TrustRegionError::InvalidState(e.to_string()))?;
+        let stacked = ndarray::stack(ndarray::Axis(0), &[incumbent.view(), y_incumbent.view()])
+            .map_err(|e| TrustRegionError::InvalidState(e.to_string()))?;
         let scores = scalarize_with_ranges(
             &stacked.view(),
             &self.y_min.as_ref().unwrap().view(),

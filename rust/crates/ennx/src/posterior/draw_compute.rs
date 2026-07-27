@@ -88,8 +88,7 @@ pub(crate) fn draw_from_internals(
                             let w = w_flat[(i * k + ki) * m + j];
                             weighted_u += w * unique_cache[inv * m + j];
                         }
-                        out_seed[i * m + j] =
-                            mu_flat[i * m + j] + scale[i * m + j] * weighted_u;
+                        out_seed[i * m + j] = mu_flat[i * m + j] + scale[i * m + j] * weighted_u;
                     }
                 }
             },

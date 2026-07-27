@@ -69,17 +69,10 @@ pub(crate) fn centroid_from_mmap_rows(
     for i in start..end {
         let row = ctx.train_x.mmap_row_slice(i)?;
         for (j, &v) in row.iter().enumerate() {
-            acc[j] += if ctx.scale_x {
-                v / ctx.x_scale[j]
-            } else {
-                v
-            };
+            acc[j] += if ctx.scale_x { v / ctx.x_scale[j] } else { v };
         }
     }
-    Ok(acc
-        .iter()
-        .map(|&s| (s / count as f64) as f32)
-        .collect())
+    Ok(acc.iter().map(|&s| (s / count as f64) as f32).collect())
 }
 
 pub(crate) fn build_empty_leaf_forest_index(
@@ -210,9 +203,10 @@ mod kiss_coverage_tests {
         let vect = build_vector_leaf_forest_index(&ctx, 0, 200, 50, dir.path().join("v")).unwrap();
         assert_eq!(vect.header.indexed_rows, 200);
         assert_eq!(vect.header.leaf_capacity, 50);
-        let has_vectors = vect.pages.iter().any(|p| {
-            matches!(p, Page::Leaf { vectors, .. } if !vectors.is_empty())
-        });
+        let has_vectors = vect
+            .pages
+            .iter()
+            .any(|p| matches!(p, Page::Leaf { vectors, .. } if !vectors.is_empty()));
         assert!(has_vectors);
 
         // Scaled path for centroid_from_mmap_rows / first_row

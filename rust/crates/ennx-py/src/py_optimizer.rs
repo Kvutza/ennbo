@@ -1,6 +1,6 @@
 //! Optimizer Python bindings.
 
-use numpy::{IntoPyArray, PyArrayDyn, PyReadonlyArray1, PyReadonlyArray2};
+use numpy::{IntoPyArray, PyArrayDyn, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rand::rngs::StdRng;
@@ -144,7 +144,12 @@ pub fn parse_config_overrides_from_dict(
         let kind = match s.as_str() {
             "turbo" => ennx::config::TrustRegionKind::Turbo,
             "morbo" => ennx::config::TrustRegionKind::Morbo,
-            _ => return Err(PyValueError::new_err(format!("Invalid trust_region_kind: {}", s))),
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "Invalid trust_region_kind: {}",
+                    s
+                )))
+            }
         };
         overrides.trust_region_kind = Some(kind);
     }
@@ -164,6 +169,22 @@ pub fn parse_config_overrides_from_dict(
     }
     if let Some(v) = dict.get_item("work_dir")? {
         overrides.work_dir = Some(PathBuf::from(v.extract::<String>()?));
+    }
+    if let Some(v) = dict.get_item("y_bounds")? {
+        let bounds: numpy::PyReadonlyArray2<f64> = v.extract()?;
+        if bounds.shape()[1] != 2 {
+            return Err(PyValueError::new_err(
+                "y_bounds must have shape (metrics, 2)",
+            ));
+        }
+        overrides.y_bounds = Some(
+            bounds
+                .as_array()
+                .rows()
+                .into_iter()
+                .map(|row| [row[0], row[1]])
+                .collect(),
+        );
     }
     apply_scalar_overrides(dict, &mut overrides)?;
     Ok(overrides)
@@ -387,7 +408,9 @@ impl PyMultiTrustRegion {
         sharing_policy: &str,
         seed: u64,
     ) -> PyResult<Self> {
-        use ennx::optimizer::multi_tr::{MultiTrustRegionConfig, MultiTrustRegionState, SharingPolicy};
+        use ennx::optimizer::multi_tr::{
+            MultiTrustRegionConfig, MultiTrustRegionState, SharingPolicy,
+        };
 
         let mut rng = StdRng::seed_from_u64(seed);
         let policy = match sharing_policy {
@@ -431,7 +454,11 @@ impl PyMultiTrustRegion {
     }
 
     pub fn get_incumbents<'py>(&self, py: Python<'py>) -> Bound<'py, PyArrayDyn<f64>> {
-        self.inner.incumbents_y.clone().into_dyn().into_pyarray_bound(py)
+        self.inner
+            .incumbents_y
+            .clone()
+            .into_dyn()
+            .into_pyarray_bound(py)
     }
 
     pub fn tell(

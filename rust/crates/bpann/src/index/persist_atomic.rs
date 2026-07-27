@@ -145,13 +145,7 @@ mod tests {
             false,
         )
         .unwrap();
-        persist_index_files(
-            &index_dir,
-            &index.header,
-            &index.pages,
-            &index.skip_edges,
-        )
-        .unwrap();
+        persist_index_files(&index_dir, &index.header, &index.pages, &index.skip_edges).unwrap();
         let pages_before = fs::read(index_dir.join("pages.bin")).unwrap();
         {
             let _fail = TestPersistFailGuard::after_pages_rename();
@@ -180,13 +174,7 @@ mod tests {
             false,
         )
         .unwrap();
-        persist_index_files(
-            &index_dir,
-            &index.header,
-            &index.pages,
-            &index.skip_edges,
-        )
-        .unwrap();
+        persist_index_files(&index_dir, &index.header, &index.pages, &index.skip_edges).unwrap();
         let opened = BpannIndex::open(index_dir.clone()).expect("initial open");
         assert_eq!(opened.header.indexed_rows, 3);
 

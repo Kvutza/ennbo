@@ -39,14 +39,8 @@ impl InMemoryEnnBackend {
             train_x.clone()
         };
 
-        let index = ENNIndex::new(
-            train_x_scaled,
-            num_dim,
-            x_scale,
-            scale_x,
-            driver,
-        )
-        .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+        let index = ENNIndex::new(train_x_scaled, num_dim, x_scale, scale_x, driver)
+            .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
         let index_synced_obs = index.len().min(num_obs);
 
         Ok(Self {
@@ -61,7 +55,11 @@ impl InMemoryEnnBackend {
         })
     }
 
-    pub fn new_empty(num_dim: usize, num_metrics: usize, driver: IndexDriver) -> Result<Self, ENNError> {
+    pub fn new_empty(
+        num_dim: usize,
+        num_metrics: usize,
+        driver: IndexDriver,
+    ) -> Result<Self, ENNError> {
         let empty_x = Array2::<f64>::zeros((0, num_dim));
         let empty_y = Array2::<f64>::zeros((0, num_metrics));
         Self::new(empty_x, empty_y, None, false, Array1::ones(num_dim), driver)
@@ -132,22 +130,14 @@ impl InMemoryEnnBackend {
         disk_obs::read_index_stale(&self.index_stale)
     }
 
-    pub fn ensure_index_sync(
-        &self,
-        scale_x: bool,
-        x_scale: &Array1<f64>,
-    ) -> Result<(), ENNError> {
+    pub fn ensure_index_sync(&self, scale_x: bool, x_scale: &Array1<f64>) -> Result<(), ENNError> {
         if scale_x {
-            let mut stale = self
-                .index_stale
-                .lock()
-                .expect("index_stale mutex poisoned");
+            let mut stale = self.index_stale.lock().expect("index_stale mutex poisoned");
             if !*stale {
                 return Ok(());
             }
-            let train_x_scaled = (&self.train_x_rows.view()
-                / &x_scale.view().insert_axis(Axis(0)))
-                .to_owned();
+            let train_x_scaled =
+                (&self.train_x_rows.view() / &x_scale.view().insert_axis(Axis(0))).to_owned();
             self.index
                 .rebuild_from_scaled(train_x_scaled, x_scale.clone())?;
             *stale = false;
@@ -165,8 +155,7 @@ impl InMemoryEnnBackend {
         if *synced > self.index.len() {
             *synced = self.index.len();
         }
-        if num_obs > 0
-            && (self.index.len() != num_obs || (*synced == 0 && !self.index.is_empty()))
+        if num_obs > 0 && (self.index.len() != num_obs || (*synced == 0 && !self.index.is_empty()))
         {
             let train_x_scaled = self.train_x_rows.view().to_owned();
             self.index
@@ -188,10 +177,7 @@ impl InMemoryEnnBackend {
         Ok(())
     }
 
-    pub fn train_rows_at(
-        &self,
-        indices: &[usize],
-    ) -> Result<super::TrainRowsAtResult, ENNError> {
+    pub fn train_rows_at(&self, indices: &[usize]) -> Result<super::TrainRowsAtResult, ENNError> {
         let n = self.len();
         for &i in indices {
             if i >= n {
@@ -236,10 +222,7 @@ impl InMemoryEnnBackend {
                 self.len()
             )));
         }
-        Ok(self
-            .train_yvar_rows
-            .as_ref()
-            .map(|r| r.row_vec(i)))
+        Ok(self.train_yvar_rows.as_ref().map(|r| r.row_vec(i)))
     }
 
     pub fn search(
@@ -281,7 +264,9 @@ mod in_memory_unit_tests {
         assert_eq!(backend.row_x(0).unwrap()[0], 0.0);
         assert_eq!(backend.row_y(1).unwrap()[0], 1.0);
         assert!(backend.row_yvar(0).unwrap().is_none());
-        backend.search(&array![[0.1, 0.2]].view(), 1, false).unwrap();
+        backend
+            .search(&array![[0.1, 0.2]].view(), 1, false)
+            .unwrap();
         assert!(backend.index_memory_bytes().unwrap() > 0);
     }
 }

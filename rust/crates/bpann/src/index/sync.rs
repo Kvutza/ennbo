@@ -43,9 +43,7 @@ fn search_fragment_budget(fragment_count: usize, indexed_rows: usize) -> usize {
     }
     let t = current_tuning();
     let scaled = (indexed_rows / t.search_rows_per_fragment).max(2);
-    scaled
-        .min(fragment_count)
-        .min(t.search_fragment_budget_max)
+    scaled.min(fragment_count).min(t.search_fragment_budget_max)
 }
 
 fn search_beam_width(_indexed_rows: usize) -> usize {
@@ -184,11 +182,8 @@ impl IncrementalIndex {
             return Ok(());
         }
         if self.indices.len() > 1 {
-            let merged = BpannIndex::concat_merge(
-                self.indices.clone(),
-                self.index_dir.clone(),
-                false,
-            )?;
+            let merged =
+                BpannIndex::concat_merge(self.indices.clone(), self.index_dir.clone(), false)?;
             merged.persist()?;
         } else if let Some(index) = self.indices.first() {
             index.persist()?;
@@ -223,12 +218,7 @@ impl IncrementalIndex {
             self.maybe_compact(ctx)?;
         } else if chunk_large_spans {
             let _ = self.take_pending_centroid(ctx.num_dim);
-            self.build_vector_leaf_forest(
-                ctx,
-                self.indexed_rows,
-                end,
-                MID_BAND_LEAF_CAPACITY,
-            )?;
+            self.build_vector_leaf_forest(ctx, self.indexed_rows, end, MID_BAND_LEAF_CAPACITY)?;
             self.maybe_compact(ctx)?;
         } else {
             self.build_batch(ctx, self.indexed_rows, end)?;
@@ -277,13 +267,15 @@ impl IncrementalIndex {
         for i in 0..=self.indices.len().saturating_sub(merge_n) {
             let slice = &self.indices[i..i + merge_n];
             let rows: usize = slice.iter().map(|index| index.header.indexed_rows).sum();
-            let all_small = slice
-                .windows(2)
-                .all(|pair| {
-                    pair[0].header.indexed_rows <= small_limit
-                        && pair[1].header.indexed_rows <= small_limit
-                });
-            let rank = if all_small { rows } else { rows + usize::MAX / 2 };
+            let all_small = slice.windows(2).all(|pair| {
+                pair[0].header.indexed_rows <= small_limit
+                    && pair[1].header.indexed_rows <= small_limit
+            });
+            let rank = if all_small {
+                rows
+            } else {
+                rows + usize::MAX / 2
+            };
             if rank < best_rows {
                 best_rows = rank;
                 best_i = i;
@@ -300,7 +292,6 @@ impl IncrementalIndex {
         self.amalgamate_smallest_run(ctx, 2)
     }
 
-
     /// Large soft-sync: one fragment of empty row-id leaves under an Internal root.
     fn build_empty_leaf_forest(
         &mut self,
@@ -312,7 +303,8 @@ impl IncrementalIndex {
         if start >= end {
             return Ok(());
         }
-        let index = build_empty_leaf_forest_index(ctx, start, end, leaf_rows, self.index_dir.clone())?;
+        let index =
+            build_empty_leaf_forest_index(ctx, start, end, leaf_rows, self.index_dir.clone())?;
         self.indices.push(index);
         self.indexed_rows = end;
         Ok(())
@@ -329,13 +321,12 @@ impl IncrementalIndex {
         if start >= end {
             return Ok(());
         }
-        let index = build_vector_leaf_forest_index(ctx, start, end, leaf_rows, self.index_dir.clone())?;
+        let index =
+            build_vector_leaf_forest_index(ctx, start, end, leaf_rows, self.index_dir.clone())?;
         self.indices.push(index);
         self.indexed_rows = end;
         Ok(())
     }
-
-
 
     fn build_batch(
         &mut self,
@@ -351,12 +342,9 @@ impl IncrementalIndex {
         let row_ids: Vec<u32> = (start..end).map(|i| i as u32).collect();
         let batch_len = end - start;
         let index = if batch_len <= tuning.structured_build_row_limit {
-            let centroid = self
-                .take_pending_centroid(ctx.num_dim)
-                .unwrap_or_else(|| {
-                    centroid_from_mmap_rows(ctx, start, end)
-                        .expect("centroid_from_mmap_rows")
-                });
+            let centroid = self.take_pending_centroid(ctx.num_dim).unwrap_or_else(|| {
+                centroid_from_mmap_rows(ctx, start, end).expect("centroid_from_mmap_rows")
+            });
             BpannIndex::build_row_ids_leaf_with_persist(
                 &row_ids,
                 centroid,
@@ -409,7 +397,11 @@ impl IncrementalIndex {
                 })
                 .collect();
             ranked.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-            ranked.into_iter().take(budget).map(|(_, index)| index).collect()
+            ranked
+                .into_iter()
+                .take(budget)
+                .map(|(_, index)| index)
+                .collect()
         };
         let per_fragment_k = k
             .saturating_mul(self.indices.len())
@@ -468,8 +460,8 @@ fn on_disk_indexed_rows(index_dir: &std::path::Path) -> Result<usize, BpannError
     }
     let text = fs::read_to_string(&header_path)
         .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
-    let header: IndexHeader = serde_json::from_str(&text)
-        .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+    let header: IndexHeader =
+        serde_json::from_str(&text).map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
     Ok(header.indexed_rows)
 }
 
@@ -494,7 +486,8 @@ mod kiss_coverage_tests {
         let _ = search_fragment_budget(4, 100_000);
         let _ = search_beam_width(500);
         let _ = (
-            IncrementalIndex::take_pending_centroid as fn(&mut IncrementalIndex, usize) -> Option<Vec<f32>>,
+            IncrementalIndex::take_pending_centroid
+                as fn(&mut IncrementalIndex, usize) -> Option<Vec<f32>>,
             IncrementalIndex::persist_to_disk_for_backend
                 as fn(
                     &mut IncrementalIndex,
@@ -505,12 +498,22 @@ mod kiss_coverage_tests {
                     &std::path::Path,
                     usize,
                 ) -> Result<(), BpannError>,
-            IncrementalIndex::ensure_sync as fn(&mut IncrementalIndex, &IndexBuildContext<'_>, usize) -> Result<(), BpannError>,
+            IncrementalIndex::ensure_sync
+                as fn(
+                    &mut IncrementalIndex,
+                    &IndexBuildContext<'_>,
+                    usize,
+                ) -> Result<(), BpannError>,
             IncrementalIndex::maybe_compact
                 as fn(&mut IncrementalIndex, &IndexBuildContext<'_>) -> Result<(), BpannError>,
-            IncrementalIndex::compact as fn(&mut IncrementalIndex, &IndexBuildContext<'_>) -> Result<(), BpannError>,
+            IncrementalIndex::compact
+                as fn(&mut IncrementalIndex, &IndexBuildContext<'_>) -> Result<(), BpannError>,
             IncrementalIndex::amalgamate_smallest_run
-                as fn(&mut IncrementalIndex, &IndexBuildContext<'_>, usize) -> Result<(), BpannError>,
+                as fn(
+                    &mut IncrementalIndex,
+                    &IndexBuildContext<'_>,
+                    usize,
+                ) -> Result<(), BpannError>,
             IncrementalIndex::amalgamate_smallest_pair
                 as fn(&mut IncrementalIndex, &IndexBuildContext<'_>) -> Result<(), BpannError>,
             IncrementalIndex::build_batch
@@ -746,7 +749,11 @@ mod kiss_coverage_tests {
         idx.ensure_sync_for_backend(&store, 2, false, &scale, dir.path(), 1, n)
             .unwrap();
         assert_eq!(idx.indexed_rows, n);
-        assert_eq!(idx.indices.len(), 1, "expected one empty-leaf forest fragment");
+        assert_eq!(
+            idx.indices.len(),
+            1,
+            "expected one empty-leaf forest fragment"
+        );
         assert!(
             idx.indices[0].pages.len() >= 3,
             "expected multi-page forest, got {} pages",
@@ -773,13 +780,20 @@ mod kiss_coverage_tests {
         idx.ensure_sync_for_backend(&store, 2, false, &scale, dir.path(), 1, n)
             .unwrap();
         assert_eq!(idx.indexed_rows, n);
-        assert_eq!(idx.indices.len(), 1, "expected one vector-leaf forest fragment");
+        assert_eq!(
+            idx.indices.len(),
+            1,
+            "expected one vector-leaf forest fragment"
+        );
         assert_eq!(idx.indices[0].header.leaf_capacity, MID_BAND_LEAF_CAPACITY);
-        let has_vectors = idx.indices[0].pages.iter().any(|p| {
-            matches!(p, crate::index::page::Page::Leaf { vectors, .. } if !vectors.is_empty())
-        });
+        let has_vectors = idx.indices[0].pages.iter().any(
+            |p| matches!(p, crate::index::page::Page::Leaf { vectors, .. } if !vectors.is_empty()),
+        );
         assert!(has_vectors);
-        assert!(!idx.search_candidates(&[1.0, 0.0], 3, None).unwrap().is_empty());
+        assert!(!idx
+            .search_candidates(&[1.0, 0.0], 3, None)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

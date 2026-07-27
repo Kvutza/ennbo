@@ -36,11 +36,12 @@ pub mod stats;
 pub mod strategy;
 pub mod surrogate;
 pub mod traits;
+pub mod trials;
 pub mod trust_region;
 pub mod trust_region_config;
-pub mod trials;
 pub mod util;
 pub mod weights;
+pub mod y_bounds;
 
 #[cfg(test)]
 pub(crate) mod test_helpers;
@@ -55,12 +56,12 @@ pub use config::{
     lhd_only_config, turbo_enn_config, turbo_zero_config, AcquisitionConfig, CandidateConfig,
     ConfigOverrides, InitStrategy, OptimizerConfig, SurrogateConfig, TrustRegionKind,
 };
+pub use draw::{Candidates, ConditionalPosteriorDrawInternals, DrawInternals, NeighborData};
+pub use error::{ENNError, EPS_VAR};
 pub use file_config::{
     default_config_path, install_bpann_tuning_from_config, set_config_path, BpannConfig, Config,
     ConfigFile,
 };
-pub use draw::{Candidates, ConditionalPosteriorDrawInternals, DrawInternals, NeighborData};
-pub use error::{ENNError, EPS_VAR};
 pub use fit::{subsample_loglik, subsample_loglik_model};
 pub use fitter::ENNFitter;
 pub use hash::{normal_hash_batch_multi_seed, normal_hash_batch_multi_seed_fast};
@@ -68,7 +69,7 @@ pub use hypervolume::hypervolume_2d_max;
 pub use incumbent_tracker::IncrementalIncumbentTracker;
 pub use index::{ENNIndex, IndexDriver, IndexError};
 pub use model::EpistemicNearestNeighbors;
-pub use model::{EnnIndexAccess, EnnRowAccess};
+pub use model::{EnnIndexAccess, EnnRowAccess, ModelOptions};
 pub use morbo_trust_region::{MorboTRSettings, MorboTrustRegion, Rescalarize};
 pub use optimizer::obs_access::ObsAccess;
 pub use optimizer::{ObservationDelta, Optimizer, Telemetry};
@@ -81,12 +82,12 @@ pub use stats::WeightedStats;
 pub use strategy::Strategy;
 pub use surrogate::{ENNSurrogate, ENNSurrogateConfig, Surrogate, SurrogatePrediction};
 pub use traits::PosteriorComputation;
+pub use trials::{
+    Ask as WeightAsk, BpannHistory, EncodingType, IndexedObservation, Leaf as WeightLeaf,
+    ObservationId, Search as WeightSearch, Trial as WeightTrial,
+};
 pub use trust_region::{NoTrustRegion, TRLengthConfig, TrustRegionError, TurboTrustRegion};
 pub use trust_region_config::TrustRegionConfig;
-pub use trials::{
-    Ask as WeightAsk, BpannHistory, EncodingType, IndexedObservation, Leaf as WeightLeaf, ObservationId,
-    Search as WeightSearch, Trial as WeightTrial,
-};
 pub use util::{
     argmax_random_tie, calculate_sobol_indices, pareto_front_2d_maximize, standardize_y,
 };

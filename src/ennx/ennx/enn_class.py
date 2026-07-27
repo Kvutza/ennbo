@@ -79,6 +79,7 @@ class EpistemicNearestNeighbors:
         index_driver: ENNIndexDriver = ENNIndexDriver.FLAT,
         work_dir: str | os.PathLike[str] | None = None,
         enn_storage: str | None = None,
+        y_bounds: np.ndarray | None = None,
     ) -> None:
         train_x, train_y, train_yvar = self._validate_inputs(
             train_x, train_y, train_yvar
@@ -98,6 +99,8 @@ class EpistemicNearestNeighbors:
             rust_kwargs["work_dir"] = os.fspath(work_dir)
         if enn_storage is not None:
             rust_kwargs["enn_storage"] = enn_storage
+        if y_bounds is not None:
+            rust_kwargs["y_bounds"] = np.asarray(y_bounds, dtype=float)
         self._rust_model = _RustENN(**rust_kwargs)
         self._tie_break_neighbors: bool = True
 
@@ -158,6 +161,10 @@ class EpistemicNearestNeighbors:
         return np.asarray(self._rust_model.y_scale_row, dtype=float)
 
     @property
+    def y_bounds(self) -> np.ndarray:
+        return np.asarray(self._rust_model.y_bounds, dtype=float)
+
+    @property
     def _scale_x(self) -> bool:
         return bool(self._rust_model.scale_x)
 
@@ -199,7 +206,7 @@ class EpistemicNearestNeighbors:
             observation_noise=flags.observation_noise,
         )
         idx_arr = np.asarray(idx, dtype=int) if idx is not None else None
-        return ENNNormal(mu, se, se_epi, se_ale, idx=idx_arr)
+        return ENNNormal(mu, se, se_epi, se_ale, idx=idx_arr, y_bounds=self.y_bounds)
 
     def conditional_posterior(
         self,
@@ -225,7 +232,7 @@ class EpistemicNearestNeighbors:
             exclude_nearest=flags.exclude_nearest,
             observation_noise=flags.observation_noise,
         )
-        return ENNNormal(mu, se, se_epi, se_ale)
+        return ENNNormal(mu, se, se_epi, se_ale, y_bounds=self.y_bounds)
 
     def batch_posterior(
         self,
@@ -255,7 +262,7 @@ class EpistemicNearestNeighbors:
             exclude_nearest=flags.exclude_nearest,
             observation_noise=flags.observation_noise,
         )
-        return ENNNormal(mu_all, se_all, se_epi_all, se_ale_all)
+        return ENNNormal(mu_all, se_all, se_epi_all, se_ale_all, y_bounds=self.y_bounds)
 
     def neighbors(
         self, x: np.ndarray, k: int, *, exclude_nearest: bool = False

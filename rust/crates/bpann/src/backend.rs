@@ -9,12 +9,8 @@ use crate::error::BpannError;
 use crate::index::{BpannIndex, IncrementalIndex};
 use crate::large_n_search::{search_indexed_and_pending, SearchPendingArgs};
 use crate::mmap_store::MmapColumnStore;
-use crate::observation::{
-    self as obs, TrainRowsAt, INDEX_BACKEND, MAX_NUM_DIM, MAX_RECORD_STRIDE,
-};
-use crate::small_n_search::{
-    score_queries_flat, ScoreQueriesFlat, SMALL_N_INCORE_SEARCH_LIMIT,
-};
+use crate::observation::{self as obs, TrainRowsAt, INDEX_BACKEND, MAX_NUM_DIM, MAX_RECORD_STRIDE};
+use crate::small_n_search::{score_queries_flat, ScoreQueriesFlat, SMALL_N_INCORE_SEARCH_LIMIT};
 
 pub const PAPER_TEX_PATH: &str = "papers/bpann_2511.15557v1.tex";
 pub use crate::tuning::{DEFAULT_PENDING_FLUSH_THRESHOLD, DEFAULT_PENDING_HARD_FLUSH_THRESHOLD};
@@ -90,10 +86,7 @@ impl BpannBackend {
         } else {
             Vec::new()
         };
-        let persisted_rows = indices
-            .first()
-            .map(|i| i.header.indexed_rows)
-            .unwrap_or(0);
+        let persisted_rows = indices.first().map(|i| i.header.indexed_rows).unwrap_or(0);
         let mut index = IncrementalIndex::new(index_dir);
         index.indices = indices;
         index.indexed_rows = persisted_rows.min(indexed_rows);
@@ -126,7 +119,8 @@ impl BpannBackend {
                 indexed_rows,
             )?;
         }
-        backend.pending_unindexed
+        backend
+            .pending_unindexed
             .store(n.saturating_sub(indexed_rows), Ordering::Relaxed);
         backend.index.indexed_rows = indexed_rows;
         obs::bpann_write_metadata(
@@ -141,7 +135,11 @@ impl BpannBackend {
         Ok(backend)
     }
 
-    pub fn new_empty(work_dir: PathBuf, num_dim: usize, num_metrics: usize) -> Result<Self, BpannError> {
+    pub fn new_empty(
+        work_dir: PathBuf,
+        num_dim: usize,
+        num_metrics: usize,
+    ) -> Result<Self, BpannError> {
         Self::new(
             work_dir,
             Array2::zeros((0, num_dim)),
@@ -197,8 +195,7 @@ impl BpannBackend {
 
     fn reset_index(&mut self) {
         self.index.reset();
-        self.pending_unindexed
-            .store(self.len(), Ordering::Relaxed);
+        self.pending_unindexed.store(self.len(), Ordering::Relaxed);
         *self.index_dirty.lock().expect("index_dirty") = true;
     }
 
@@ -357,9 +354,7 @@ impl BpannBackend {
         let scale_x = self.scale_x;
         let x_scale_vec = self.x_scale.as_slice().unwrap().to_vec();
         let num_dim = self.num_dim;
-        let query_rows: Vec<Vec<f64>> = (0..n_query)
-            .map(|q| queries.row(q).to_vec())
-            .collect();
+        let query_rows: Vec<Vec<f64>> = (0..n_query).map(|q| queries.row(q).to_vec()).collect();
 
         // Small-N: resident flat f32 cache + heap top-k (shared across queries).
         if total <= SMALL_N_INCORE_SEARCH_LIMIT {
@@ -421,10 +416,7 @@ impl BpannBackend {
     }
 
     /// Y (and optional yvar) row slices without touching `train_x`.
-    pub fn mmap_row_y_and_yvar(
-        &self,
-        i: usize,
-    ) -> Result<(&[f64], Option<&[f64]>), BpannError> {
+    pub fn mmap_row_y_and_yvar(&self, i: usize) -> Result<(&[f64], Option<&[f64]>), BpannError> {
         let y = self.train_y.mmap_row_slice(i)?;
         let yvar = match self.train_yvar.as_ref() {
             None => None,
@@ -510,9 +502,7 @@ pub fn soft_sync_build(backend: &BpannBackend) -> Result<Option<IncrementalIndex
 /// Publish a detached soft-sync result under exclusive borrow.
 pub fn soft_sync_publish(backend: &mut BpannBackend, built: IncrementalIndex) {
     backend.index = built;
-    backend
-        .pending_unindexed
-        .store(0, Ordering::Relaxed);
+    backend.pending_unindexed.store(0, Ordering::Relaxed);
 }
 
 pub fn open_rejects_num_dim(num_dim: usize) -> Result<(), BpannError> {
