@@ -64,7 +64,7 @@ alias(
 py_wheel(
     name = "wheel",
     abi = "cp313",
-    description_content_type = "text/markdown",
+    description_content_type = "text/plain",
     description_file = "README",
     distribution = "ennx",
     extra_distinfo_files = {

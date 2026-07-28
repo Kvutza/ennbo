@@ -1,31 +1,25 @@
-# ENNX
+ENNX
 
-## Build
+Build
 
-```sh
-bazel build //:wheel --config=release
-```
+    bazel build //:wheel --config=release
 
 The wheel is written to Bazel's output tree. It targets CPython 3.13.
 
-## Test
+Test
 
-```sh
-bazel test //:check //:audit --config=release --config=constrained
-```
+    bazel test //:check //:audit --config=release --config=constrained
 
-Format Bazel files:
+Format
 
-```sh
-bazel run @buildifier_prebuilt//:buildifier -- -r .
-```
+    bazel run @buildifier_prebuilt//:buildifier -- -r .
 
-## Targets
+Targets
 
-- `//:cpu` — CPU implementation
-- `//:gpu` — platform GPU implementation
-- `//:wheel` — Python wheel
-- `//:check` — test suite
-- `//:audit` — wheel audit
+    //:cpu      CPU implementation
+    //:gpu      platform GPU implementation
+    //:wheel    Python wheel
+    //:check    test suite
+    //:audit    wheel audit
 
-See [docs/bazel.md](docs/bazel.md) for dependency and platform details.
+See docs/bazel.md for dependency and platform details.
