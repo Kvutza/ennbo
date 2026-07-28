@@ -3,6 +3,7 @@ def python_wheel(
         extension,
         extension_suffix,
         license,
+        notice,
         package,
         platform_tag,
         python_srcs,
@@ -13,7 +14,7 @@ def python_wheel(
     filename = "{}-{}-cp313-cp313-{}.whl".format(package, version, platform_tag)
     native.genrule(
         name = name,
-        srcs = python_srcs + runtime_libraries + [extension, license],
+        srcs = python_srcs + runtime_libraries + [extension, license, notice],
         out = filename,
         cmd = " ".join([
             "$(exe //buck2/wheel:pack)",

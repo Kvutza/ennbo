@@ -284,8 +284,12 @@ fn main() -> io::Result<()> {
         }
     }
     wheel_files.insert(
-        format!("{dist_info}/LICENSE"),
+        format!("{dist_info}/licenses/LICENSE"),
         fs::read(args.src_dir.join("LICENSE"))?,
+    );
+    wheel_files.insert(
+        format!("{dist_info}/licenses/NOTICE"),
+        fs::read(args.src_dir.join("NOTICE"))?,
     );
     wheel_files.insert(
         format!("{dist_info}/METADATA"),

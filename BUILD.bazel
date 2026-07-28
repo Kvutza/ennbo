@@ -1,7 +1,6 @@
-load("@rules_python//python:packaging.bzl", "py_wheel")
 load("@rules_python//python:defs.bzl", "py_test")
+load("@rules_python//python:packaging.bzl", "py_wheel")
 load("//:bazel/python_extension.bzl", "copy_extension")
-
 
 package(default_visibility = ["//visibility:public"])
 
@@ -9,6 +8,8 @@ exports_files([
     "Cargo.Accelerators.lock",
     "Cargo.Accelerators.Bazel.lock",
     "Cargo.Bazel.lock",
+    "LICENSE",
+    "NOTICE",
     "papers/bpann_2511.15557v1.tex",
 ])
 
@@ -45,7 +46,6 @@ copy_extension(
     }),
 )
 
-
 copy_extension(
     name = "wheel_extension_windows",
     src = "//rust/crates/ennx-py:python_extension_windows",
@@ -64,13 +64,12 @@ alias(
 py_wheel(
     name = "wheel",
     abi = "cp313",
-    deps = [
-        ":python_sources",
-        ":wheel_extension",
-    ],
-
     description_file = "README.md",
     distribution = "ennx",
+    extra_distinfo_files = {
+        ":LICENSE": "licenses/LICENSE",
+        ":NOTICE": "licenses/NOTICE",
+    },
     extra_requires = {
         "full": [
             "gpytorch>=1.13",
@@ -92,6 +91,10 @@ py_wheel(
     strip_path_prefixes = ["src"],
     summary = "Epistemic Nearest Neighbors",
     version = "0.0.0",
+    deps = [
+        ":python_sources",
+        ":wheel_extension",
+    ],
 )
 
 # Compatibility alias for //:python_wheel
@@ -103,10 +106,10 @@ alias(
 test_suite(
     name = "check",
     tests = [
+        "//bazel/faiss:faiss_index_smoke",
         "//rust/crates/bpann:bpann_test",
         "//rust/crates/ennx:ennx_test",
         "//rust/crates/ennx:trial_search_metal_test",
-        "//bazel/faiss:faiss_index_smoke",
     ],
 )
 

@@ -1,10 +1,8 @@
-import sys
-import zipfile
-import subprocess
-import tempfile
 import os
-
-
+import subprocess
+import sys
+import tempfile
+import zipfile
 
 
 def audit_wheel(wheel_path: str):
@@ -20,10 +18,13 @@ def audit_wheel(wheel_path: str):
         with zipfile.ZipFile(wheel_path, "r") as z:
             z.extractall(tmpdir)
 
+        dist_info = os.path.join(tmpdir, "ennx-0.0.0.dist-info")
+        assert os.path.isfile(os.path.join(dist_info, "licenses", "LICENSE"))
+        assert os.path.isfile(os.path.join(dist_info, "licenses", "NOTICE"))
+
         # 1. Verify exact single extension
         ext_path = os.path.join(tmpdir, "ennx", "ennx_rust.so")
         assert os.path.exists(ext_path), f"Missing extension at {ext_path}"
-
 
         # 2. Check Mach-O LC_BUILD_VERSION minos
         otool_out = subprocess.check_output(["otool", "-l", ext_path], text=True)
@@ -52,16 +53,14 @@ def audit_wheel(wheel_path: str):
 
         # 4. Test module import in CPython interpreter
         sys.path.insert(0, tmpdir)
-        import ennx
-        import ennx.ennx_rust as ennx_rust
         from ennx.ennx_rust import optimizer
-        assert hasattr(optimizer, "WeightSearch"), "Missing WeightSearch class on PyO3 optimizer module"
-        print("Successfully imported ennx and verified native WeightSearch API from audited release wheel!")
 
-
-
-
-
+        assert hasattr(optimizer, "WeightSearch"), (
+            "Missing WeightSearch class on PyO3 optimizer module"
+        )
+        print(
+            "Successfully imported ennx and verified native WeightSearch API from audited release wheel!"
+        )
 
 
 if __name__ == "__main__":

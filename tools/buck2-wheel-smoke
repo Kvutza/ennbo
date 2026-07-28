@@ -27,7 +27,11 @@ trap 'rm -rf "$smoke_dir"' EXIT HUP INT TERM
 "$python_bin" -m zipfile -e "$wheel_path" "$smoke_dir"
 
 extension=$(find "$smoke_dir/ennx" -maxdepth 1 -name 'ennx_rust*.so' -print)
+dist_info=$(find "$smoke_dir" -maxdepth 1 -type d -name 'ennx-*.dist-info' -print)
 test -n "$extension"
+test -n "$dist_info"
+test -f "$dist_info/licenses/LICENSE"
+test -f "$dist_info/licenses/NOTICE"
 
 case $(uname -s) in
     Darwin)
