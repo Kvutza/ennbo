@@ -20,6 +20,7 @@ def _enn(train_x, *, index_driver=ENNIndexDriver.FLAT, work_dir=None):
 def test_enn_index_driver_to_rust_maps_all():
     assert set(ENNIndexDriver) == set(ENN_INDEX_DRIVER_TO_RUST.keys())
     assert ENN_INDEX_DRIVER_TO_RUST[ENNIndexDriver.FLAT] == "exact"
+    assert ENN_INDEX_DRIVER_TO_RUST[ENNIndexDriver.USEARCH] == "usearch"
     assert ENN_INDEX_DRIVER_TO_RUST[ENNIndexDriver.BPANN_DISK] == "bpann_disk"
     assert ENN_INDEX_DRIVER_TO_RUST[ENNIndexDriver.METAL] == "metal"
     assert ENN_INDEX_DRIVER_TO_RUST[ENNIndexDriver.OPENCL] == "opencl"
@@ -54,6 +55,23 @@ def test_accelerator_index_matches_flat(index_driver):
     np.testing.assert_allclose(
         accelerator_distances, flat_distances, atol=1.0e-4, rtol=0.0
     )
+
+
+def test_usearch_small_history_matches_flat():
+    rng = np.random.default_rng(17)
+    train_x = rng.normal(size=(32, 5))
+    query = rng.normal(size=(4, 5))
+    flat = _enn(train_x)
+    usearch = _enn(train_x, index_driver=ENNIndexDriver.USEARCH)
+
+    expected = enn_index_neighbor_distances_and_indices(
+        flat.rust_backend, query, search_k=10, exclude_nearest=False
+    )
+    actual = enn_index_neighbor_distances_and_indices(
+        usearch.rust_backend, query, search_k=10, exclude_nearest=False
+    )
+    np.testing.assert_array_equal(actual[1], expected[1])
+    np.testing.assert_allclose(actual[0], expected[0], rtol=0.0, atol=0.0)
 
 
 def test_enn_bpann_disk_in_memory_raises():

@@ -10,7 +10,6 @@ exports_files([
     "Cargo.Bazel.lock",
     "LICENSE",
     "NOTICE",
-    "papers/bpann_2511.15557v1.tex",
 ])
 
 alias(

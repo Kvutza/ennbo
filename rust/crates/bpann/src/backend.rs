@@ -12,7 +12,7 @@ use crate::mmap_store::MmapColumnStore;
 use crate::observation::{self as obs, TrainRowsAt, INDEX_BACKEND, MAX_NUM_DIM, MAX_RECORD_STRIDE};
 use crate::small_n_search::{score_queries_flat, ScoreQueriesFlat, SMALL_N_INCORE_SEARCH_LIMIT};
 
-pub const PAPER_TEX_PATH: &str = "papers/bpann_2511.15557v1.tex";
+pub const PAPER_CITATION_URL: &str = "https://arxiv.org/abs/2511.15557";
 pub use crate::tuning::{DEFAULT_PENDING_FLUSH_THRESHOLD, DEFAULT_PENDING_HARD_FLUSH_THRESHOLD};
 
 pub struct BpannBackend {

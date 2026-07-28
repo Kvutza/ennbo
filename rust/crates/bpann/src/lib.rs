@@ -11,7 +11,7 @@ pub mod tuning;
 
 pub use backend::{
     soft_sync_build, soft_sync_publish, BpannBackend, DEFAULT_PENDING_FLUSH_THRESHOLD,
-    DEFAULT_PENDING_HARD_FLUSH_THRESHOLD, PAPER_TEX_PATH,
+    DEFAULT_PENDING_HARD_FLUSH_THRESHOLD, PAPER_CITATION_URL,
 };
 pub use error::BpannError;
 pub use index::{BpannIndex, IncrementalIndex};
@@ -33,11 +33,10 @@ mod acceptance_tests {
     use crate::distance::row_sq_l2;
     use crate::index::bpann_mean_recall_at_k;
     use ndarray::{array, Array1, Array2};
+    use std::fs;
     use rand::Rng;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
-    use std::fs;
-    use std::path::PathBuf;
     use tempfile::TempDir;
 
     const DATA_SEED: u64 = 42;
@@ -46,10 +45,6 @@ mod acceptance_tests {
     const D: usize = 32;
     const K: usize = 10;
     const NUM_RECALL_QUERIES: usize = 5;
-
-    fn repo_root() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
-    }
 
     fn synthetic_train(n: usize, d: usize, seed: u64) -> (Array2<f64>, Array2<f64>) {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
@@ -63,14 +58,6 @@ mod acceptance_tests {
         (0..n)
             .map(|_| (0..d).map(|_| rng.gen::<f32>()).collect())
             .collect()
-    }
-
-    #[test]
-    fn test_paper_tex_exists_and_nonempty() {
-        let path = repo_root().join(PAPER_TEX_PATH);
-        let meta = fs::metadata(&path).expect("paper tex");
-        assert!(meta.len() > 0);
-        assert_eq!(path, repo_root().join(PAPER_TEX_PATH));
     }
 
     #[test]

@@ -16,10 +16,10 @@ name = "ennx_rust"
 crate-type = ["cdylib", "rlib"]
 
 [build-dependencies]
-ennx = { workspace = true }
+ennx = { workspace = true, default-features = false }
 
 [dependencies]
-ennx = { workspace = true }
+ennx = { workspace = true, default-features = false }
 ndarray = { workspace = true }
 numpy = { workspace = true }
 pyo3 = { workspace = true }
@@ -29,3 +29,5 @@ rand = { workspace = true }
 default = []
 metal = ["ennx/metal"]
 opencl = ["ennx/opencl"]
+usearch = ["ennx/usearch"]
+usearch-numkong = ["ennx/usearch-numkong"]

@@ -17,6 +17,9 @@ pub enum IndexError {
 pub enum IndexDriver {
     #[default]
     Exact,
+    /// USearch HNSW shortlist with deterministic exact-distance reranking.
+    #[serde(rename = "usearch")]
+    USearch,
     /// B+ANN disk index (`EnnStorage::Disk` + `work_dir`).
     #[serde(rename = "bp_ann_disk")]
     BpAnnDisk,
@@ -252,6 +255,21 @@ mod tests {
     #[test]
     fn test_exact_search_regression_all_indices_valid_for_k_equals_n() {
         run_exact_regression_test(|train_x| index_unit(train_x, IndexDriver::Exact));
+    }
+
+    #[cfg(feature = "usearch")]
+    #[test]
+    fn test_usearch_search_and_incremental_add() {
+        let index = index_unit(
+            array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+            IndexDriver::USearch,
+        );
+        index.add(&array![[0.1, 0.1]].view()).unwrap();
+        let (distances, indices) = index
+            .search(&array![[0.09, 0.09]].view(), 2, false)
+            .unwrap();
+        assert_eq!(indices[[0, 0]], 3);
+        assert!(distances[[0, 0]] < distances[[0, 1]]);
     }
 
     #[test]

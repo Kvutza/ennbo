@@ -51,7 +51,10 @@ fn faiss_error() -> IndexError {
 fn faiss_spec(driver: IndexDriver) -> &'static str {
     match driver {
         IndexDriver::Exact => "Flat",
-        IndexDriver::BpAnnDisk | IndexDriver::Metal | IndexDriver::OpenCl => {
+        IndexDriver::USearch
+        | IndexDriver::BpAnnDisk
+        | IndexDriver::Metal
+        | IndexDriver::OpenCl => {
             panic!("non-Faiss driver must not be routed to FaissBackend")
         }
     }

@@ -3,6 +3,9 @@
 pub(crate) mod faiss_backend;
 pub use faiss_backend::MmapColumnStore;
 
+#[cfg(feature = "usearch")]
+mod usearch_backend;
+
 #[cfg(all(target_os = "macos", feature = "metal"))]
 mod metal_index;
 #[cfg(feature = "opencl")]
@@ -15,6 +18,9 @@ use crate::index::{IndexDriver, IndexError};
 
 pub(crate) use faiss_backend::FaissBackend;
 
+#[cfg(feature = "usearch")]
+use usearch_backend::USearchBackend;
+
 #[cfg(all(target_os = "macos", feature = "metal"))]
 use metal_index::MetalIndex;
 #[cfg(feature = "opencl")]
@@ -23,6 +29,8 @@ use opencl_index::OpenClIndex;
 /// In-memory exact and accelerator-backed index implementations.
 pub(crate) enum KnnBackend {
     Faiss(Mutex<FaissBackend>),
+    #[cfg(feature = "usearch")]
+    USearch(Mutex<USearchBackend>),
     #[cfg(all(target_os = "macos", feature = "metal"))]
     Metal(Mutex<MetalIndex>),
     #[cfg(feature = "opencl")]
@@ -41,6 +49,21 @@ impl KnnBackend {
                 driver,
                 train_scaled,
             )?))),
+            IndexDriver::USearch => {
+                #[cfg(feature = "usearch")]
+                {
+                    return Ok(Self::USearch(Mutex::new(USearchBackend::new(
+                        num_dim,
+                        train_scaled,
+                    )?)));
+                }
+                #[cfg(not(feature = "usearch"))]
+                {
+                    Err(IndexError::InvalidParameter(
+                        "USearch index is unavailable; build with the usearch feature".to_string(),
+                    ))
+                }
+            }
             IndexDriver::Metal => {
                 #[cfg(all(target_os = "macos", feature = "metal"))]
                 {
@@ -81,6 +104,8 @@ impl KnnBackend {
     pub(crate) fn len(&self) -> usize {
         match self {
             Self::Faiss(inner) => inner.lock().expect("knn mutex poisoned").len(),
+            #[cfg(feature = "usearch")]
+            Self::USearch(inner) => inner.lock().expect("knn mutex poisoned").len(),
             #[cfg(all(target_os = "macos", feature = "metal"))]
             Self::Metal(inner) => inner.lock().expect("knn mutex poisoned").len(),
             #[cfg(feature = "opencl")]
@@ -91,6 +116,11 @@ impl KnnBackend {
     pub(crate) fn memory_usage_bytes(&self) -> usize {
         match self {
             Self::Faiss(inner) => inner
+                .lock()
+                .expect("knn mutex poisoned")
+                .memory_usage_bytes(),
+            #[cfg(feature = "usearch")]
+            Self::USearch(inner) => inner
                 .lock()
                 .expect("knn mutex poisoned")
                 .memory_usage_bytes(),
@@ -110,6 +140,11 @@ impl KnnBackend {
     pub(crate) fn rebuild(&self, train_scaled: &ArrayView2<f64>) -> Result<(), IndexError> {
         match self {
             Self::Faiss(inner) => inner
+                .lock()
+                .expect("knn mutex poisoned")
+                .rebuild(train_scaled),
+            #[cfg(feature = "usearch")]
+            Self::USearch(inner) => inner
                 .lock()
                 .expect("knn mutex poisoned")
                 .rebuild(train_scaled),
@@ -136,6 +171,11 @@ impl KnnBackend {
                 .lock()
                 .expect("knn mutex poisoned")
                 .add(rows_scaled, start_key),
+            #[cfg(feature = "usearch")]
+            Self::USearch(inner) => inner
+                .lock()
+                .expect("knn mutex poisoned")
+                .add(rows_scaled, start_key),
             #[cfg(all(target_os = "macos", feature = "metal"))]
             Self::Metal(inner) => inner
                 .lock()
@@ -157,6 +197,13 @@ impl KnnBackend {
     ) -> Result<(Array2<f64>, Array2<i64>), IndexError> {
         match self {
             Self::Faiss(inner) => {
+                inner
+                    .lock()
+                    .expect("knn mutex poisoned")
+                    .search(queries_scaled, k_eff, search_k)
+            }
+            #[cfg(feature = "usearch")]
+            Self::USearch(inner) => {
                 inner
                     .lock()
                     .expect("knn mutex poisoned")
@@ -257,6 +304,26 @@ mod knn_backend_tests {
             Err(e) => assert!(e.to_string().contains("disk-only")),
             Ok(_) => panic!("expected BpAnnDisk on KnnBackend to error"),
         }
+    }
+
+    #[cfg(feature = "usearch")]
+    #[test]
+    fn knn_backend_usearch() {
+        let train = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
+        let backend = KnnBackend::new(2, IndexDriver::USearch, &train.view()).unwrap();
+        assert_eq!(backend.len(), 3);
+        assert!(matches!(backend, KnnBackend::USearch(_)));
+    }
+
+    #[cfg(not(feature = "usearch"))]
+    #[test]
+    fn knn_backend_usearch_requires_feature() {
+        let train = array![[0.0, 0.0]];
+        let error = match KnnBackend::new(2, IndexDriver::USearch, &train.view()) {
+            Ok(_) => panic!("expected USearch feature error"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("usearch feature"));
     }
 
     #[test]

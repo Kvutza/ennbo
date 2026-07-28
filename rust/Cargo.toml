@@ -16,7 +16,7 @@ keywords = ["bayesian", "optimization", "ENN", "turbo", "turbo-enn"]
 categories = ["science", "simulation"]
 
 [workspace.dependencies]
-ennx = { path = "crates/ennx" }
+ennx = { path = "crates/ennx", default-features = false }
 ndarray = "0.16"
 ndarray-linalg = "0.17"
 numpy = "0.22"

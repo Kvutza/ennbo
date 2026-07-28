@@ -59,7 +59,7 @@ When Cargo manifests, supported triples, or crate annotations change, repin
 from the ENNX repository root:
 
 ```sh
-CARGO_BAZEL_REPIN=1 bazel build //:rust_cpu
+CARGO_BAZEL_REPIN=1 bazel build //:cpu
 ```
 
 Consumers must not patch or regenerate these lockfiles.
