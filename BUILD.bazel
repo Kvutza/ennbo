@@ -64,7 +64,6 @@ alias(
 py_wheel(
     name = "wheel",
     abi = "cp313",
-    description_file = "README.md",
     distribution = "ennx",
     extra_distinfo_files = {
         ":LICENSE": "licenses/LICENSE",
