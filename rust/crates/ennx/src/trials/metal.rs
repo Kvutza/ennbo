@@ -4,9 +4,10 @@ use metal::{
     Buffer, CommandQueue, CompileOptions, ComputePipelineState, Device, MTLResourceOptions, MTLSize,
 };
 
-use super::{make_steps, make_tiles, Ask, Leaf, Step, Tile};
+use super::{make_steps, make_tiles, Ask, Center, Leaf, Step, Tile};
 
 const THREADS: u64 = 256;
+const HISTORY_BATCH: usize = 8;
 const SOURCE: &str = include_str!("trials.metal");
 
 #[repr(C)]
@@ -27,11 +28,26 @@ struct Params {
     neighbors: u32,
     base_slot: u32,
     trial_slot: u32,
+    center_count: u32,
     acquisition: u32,
     epistemic_scale: f32,
     aleatoric_scale: f32,
     y_scale: f32,
     beta: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CenterStep {
+    parent: u32,
+    seed: Seed,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct MultiTrParams {
+    num_regions: u32,
+    candidates_per_region: u32,
 }
 
 struct Scratch {
@@ -42,9 +58,13 @@ struct Scratch {
     scores: Buffer,
     partials: Buffer,
     choice: Buffer,
+    selected_scores: Buffer,
     leaves: Buffer,
     tiles: Buffer,
+    centers: Buffer,
+    candidate_centers: Buffer,
     candidate_capacity: usize,
+    center_capacity: usize,
 }
 
 pub(super) struct Engine {
@@ -95,6 +115,7 @@ impl Engine {
                 "partial distances",
             )?,
             choice: shared(&device, size_of::<u32>(), "choice")?,
+            selected_scores: shared(&device, size_of::<f32>(), "selected scores")?,
             leaves: shared(
                 &device,
                 leaves.len().saturating_mul(size_of::<Step>()),
@@ -105,7 +126,10 @@ impl Engine {
                 tiles.len().saturating_mul(size_of::<Tile>()),
                 "tiles",
             )?,
+            centers: shared(&device, size_of::<CenterStep>(), "centers")?,
+            candidate_centers: shared(&device, size_of::<u32>(), "candidate centers")?,
             candidate_capacity: 1,
+            center_capacity: 1,
         };
         copy_to(&scratch.tiles, &tiles);
         Ok(Self {
@@ -134,6 +158,7 @@ impl Engine {
         config: Ask,
     ) -> Result<(usize, f32), String> {
         self.ensure_candidates(seeds.len())?;
+        let distance_groups = distance_groups(seeds.len(), history.len(), self.tile_count)?;
         let history_slots: Vec<u32> = history
             .iter()
             .map(|&(slot, _)| to_u32(slot, "history slot"))
@@ -163,6 +188,7 @@ impl Engine {
             neighbors: to_u32(config.neighbors, "neighbor count")?,
             base_slot: to_u32(base_slot, "base slot")?,
             trial_slot: to_u32(trial_slot, "trial slot")?,
+            center_count: 0,
             acquisition: crate::weights::acquisition_code(config.acquisition),
             epistemic_scale: config.epistemic_scale,
             aleatoric_scale: config.aleatoric_scale,
@@ -179,15 +205,10 @@ impl Engine {
         encoder.set_buffer(3, Some(&self.scratch.leaves), 0);
         encoder.set_buffer(4, Some(&self.scratch.tiles), 0);
         encoder.set_buffer(5, Some(&self.scratch.partials), 0);
-        set_params(encoder, 6, &params);
-        encoder.dispatch_thread_groups(
-            MTLSize {
-                width: (seeds.len().div_ceil(2) * params.tiles as usize) as u64,
-                height: 1,
-                depth: 1,
-            },
-            group(THREADS),
-        );
+        encoder.set_buffer(6, Some(&self.scratch.centers), 0);
+        encoder.set_buffer(7, Some(&self.scratch.candidate_centers), 0);
+        set_params(encoder, 8, &params);
+        encoder.dispatch_thread_groups(group(distance_groups), group(THREADS));
 
         encoder.set_compute_pipeline_state(&self.score);
         encoder.set_buffer(0, Some(&self.scratch.partials), 0);
@@ -245,8 +266,69 @@ impl Engine {
         leaves: &[Leaf],
         config: Ask,
     ) -> Result<Vec<(usize, f32)>, String> {
-        let total_candidates = num_regions * seeds_per_region;
+        self.ask_multi_tr_impl(
+            base_slot,
+            history,
+            num_regions,
+            seeds_per_region,
+            None,
+            seeds,
+            leaves,
+            config,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn ask_multi_tr_tree(
+        &mut self,
+        base_slot: usize,
+        history: &[(usize, f32)],
+        seeds_per_region: usize,
+        centers: &[Center],
+        region_centers: &[usize],
+        seeds: &[u64],
+        leaves: &[Leaf],
+        config: Ask,
+    ) -> Result<Vec<(usize, f32)>, String> {
+        self.ask_multi_tr_impl(
+            base_slot,
+            history,
+            region_centers.len(),
+            seeds_per_region,
+            Some((centers, region_centers)),
+            seeds,
+            leaves,
+            config,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn ask_multi_tr_impl(
+        &mut self,
+        base_slot: usize,
+        history: &[(usize, f32)],
+        num_regions: usize,
+        seeds_per_region: usize,
+        tree: Option<(&[Center], &[usize])>,
+        seeds: &[u64],
+        leaves: &[Leaf],
+        config: Ask,
+    ) -> Result<Vec<(usize, f32)>, String> {
+        if num_regions == 0 || seeds_per_region == 0 {
+            return Err("multi-TR search requires non-zero regions and candidates".to_string());
+        }
+        let total_candidates = num_regions
+            .checked_mul(seeds_per_region)
+            .ok_or("multi-TR candidate count overflow")?;
+        if seeds.len() != total_candidates {
+            return Err(format!(
+                "expected {total_candidates} seeds for {num_regions} regions, got {}",
+                seeds.len()
+            ));
+        }
         self.ensure_candidates(total_candidates)?;
+        let center_count = self.write_centers(tree, seeds_per_region)?;
+        let distance_groups = distance_groups(seeds.len(), history.len(), self.tile_count)?;
         let history_slots: Vec<u32> = history
             .iter()
             .map(|&(slot, _)| to_u32(slot, "history slot"))
@@ -269,6 +351,7 @@ impl Engine {
             neighbors: to_u32(config.neighbors, "neighbor count")?,
             base_slot: to_u32(base_slot, "base slot")?,
             trial_slot: to_u32(base_slot, "trial slot")?,
+            center_count: to_u32(center_count, "center count")?,
             acquisition: crate::weights::acquisition_code(config.acquisition),
             epistemic_scale: config.epistemic_scale,
             aleatoric_scale: config.aleatoric_scale,
@@ -285,15 +368,10 @@ impl Engine {
         encoder.set_buffer(3, Some(&self.scratch.leaves), 0);
         encoder.set_buffer(4, Some(&self.scratch.tiles), 0);
         encoder.set_buffer(5, Some(&self.scratch.partials), 0);
-        set_params(encoder, 6, &params);
-        encoder.dispatch_thread_groups(
-            MTLSize {
-                width: (seeds.len().div_ceil(2) * params.tiles as usize) as u64,
-                height: 1,
-                depth: 1,
-            },
-            group(THREADS),
-        );
+        encoder.set_buffer(6, Some(&self.scratch.centers), 0);
+        encoder.set_buffer(7, Some(&self.scratch.candidate_centers), 0);
+        set_params(encoder, 8, &params);
+        encoder.dispatch_thread_groups(group(distance_groups), group(THREADS));
 
         encoder.set_compute_pipeline_state(&self.score);
         encoder.set_buffer(0, Some(&self.scratch.partials), 0);
@@ -310,28 +388,32 @@ impl Engine {
             group(THREADS),
         );
 
+        let multi_tr_params = MultiTrParams {
+            num_regions: to_u32(num_regions, "region count")?,
+            candidates_per_region: to_u32(seeds_per_region, "candidates per region")?,
+        };
+        encoder.set_compute_pipeline_state(&self.multi_tr_pick);
+        encoder.set_buffer(0, Some(&self.scratch.scores), 0);
+        encoder.set_buffer(1, Some(&self.scratch.choice), 0);
+        encoder.set_buffer(2, Some(&self.scratch.selected_scores), 0);
+        encoder.set_bytes(
+            3,
+            size_of::<MultiTrParams>() as u64,
+            (&multi_tr_params as *const MultiTrParams).cast::<c_void>(),
+        );
+        encoder.dispatch_thread_groups(group(num_regions as u64), group(THREADS));
+
         encoder.end_encoding();
         command.commit();
         command.wait_until_completed();
 
-        let scores = read_slice::<f32>(&self.scratch.scores, seeds.len());
-        let mut results = Vec::with_capacity(num_regions);
-        for r in 0..num_regions {
-            let start = r * seeds_per_region;
-            let end = start + seeds_per_region;
-            let region_scores = &scores[start..end];
-            let mut best_local_idx = 0;
-            let mut best_val = region_scores[0];
-            for (idx, &s) in region_scores.iter().enumerate().skip(1) {
-                if s > best_val {
-                    best_val = s;
-                    best_local_idx = idx;
-                }
-            }
-            let global_idx = start + best_local_idx;
-            results.push((global_idx, best_val));
-        }
-        Ok(results)
+        let choices = read_slice::<u32>(&self.scratch.choice, num_regions);
+        let scores = read_slice::<f32>(&self.scratch.selected_scores, num_regions);
+        Ok(choices
+            .iter()
+            .zip(scores)
+            .map(|(&index, &score)| (index as usize, score))
+            .collect())
     }
 
     pub(super) fn read(&self, slot: usize, row_bytes: usize) -> Vec<u8> {
@@ -373,6 +455,21 @@ impl Engine {
             capacity.saturating_mul(size_of::<f32>()),
             "scores",
         )?;
+        self.scratch.choice = shared(
+            &self.device,
+            capacity.saturating_mul(size_of::<u32>()),
+            "choices",
+        )?;
+        self.scratch.selected_scores = shared(
+            &self.device,
+            capacity.saturating_mul(size_of::<f32>()),
+            "selected scores",
+        )?;
+        self.scratch.candidate_centers = shared(
+            &self.device,
+            capacity.saturating_mul(size_of::<u32>()),
+            "candidate centers",
+        )?;
         let partial_count = capacity
             .checked_mul(super::MAX_HISTORY)
             .and_then(|value| value.checked_mul(self.tile_count))
@@ -384,6 +481,52 @@ impl Engine {
         )?;
         self.scratch.candidate_capacity = capacity;
         Ok(())
+    }
+
+    fn write_centers(
+        &mut self,
+        tree: Option<(&[Center], &[usize])>,
+        candidates_per_region: usize,
+    ) -> Result<usize, String> {
+        let Some((centers, region_centers)) = tree else {
+            return Ok(0);
+        };
+        if centers.len() > self.scratch.center_capacity {
+            let capacity = centers.len().next_power_of_two();
+            self.scratch.centers = shared(
+                &self.device,
+                capacity.saturating_mul(size_of::<CenterStep>()),
+                "centers",
+            )?;
+            self.scratch.center_capacity = capacity;
+        }
+        let steps: Vec<CenterStep> = centers
+            .iter()
+            .map(|center| {
+                Ok(CenterStep {
+                    parent: center
+                        .parent
+                        .map(|parent| to_u32(parent, "center parent"))
+                        .transpose()?
+                        .unwrap_or(u32::MAX),
+                    seed: Seed {
+                        low: center.seed as u32,
+                        high: (center.seed >> 32) as u32,
+                    },
+                })
+            })
+            .collect::<Result<_, String>>()?;
+        let region_centers: Vec<u32> = region_centers
+            .iter()
+            .map(|&center| to_u32(center, "region center"))
+            .collect::<Result<_, _>>()?;
+        let candidate_centers: Vec<u32> = region_centers
+            .into_iter()
+            .flat_map(|center| std::iter::repeat_n(center, candidates_per_region))
+            .collect();
+        copy_to(&self.scratch.centers, &steps);
+        copy_to(&self.scratch.candidate_centers, &candidate_centers);
+        Ok(centers.len())
     }
 }
 
@@ -446,6 +589,15 @@ fn group(width: u64) -> MTLSize {
 
 fn to_u32(value: usize, name: &str) -> Result<u32, String> {
     u32::try_from(value).map_err(|_| format!("{name} exceeds u32 range"))
+}
+
+fn distance_groups(candidates: usize, history: usize, tiles: usize) -> Result<u64, String> {
+    candidates
+        .div_ceil(2)
+        .checked_mul(history.div_ceil(HISTORY_BATCH))
+        .and_then(|value| value.checked_mul(tiles))
+        .and_then(|value| u64::try_from(value).ok())
+        .ok_or("distance dispatch size overflow".to_string())
 }
 
 const fn size_of<T>() -> usize {

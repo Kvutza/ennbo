@@ -1,6 +1,6 @@
 load("@crates//:defs.bzl", "aliases", "all_crate_deps", "crate_edition")
 load("@rules_cc//cc:defs.bzl", "cc_library")
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -46,10 +46,10 @@ rust_library(
     crate_root = "src/lib.rs",
     edition = crate_edition(),
     link_deps = [":faiss_bridge"],
+    target_compatible_with = ["@platforms//os:macos"],
     deps = ENNX_DEPS + [
         "@accelerator_crates//:metal",
     ],
-    target_compatible_with = ["@platforms//os:macos"],
 )
 
 rust_library(
@@ -84,22 +84,73 @@ alias(
 
 rust_test(
     name = "ennx_test",
+    aliases = aliases(
+        normal_dev = True,
+        proc_macro_dev = True,
+    ),
     crate = ":ennx_cpu",
-    aliases = aliases(normal_dev = True, proc_macro_dev = True),
-    deps = all_crate_deps(normal_dev = True, proc_macro_dev = True),
+    deps = all_crate_deps(
+        normal_dev = True,
+        proc_macro_dev = True,
+    ),
+)
+
+rust_binary(
+    name = "trial_bench_metal",
+    srcs = ["examples/trial_bench.rs"],
+    aliases = aliases(normal_dev = True),
+    crate_name = "trial_bench_metal",
+    crate_root = "examples/trial_bench.rs",
+    edition = crate_edition(),
+    target_compatible_with = ["@platforms//os:macos"],
+    deps = [
+        ":ennx_metal",
+    ],
+)
+
+rust_binary(
+    name = "trial_bench_opencl",
+    srcs = ["examples/trial_bench.rs"],
+    aliases = aliases(normal_dev = True),
+    crate_name = "trial_bench_opencl",
+    crate_root = "examples/trial_bench.rs",
+    edition = crate_edition(),
+    deps = [
+        ":ennx_opencl",
+    ],
 )
 
 rust_test(
     name = "trial_search_metal_test",
     srcs = ["tests/trial_search.rs"],
-    aliases = aliases(normal_dev = True, proc_macro_dev = True),
+    aliases = aliases(
+        normal_dev = True,
+        proc_macro_dev = True,
+    ),
     crate_features = ["metal"],
     crate_name = "trial_search_metal_test",
     crate_root = "tests/trial_search.rs",
     edition = crate_edition(),
-    deps = all_crate_deps(normal_dev = True, proc_macro_dev = True) + [
+    target_compatible_with = ["@platforms//os:macos"],
+    deps = all_crate_deps(
+        normal_dev = True,
+        proc_macro_dev = True,
+    ) + [
         ":ennx_metal",
         "@crates//:ndarray",
     ],
-    target_compatible_with = ["@platforms//os:macos"],
+)
+
+rust_test(
+    name = "trial_search_opencl_test",
+    srcs = ["tests/trial_search.rs"],
+    aliases = aliases(normal_dev = True, proc_macro_dev = True),
+    crate_features = ["opencl"],
+    crate_name = "trial_search_opencl_test",
+    crate_root = "tests/trial_search.rs",
+    edition = crate_edition(),
+    deps = all_crate_deps(normal_dev = True, proc_macro_dev = True) + [
+        ":ennx_opencl",
+        "@crates//:ndarray",
+    ],
 )

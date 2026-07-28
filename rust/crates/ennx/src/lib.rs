@@ -72,7 +72,10 @@ pub use model::EpistemicNearestNeighbors;
 pub use model::{EnnIndexAccess, EnnRowAccess, ModelOptions};
 pub use morbo_trust_region::{MorboTRSettings, MorboTrustRegion, Rescalarize};
 pub use optimizer::obs_access::ObsAccess;
-pub use optimizer::{ObservationDelta, Optimizer, Telemetry};
+pub use optimizer::{
+    MultiTrustRegionConfig, MultiTrustRegionState, ObservationDelta, Optimizer, RegionBatch,
+    RegionCandidate, SharingPolicy, Telemetry,
+};
 pub use optimizer_factory::{create_optimizer_enn, create_optimizer_lhd, create_optimizer_zero};
 pub use params::{ENNNormal, ENNParams, ParamsError, PosteriorFlags};
 pub use posterior::{
@@ -83,8 +86,8 @@ pub use strategy::Strategy;
 pub use surrogate::{ENNSurrogate, ENNSurrogateConfig, Surrogate, SurrogatePrediction};
 pub use traits::PosteriorComputation;
 pub use trials::{
-    Ask as WeightAsk, BpannHistory, EncodingType, IndexedObservation, Leaf as WeightLeaf,
-    ObservationId, Search as WeightSearch, Trial as WeightTrial,
+    Ask as WeightAsk, BpannHistory, Center as WeightCenter, EncodingType, IndexedObservation,
+    Leaf as WeightLeaf, ObservationId, Search as WeightSearch, Trial as WeightTrial,
 };
 pub use trust_region::{NoTrustRegion, TRLengthConfig, TrustRegionError, TurboTrustRegion};
 pub use trust_region_config::TrustRegionConfig;

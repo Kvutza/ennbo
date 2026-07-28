@@ -6,7 +6,7 @@ fn main() -> Result<(), String> {
     let args: Vec<String> = std::env::args().collect();
     let elements = arg(&args, 1, 16 * 1024 * 1024)?;
     let history = arg(&args, 2, 10)?;
-    let candidates = arg(&args, 3, 4)?;
+    let candidates = arg(&args, 3, 8)?;
     let rounds = arg(&args, 4, 10)?;
     let backend = match args.get(5).map(String::as_str).unwrap_or("metal") {
         "cpu" => ComputeBackend::Cpu,
@@ -22,12 +22,18 @@ fn main() -> Result<(), String> {
     let mut search = WeightSearch::new(&base, 0.0, leaves, history, backend)?;
     let ask = WeightAsk {
         length: 0.8,
-        neighbors: 1,
+        neighbors: history.min(10),
         beta: 1.0,
         ..WeightAsk::default()
     };
     for round in 1..history {
-        let trial = search.ask(&[round as u64], ask)?;
+        let trial = search.ask(
+            &[round as u64],
+            WeightAsk {
+                neighbors: round.min(10),
+                ..ask
+            },
+        )?;
         search.tell(trial, round as f32, true)?;
     }
 
@@ -40,7 +46,6 @@ fn main() -> Result<(), String> {
         let trial = search.ask(
             &seeds,
             WeightAsk {
-                neighbors: history.min(10),
                 seed: round as u64,
                 ..ask
             },

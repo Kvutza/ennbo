@@ -75,12 +75,18 @@ typedef struct {
     uint neighbors;
     uint base_slot;
     uint trial_slot;
+    uint center_count;
     uint acquisition;
     float epistemic_scale;
     float aleatoric_scale;
     float y_scale;
     float beta;
 } Params;
+
+typedef struct {
+    uint parent;
+    Seed seed;
+} CenterStep;
 
 inline uint trial_hash(Seed seed, uint element) {
     uint value = seed.low ^ element * 0x9e3779b9u;
@@ -115,6 +121,25 @@ inline uint perturb_code(uint code, Seed seed, uint element, Leaf leaf) {
         : code >= amount ? code - amount : 0u;
 }
 
+inline uint resolve_center(
+    uint code,
+    __global const CenterStep* centers,
+    uint center,
+    uint element,
+    Leaf leaf
+) {
+    Seed chain[8];
+    uint depth = 0u;
+    while (center != UINT_MAX && depth < 8u) {
+        chain[depth++] = centers[center].seed;
+        center = centers[center].parent;
+    }
+    while (depth > 0u) {
+        code = perturb_code(code, chain[--depth], element, leaf);
+    }
+    return code;
+}
+
 __kernel void distance_trials(
     __global const uchar* rows,
     __global const uint* history_slots,
@@ -122,6 +147,8 @@ __kernel void distance_trials(
     __global const Leaf* leaves,
     __global const Tile* tiles,
     __global float* partials_out,
+    __global const CenterStep* centers,
+    __global const uint* candidate_centers,
     Params params
 ) {
     uint thread_index = get_local_id(0);
@@ -137,6 +164,11 @@ __kernel void distance_trials(
     Leaf leaf = leaves[tile.leaf];
     Seed first_seed = seeds[first_candidate];
     Seed second_seed = has_second ? seeds[first_candidate + 1u] : first_seed;
+    uint first_center =
+        params.center_count == 0u ? UINT_MAX : candidate_centers[first_candidate];
+    uint second_center = params.center_count == 0u || !has_second
+        ? UINT_MAX
+        : candidate_centers[first_candidate + 1u];
     __global const uchar* base =
         rows + ((ulong)params.base_slot) * ((ulong)params.row_bytes);
     float first_distances[MAX_HISTORY];
@@ -152,16 +184,30 @@ __kernel void distance_trials(
         for (uint local_byte = thread_index; local_byte < bytes; local_byte += THREADS) {
             uint first = tile.start + local_byte * 2u;
             uchar base_byte = base[leaf.byte_offset + first_byte + local_byte];
-            uint first_low = perturb_code(
+            uint first_base_low = resolve_center(
                 (uint)(base_byte & 0x0fu),
+                centers,
+                first_center,
+                leaf.element_offset + first,
+                leaf
+            );
+            uint first_low = perturb_code(
+                first_base_low,
                 first_seed,
                 leaf.element_offset + first,
                 leaf
             );
             uint first_high = 0u;
             if (first + 1u < leaf.length) {
-                first_high = perturb_code(
+                uint first_base_high = resolve_center(
                     (uint)(base_byte >> 4u),
+                    centers,
+                    first_center,
+                    leaf.element_offset + first + 1u,
+                    leaf
+                );
+                first_high = perturb_code(
+                    first_base_high,
                     first_seed,
                     leaf.element_offset + first + 1u,
                     leaf
@@ -170,15 +216,29 @@ __kernel void distance_trials(
             uint second_low = 0u;
             uint second_high = 0u;
             if (has_second) {
-                second_low = perturb_code(
+                uint second_base_low = resolve_center(
                     (uint)(base_byte & 0x0fu),
+                    centers,
+                    second_center,
+                    leaf.element_offset + first,
+                    leaf
+                );
+                second_low = perturb_code(
+                    second_base_low,
                     second_seed,
                     leaf.element_offset + first,
                     leaf
                 );
                 if (first + 1u < leaf.length) {
-                    second_high = perturb_code(
+                    uint second_base_high = resolve_center(
                         (uint)(base_byte >> 4u),
+                        centers,
+                        second_center,
+                        leaf.element_offset + first + 1u,
+                        leaf
+                    );
+                    second_high = perturb_code(
+                        second_base_high,
                         second_seed,
                         leaf.element_offset + first + 1u,
                         leaf
@@ -231,15 +291,28 @@ __kernel void distance_trials(
         } else {
             uint end = tile.start + tile.length;
             for (uint element = tile.start + thread_index; element < end; element += THREADS) {
-                uint first_value = perturb_code(
+                uint first_base = resolve_center(
                     (uint)base[leaf.byte_offset + element],
+                    centers,
+                    first_center,
+                    leaf.element_offset + element,
+                    leaf
+                );
+                uint first_value = perturb_code(
+                    first_base,
                     first_seed,
                     leaf.element_offset + element,
                     leaf
                 );
                 uint second_value = has_second
                     ? perturb_code(
-                        (uint)base[leaf.byte_offset + element],
+                        resolve_center(
+                            (uint)base[leaf.byte_offset + element],
+                            centers,
+                            second_center,
+                            leaf.element_offset + element,
+                            leaf
+                        ),
                         second_seed,
                         leaf.element_offset + element,
                         leaf

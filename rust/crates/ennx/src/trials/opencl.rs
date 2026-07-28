@@ -8,7 +8,7 @@ use opencl3::memory::{Buffer, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE};
 use opencl3::program::Program;
 use opencl3::types::{cl_mem_flags, CL_BLOCKING, CL_NON_BLOCKING};
 
-use super::{make_steps, make_tiles, Ask, Leaf, Step, Tile};
+use super::{make_steps, make_tiles, Ask, Center, Leaf, Step, Tile};
 
 const THREADS: usize = 256;
 const SOURCE: &str = include_str!("trials.cl");
@@ -31,11 +31,19 @@ struct Params {
     neighbors: u32,
     base_slot: u32,
     trial_slot: u32,
+    center_count: u32,
     acquisition: u32,
     epistemic_scale: f32,
     aleatoric_scale: f32,
     y_scale: f32,
     beta: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CenterStep {
+    parent: u32,
+    seed: Seed,
 }
 
 struct Scratch {
@@ -48,7 +56,10 @@ struct Scratch {
     choice: Buffer<u32>,
     leaves: Buffer<Step>,
     tiles: Buffer<Tile>,
+    centers: Buffer<CenterStep>,
+    candidate_centers: Buffer<u32>,
     candidate_capacity: usize,
+    center_capacity: usize,
 }
 
 pub(super) struct Engine {
@@ -124,7 +135,10 @@ impl Engine {
             choice: buffer(&context, 1, CL_MEM_READ_WRITE, "choice")?,
             leaves: buffer(&context, leaves.len(), CL_MEM_READ_ONLY, "leaves")?,
             tiles: buffer(&context, tiles.len(), CL_MEM_READ_ONLY, "tiles")?,
+            centers: buffer(&context, 1, CL_MEM_READ_ONLY, "centers")?,
+            candidate_centers: buffer(&context, 1, CL_MEM_READ_ONLY, "candidate centers")?,
             candidate_capacity: 1,
+            center_capacity: 1,
         };
         unsafe {
             queue
@@ -156,6 +170,11 @@ impl Engine {
         config: Ask,
     ) -> Result<(usize, f32), String> {
         self.ensure_candidates(seeds.len())?;
+        let distance_groups = seeds
+            .len()
+            .div_ceil(2)
+            .checked_mul(self.tile_count)
+            .ok_or("distance dispatch size overflow")?;
         let history_slots: Vec<u32> = history
             .iter()
             .map(|&(slot, _)| to_u32(slot, "history slot"))
@@ -181,6 +200,7 @@ impl Engine {
             neighbors: to_u32(config.neighbors, "neighbor count")?,
             base_slot: to_u32(base_slot, "base slot")?,
             trial_slot: to_u32(trial_slot, "trial slot")?,
+            center_count: 0,
             acquisition: crate::weights::acquisition_code(config.acquisition),
             epistemic_scale: config.epistemic_scale,
             aleatoric_scale: config.aleatoric_scale,
@@ -196,8 +216,14 @@ impl Engine {
                 .set_arg(&self.scratch.leaves)
                 .set_arg(&self.scratch.tiles)
                 .set_arg(&self.scratch.partials)
+                .set_arg(&self.scratch.centers)
+                .set_arg(&self.scratch.candidate_centers)
                 .set_arg(&params)
-                .set_global_work_size(seeds.len().div_ceil(2) * self.tile_count * THREADS)
+                .set_global_work_size(
+                    distance_groups
+                        .checked_mul(THREADS)
+                        .ok_or("distance work size overflow")?,
+                )
                 .set_local_work_size(THREADS)
                 .enqueue_nd_range(&self.queue)
                 .map_err(|error| format!("failed to launch OpenCL trial distances: {error}"))?;
@@ -248,6 +274,71 @@ impl Engine {
         Ok((index, scores[index]))
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn ask_multi_tr_tree(
+        &mut self,
+        base_slot: usize,
+        history: &[(usize, f32)],
+        seeds_per_region: usize,
+        centers: &[Center],
+        region_centers: &[usize],
+        seeds: &[u64],
+        leaves: &[Leaf],
+        config: Ask,
+    ) -> Result<Vec<(usize, f32)>, String> {
+        self.ensure_candidates(seeds.len())?;
+        let distance_groups = seeds
+            .len()
+            .div_ceil(2)
+            .checked_mul(self.tile_count)
+            .ok_or("distance dispatch size overflow")?;
+        let history_slots: Vec<u32> = history
+            .iter()
+            .map(|&(slot, _)| to_u32(slot, "history slot"))
+            .collect::<Result<_, _>>()?;
+        let outcomes: Vec<f32> = history.iter().map(|&(_, value)| value).collect();
+        let packed_seeds: Vec<Seed> = seeds
+            .iter()
+            .map(|&seed| Seed {
+                low: seed as u32,
+                high: (seed >> 32) as u32,
+            })
+            .collect();
+        let draws = crate::weights::thompson_draws(seeds.len(), config.seed);
+        let steps = make_steps(leaves, config.length);
+        self.write_inputs(&history_slots, &outcomes, &packed_seeds, &draws, &steps)?;
+        self.write_centers(centers, region_centers, seeds_per_region)?;
+        let params = Params {
+            row_bytes: to_u32(self.row_bytes, "row bytes")?,
+            history: to_u32(history.len(), "history length")?,
+            candidates: to_u32(seeds.len(), "candidate count")?,
+            leaves: to_u32(leaves.len(), "leaf count")?,
+            tiles: to_u32(self.tile_count, "tile count")?,
+            neighbors: to_u32(config.neighbors, "neighbor count")?,
+            base_slot: to_u32(base_slot, "base slot")?,
+            trial_slot: to_u32(base_slot, "trial slot")?,
+            center_count: to_u32(centers.len(), "center count")?,
+            acquisition: crate::weights::acquisition_code(config.acquisition),
+            epistemic_scale: config.epistemic_scale,
+            aleatoric_scale: config.aleatoric_scale,
+            y_scale: config.y_scale,
+            beta: config.beta,
+        };
+        let scores = self.run_scores(&params, distance_groups, seeds.len())?;
+        Ok(scores
+            .chunks_exact(seeds_per_region)
+            .enumerate()
+            .map(|(region, scores)| {
+                let (index, &score) = scores
+                    .iter()
+                    .enumerate()
+                    .max_by(|a, b| a.1.total_cmp(b.1).then_with(|| b.0.cmp(&a.0)))
+                    .expect("regions have non-zero candidates");
+                (region * seeds_per_region + index, score)
+            })
+            .collect())
+    }
+
     pub(super) fn read(&self, slot: usize, row_bytes: usize) -> Result<Vec<u8>, String> {
         let mut row = vec![0u8; row_bytes];
         unsafe {
@@ -277,6 +368,12 @@ impl Engine {
         self.scratch.seeds = buffer(&self.context, capacity, CL_MEM_READ_ONLY, "seeds")?;
         self.scratch.draws = buffer(&self.context, capacity, CL_MEM_READ_ONLY, "draws")?;
         self.scratch.scores = buffer(&self.context, capacity, CL_MEM_READ_WRITE, "scores")?;
+        self.scratch.candidate_centers = buffer(
+            &self.context,
+            capacity,
+            CL_MEM_READ_ONLY,
+            "candidate centers",
+        )?;
         let partial_count = capacity
             .checked_mul(super::MAX_HISTORY)
             .and_then(|value| value.checked_mul(self.tile_count))
@@ -288,6 +385,103 @@ impl Engine {
             "partial distances",
         )?;
         self.scratch.candidate_capacity = capacity;
+        Ok(())
+    }
+
+    fn run_scores(
+        &self,
+        params: &Params,
+        distance_groups: usize,
+        candidates: usize,
+    ) -> Result<Vec<f32>, String> {
+        unsafe {
+            ExecuteKernel::new(&self.distance)
+                .set_arg(&self.rows)
+                .set_arg(&self.scratch.history_slots)
+                .set_arg(&self.scratch.seeds)
+                .set_arg(&self.scratch.leaves)
+                .set_arg(&self.scratch.tiles)
+                .set_arg(&self.scratch.partials)
+                .set_arg(&self.scratch.centers)
+                .set_arg(&self.scratch.candidate_centers)
+                .set_arg(params)
+                .set_global_work_size(
+                    distance_groups
+                        .checked_mul(THREADS)
+                        .ok_or("distance work size overflow")?,
+                )
+                .set_local_work_size(THREADS)
+                .enqueue_nd_range(&self.queue)
+                .map_err(|error| format!("failed to launch OpenCL trial distances: {error}"))?;
+            ExecuteKernel::new(&self.score)
+                .set_arg(&self.scratch.partials)
+                .set_arg(&self.scratch.outcomes)
+                .set_arg(&self.scratch.draws)
+                .set_arg(&self.scratch.scores)
+                .set_arg(params)
+                .set_global_work_size(candidates * THREADS)
+                .set_local_work_size(THREADS)
+                .enqueue_nd_range(&self.queue)
+                .map_err(|error| format!("failed to launch OpenCL trial scoring: {error}"))?;
+        }
+        let mut scores = vec![0.0; candidates];
+        unsafe {
+            self.queue
+                .enqueue_read_buffer(&self.scratch.scores, CL_BLOCKING, 0, &mut scores, &[])
+                .map_err(|error| format!("failed to read OpenCL trial scores: {error}"))?;
+        }
+        Ok(scores)
+    }
+
+    fn write_centers(
+        &mut self,
+        centers: &[Center],
+        region_centers: &[usize],
+        candidates_per_region: usize,
+    ) -> Result<(), String> {
+        if centers.len() > self.scratch.center_capacity {
+            let capacity = centers.len().next_power_of_two();
+            self.scratch.centers = buffer(&self.context, capacity, CL_MEM_READ_ONLY, "centers")?;
+            self.scratch.center_capacity = capacity;
+        }
+        let steps: Vec<CenterStep> = centers
+            .iter()
+            .map(|center| {
+                Ok(CenterStep {
+                    parent: center
+                        .parent
+                        .map(|parent| to_u32(parent, "center parent"))
+                        .transpose()?
+                        .unwrap_or(u32::MAX),
+                    seed: Seed {
+                        low: center.seed as u32,
+                        high: (center.seed >> 32) as u32,
+                    },
+                })
+            })
+            .collect::<Result<_, String>>()?;
+        let region_centers: Vec<u32> = region_centers
+            .iter()
+            .map(|&center| to_u32(center, "region center"))
+            .collect::<Result<_, _>>()?;
+        let candidate_centers: Vec<u32> = region_centers
+            .into_iter()
+            .flat_map(|center| std::iter::repeat_n(center, candidates_per_region))
+            .collect();
+        unsafe {
+            self.queue
+                .enqueue_write_buffer(&mut self.scratch.centers, CL_NON_BLOCKING, 0, &steps, &[])
+                .map_err(|error| format!("failed to write OpenCL centers: {error}"))?;
+            self.queue
+                .enqueue_write_buffer(
+                    &mut self.scratch.candidate_centers,
+                    CL_NON_BLOCKING,
+                    0,
+                    &candidate_centers,
+                    &[],
+                )
+                .map_err(|error| format!("failed to write OpenCL candidate centers: {error}"))?;
+        }
         Ok(())
     }
 

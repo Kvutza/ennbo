@@ -6,6 +6,9 @@ pub mod obs_access;
 mod observation_delta;
 mod tr_state;
 
+pub use multi_tr::{
+    MultiTrustRegionConfig, MultiTrustRegionState, RegionBatch, RegionCandidate, SharingPolicy,
+};
 pub use observation_delta::ObservationDelta;
 
 use ndarray::{Array1, Array2, ArrayView2};

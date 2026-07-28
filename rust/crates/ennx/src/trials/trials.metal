@@ -2,7 +2,8 @@
 using namespace metal;
 
 constant uint kThreads = 256;
-constant uint kMaxHistory = 16;
+constant uint kMaxHistory = 128;
+constant uint kHistoryBatch = 8;
 
 constant float kFp4E2M1LUT[16] = {
     0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f,
@@ -78,11 +79,17 @@ struct Params {
     uint neighbors;
     uint base_slot;
     uint trial_slot;
+    uint center_count;
     uint acquisition;
     float epistemic_scale;
     float aleatoric_scale;
     float y_scale;
     float beta;
+};
+
+struct CenterStep {
+    uint parent;
+    Seed seed;
 };
 
 inline uint hash(Seed seed, uint element) {
@@ -115,6 +122,25 @@ inline uint perturb(uint code, Seed seed, uint element, Leaf leaf) {
     return code + amount <= max_code ? code + amount : code >= amount ? code - amount : 0u;
 }
 
+inline uint resolve_center(
+    uint code,
+    device const CenterStep* centers,
+    uint center,
+    uint element,
+    Leaf leaf
+) {
+    Seed chain[8];
+    uint depth = 0u;
+    while (center != UINT_MAX && depth < 8u) {
+        chain[depth++] = centers[center].seed;
+        center = centers[center].parent;
+    }
+    while (depth > 0u) {
+        code = perturb(code, chain[--depth], element, leaf);
+    }
+    return code;
+}
+
 kernel void distance_trials(
     device const uchar* rows [[buffer(0)]],
     device const uint* history_slots [[buffer(1)]],
@@ -122,12 +148,18 @@ kernel void distance_trials(
     device const Leaf* leaves [[buffer(3)]],
     device const Tile* tiles [[buffer(4)]],
     device float* partials_out [[buffer(5)]],
-    constant Params& params [[buffer(6)]],
+    device const CenterStep* centers [[buffer(6)]],
+    device const uint* candidate_centers [[buffer(7)]],
+    constant Params& params [[buffer(8)]],
     uint thread_index [[thread_index_in_threadgroup]],
     uint3 group_index [[threadgroup_position_in_grid]]
 ) {
-    uint candidate_group = group_index.x / params.tiles;
-    uint tile_index = group_index.x - candidate_group * params.tiles;
+    uint tile_index = group_index.x % params.tiles;
+    uint work_index = group_index.x / params.tiles;
+    uint history_groups = (params.history + kHistoryBatch - 1u) / kHistoryBatch;
+    uint candidate_group = work_index / history_groups;
+    uint history_start = (work_index % history_groups) * kHistoryBatch;
+    uint history_count = min(kHistoryBatch, params.history - history_start);
     uint first_candidate = candidate_group * 2u;
     if (first_candidate >= params.candidates) {
         return;
@@ -137,11 +169,16 @@ kernel void distance_trials(
     Leaf leaf = leaves[tile.leaf];
     Seed first_seed = seeds[first_candidate];
     Seed second_seed = has_second ? seeds[first_candidate + 1u] : first_seed;
+    uint first_center =
+        params.center_count == 0u ? UINT_MAX : candidate_centers[first_candidate];
+    uint second_center = params.center_count == 0u || !has_second
+        ? UINT_MAX
+        : candidate_centers[first_candidate + 1u];
     device const uchar* base =
         rows + ulong(params.base_slot) * ulong(params.row_bytes);
-    float first_distances[kMaxHistory];
-    float second_distances[kMaxHistory];
-    for (uint h = 0; h < params.history; ++h) {
+    float first_distances[kHistoryBatch];
+    float second_distances[kHistoryBatch];
+    for (uint h = 0; h < history_count; ++h) {
         first_distances[h] = 0.0f;
         second_distances[h] = 0.0f;
     }
@@ -152,16 +189,30 @@ kernel void distance_trials(
         for (uint local_byte = thread_index; local_byte < bytes; local_byte += kThreads) {
             uint first = tile.start + local_byte * 2u;
             uchar base_byte = base[leaf.byte_offset + first_byte + local_byte];
-            uint first_low = perturb(
+            uint first_base_low = resolve_center(
                 uint(base_byte & 0x0fu),
+                centers,
+                first_center,
+                leaf.element_offset + first,
+                leaf
+            );
+            uint first_low = perturb(
+                first_base_low,
                 first_seed,
                 leaf.element_offset + first,
                 leaf
             );
             uint first_high = 0u;
             if (first + 1u < leaf.length) {
-                first_high = perturb(
+                uint first_base_high = resolve_center(
                     uint(base_byte >> 4u),
+                    centers,
+                    first_center,
+                    leaf.element_offset + first + 1u,
+                    leaf
+                );
+                first_high = perturb(
+                    first_base_high,
                     first_seed,
                     leaf.element_offset + first + 1u,
                     leaf
@@ -170,15 +221,29 @@ kernel void distance_trials(
             uint second_low = 0u;
             uint second_high = 0u;
             if (has_second) {
-                second_low = perturb(
+                uint second_base_low = resolve_center(
                     uint(base_byte & 0x0fu),
+                    centers,
+                    second_center,
+                    leaf.element_offset + first,
+                    leaf
+                );
+                second_low = perturb(
+                    second_base_low,
                     second_seed,
                     leaf.element_offset + first,
                     leaf
                 );
                 if (first + 1u < leaf.length) {
-                    second_high = perturb(
+                    uint second_base_high = resolve_center(
                         uint(base_byte >> 4u),
+                        centers,
+                        second_center,
+                        leaf.element_offset + first + 1u,
+                        leaf
+                    );
+                    second_high = perturb(
+                        second_base_high,
                         second_seed,
                         leaf.element_offset + first + 1u,
                         leaf
@@ -189,9 +254,9 @@ kernel void distance_trials(
                 float first_high_val = decode_code(first_high, leaf.encoding, leaf.scale);
                 float second_low_val = decode_code(second_low, leaf.encoding, leaf.scale);
                 float second_high_val = decode_code(second_high, leaf.encoding, leaf.scale);
-                for (uint h = 0; h < params.history; ++h) {
+                for (uint h = 0; h < history_count; ++h) {
                     device const uchar* observation =
-                        rows + ulong(history_slots[h]) * ulong(params.row_bytes);
+                        rows + ulong(history_slots[history_start + h]) * ulong(params.row_bytes);
                     uchar observed = observation[leaf.byte_offset + first_byte + local_byte];
                     float obs_low_val = decode_code(uint(observed & 0x0fu), leaf.encoding, leaf.scale);
                     float first_low_delta = first_low_val - obs_low_val;
@@ -231,15 +296,28 @@ kernel void distance_trials(
         } else {
             uint end = tile.start + tile.length;
             for (uint element = tile.start + thread_index; element < end; element += kThreads) {
-                uint first_value = perturb(
+                uint first_base = resolve_center(
                     uint(base[leaf.byte_offset + element]),
+                    centers,
+                    first_center,
+                    leaf.element_offset + element,
+                    leaf
+                );
+                uint first_value = perturb(
+                    first_base,
                     first_seed,
                     leaf.element_offset + element,
                     leaf
                 );
                 uint second_value = has_second
                     ? perturb(
-                        uint(base[leaf.byte_offset + element]),
+                        resolve_center(
+                            uint(base[leaf.byte_offset + element]),
+                            centers,
+                            second_center,
+                            leaf.element_offset + element,
+                            leaf
+                        ),
                         second_seed,
                         leaf.element_offset + element,
                         leaf
@@ -247,9 +325,9 @@ kernel void distance_trials(
                     : 0u;
                 float first_val = decode_code(first_value, leaf.encoding, leaf.scale);
                 float second_val = decode_code(second_value, leaf.encoding, leaf.scale);
-                for (uint h = 0; h < params.history; ++h) {
+                for (uint h = 0; h < history_count; ++h) {
                     device const uchar* observation =
-                        rows + ulong(history_slots[h]) * ulong(params.row_bytes);
+                        rows + ulong(history_slots[history_start + h]) * ulong(params.row_bytes);
                     float obs_val = decode_code(uint(observation[leaf.byte_offset + element]), leaf.encoding, leaf.scale);
                     float first_delta = first_val - obs_val;
                     first_distances[h] = fma(
@@ -271,7 +349,7 @@ kernel void distance_trials(
 
 
     threadgroup float partials[kThreads / 32];
-    for (uint h = 0; h < params.history; ++h) {
+    for (uint h = 0; h < history_count; ++h) {
         float first_simd_val = simd_sum(first_distances[h]);
         uint simd_lane = thread_index % 32;
         uint simd_id = thread_index / 32;
@@ -285,7 +363,7 @@ kernel void distance_trials(
                 total += partials[i];
             }
             ulong offset =
-                (ulong(first_candidate) * ulong(params.history) + ulong(h))
+                (ulong(first_candidate) * ulong(params.history) + ulong(history_start + h))
                 * ulong(params.tiles)
                 + ulong(tile_index);
             partials_out[offset] = total;
@@ -303,7 +381,7 @@ kernel void distance_trials(
                     total += partials[i];
                 }
                 ulong offset =
-                    (ulong(first_candidate + 1u) * ulong(params.history) + ulong(h))
+                    (ulong(first_candidate + 1u) * ulong(params.history) + ulong(history_start + h))
                     * ulong(params.tiles)
                     + ulong(tile_index);
                 partials_out[offset] = total;
@@ -424,36 +502,81 @@ kernel void pick_trial(
 
 struct MultiTRParams {
     uint num_regions;
-    uint candidates;
-    uint history;
-    uint neighbors;
-    uint acquisition;
-    float epistemic_scale;
-    float aleatoric_scale;
-    float y_scale;
-    float beta;
+    uint candidates_per_region;
 };
 
 kernel void multi_tr_pick_trials(
     device const float* scores [[buffer(0)]],
     device uint* choices [[buffer(1)]],
-    constant MultiTRParams& params [[buffer(2)]],
+    device float* selected_scores [[buffer(2)]],
+    constant MultiTRParams& params [[buffer(3)]],
+    uint thread_index [[thread_index_in_threadgroup]],
     uint region_index [[threadgroup_position_in_grid]]
 ) {
     if (region_index >= params.num_regions) {
         return;
     }
-    device const float* region_scores = scores + region_index * params.candidates;
-    uint best = 0;
-    float best_score = region_scores[0];
-    for (uint index = 1; index < params.candidates; ++index) {
+    device const float* region_scores =
+        scores + region_index * params.candidates_per_region;
+    float best_score = -INFINITY;
+    uint best_index = UINT_MAX;
+    for (
+        uint index = thread_index;
+        index < params.candidates_per_region;
+        index += kThreads
+    ) {
         float score = region_scores[index];
-        if (score > best_score) {
-            best = index;
+        if (
+            score > best_score
+            || (score == best_score && index < best_index)
+        ) {
             best_score = score;
+            best_index = index;
         }
     }
-    choices[region_index] = best;
+
+    for (uint offset = 16u; offset > 0u; offset >>= 1u) {
+        float other_score = simd_shuffle_down(best_score, offset);
+        uint other_index = simd_shuffle_down(best_index, offset);
+        if (
+            other_score > best_score
+            || (other_score == best_score && other_index < best_index)
+        ) {
+            best_score = other_score;
+            best_index = other_index;
+        }
+    }
+
+    threadgroup float group_scores[kThreads / 32];
+    threadgroup uint group_indices[kThreads / 32];
+    uint lane = thread_index % 32u;
+    uint simd_index = thread_index / 32u;
+    if (lane == 0u) {
+        group_scores[simd_index] = best_score;
+        group_indices[simd_index] = best_index;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    if (simd_index == 0u) {
+        best_score = lane < kThreads / 32 ? group_scores[lane] : -INFINITY;
+        best_index = lane < kThreads / 32 ? group_indices[lane] : UINT_MAX;
+        for (uint offset = 16u; offset > 0u; offset >>= 1u) {
+            float other_score = simd_shuffle_down(best_score, offset);
+            uint other_index = simd_shuffle_down(best_index, offset);
+            if (
+                other_score > best_score
+                || (other_score == best_score && other_index < best_index)
+            ) {
+                best_score = other_score;
+                best_index = other_index;
+            }
+        }
+        if (lane == 0u) {
+            choices[region_index] =
+                region_index * params.candidates_per_region + best_index;
+            selected_scores[region_index] = best_score;
+        }
+    }
 }
 
 kernel void write_trial(

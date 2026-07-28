@@ -1,4 +1,6 @@
-use ennx::{AcquisitionKind, BpannHistory, ComputeBackend, WeightAsk, WeightLeaf, WeightSearch};
+use ennx::{
+    AcquisitionKind, BpannHistory, ComputeBackend, WeightAsk, WeightCenter, WeightLeaf, WeightSearch,
+};
 use ndarray::{array, Axis};
 use tempfile::TempDir;
 
@@ -103,6 +105,129 @@ fn metal_matches_cpu_with_external_history_shortlist() {
     assert_eq!(metal.0, cpu.0);
     assert!((metal.1 - cpu.1).abs() <= 1.0e-5, "{metal:?} != {cpu:?}");
     assert_eq!(metal.2, cpu.2);
+}
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+#[test]
+fn metal_multi_tr_matches_independent_cpu_regions() {
+    let seeds = [19, 23, 29, 31, 37, 41];
+    let config = WeightAsk {
+        neighbors: 1,
+        length: 0.65,
+        beta: 1.3,
+        acquisition: AcquisitionKind::Ucb,
+        seed: 43,
+        ..WeightAsk::default()
+    };
+    let warm = |backend| -> Result<WeightSearch, String> {
+        let mut search = WeightSearch::new(&base(), 0.25, leaves(), 4, backend)?;
+        let trial = search.ask(
+            &[17],
+            WeightAsk {
+                neighbors: 1,
+                ..WeightAsk::default()
+            },
+        )?;
+        search.tell(trial, 0.75, true)?;
+        Ok(search)
+    };
+
+    let actual = warm(ComputeBackend::Metal)
+        .unwrap()
+        .ask_multi_tr(2, 3, &seeds, config)
+        .unwrap();
+    let mut expected = Vec::new();
+    for (region, region_seeds) in seeds.chunks_exact(3).enumerate() {
+        let trial = warm(ComputeBackend::Cpu)
+            .unwrap()
+            .ask(region_seeds, config)
+            .unwrap();
+        expected.push((region * 3 + trial.index, trial.score));
+    }
+
+    assert_eq!(actual.len(), expected.len());
+    for ((actual_index, actual_score), (expected_index, expected_score)) in
+        actual.into_iter().zip(expected)
+    {
+        assert_eq!(actual_index, expected_index);
+        assert!((actual_score - expected_score).abs() <= 1.0e-5);
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+#[test]
+fn metal_multi_tr_resolves_perturbation_tree() {
+    let centers = [
+        WeightCenter {
+            parent: None,
+            seed: 101,
+        },
+        WeightCenter {
+            parent: Some(0),
+            seed: 103,
+        },
+    ];
+    let region_centers = [0, 1];
+    let seeds = [19, 23, 29, 31, 37, 41];
+    let config = WeightAsk {
+        neighbors: 1,
+        length: 0.65,
+        acquisition: AcquisitionKind::Ucb,
+        seed: 43,
+        ..WeightAsk::default()
+    };
+    let run = |backend| {
+        WeightSearch::new(&base(), 0.25, leaves(), 4, backend)
+            .unwrap()
+            .ask_multi_tr_tree(2, 3, &centers, &region_centers, &seeds, config)
+            .unwrap()
+    };
+
+    let cpu = run(ComputeBackend::Cpu);
+    let metal = run(ComputeBackend::Metal);
+    assert_eq!(metal.len(), cpu.len());
+    for ((metal_index, metal_score), (cpu_index, cpu_score)) in metal.into_iter().zip(cpu) {
+        assert_eq!(metal_index, cpu_index);
+        assert!((metal_score - cpu_score).abs() <= 1.0e-5);
+    }
+}
+
+#[cfg(feature = "opencl")]
+#[test]
+fn opencl_multi_tr_resolves_perturbation_tree() {
+    let centers = [
+        WeightCenter {
+            parent: None,
+            seed: 101,
+        },
+        WeightCenter {
+            parent: Some(0),
+            seed: 103,
+        },
+    ];
+    let region_centers = [0, 1];
+    let seeds = [19, 23, 29, 31, 37, 41];
+    let config = WeightAsk {
+        neighbors: 1,
+        length: 0.65,
+        acquisition: AcquisitionKind::Ucb,
+        seed: 43,
+        ..WeightAsk::default()
+    };
+    let run = |backend| {
+        WeightSearch::new(&base(), 0.25, leaves(), 4, backend)
+            .unwrap()
+            .ask_multi_tr_tree(2, 3, &centers, &region_centers, &seeds, config)
+            .unwrap()
+    };
+
+    let cpu = run(ComputeBackend::Cpu);
+    let opencl = run(ComputeBackend::OpenCl);
+    assert_eq!(opencl.len(), cpu.len());
+    for ((opencl_index, opencl_score), (cpu_index, cpu_score)) in opencl.into_iter().zip(cpu) {
+        assert_eq!(opencl_index, cpu_index);
+        assert!((opencl_score - cpu_score).abs() <= 1.0e-5);
+    }
 }
 
 fn ask_with_bpann(backend: ComputeBackend) -> Result<(usize, f32, Vec<u8>), String> {
