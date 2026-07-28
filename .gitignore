@@ -7,5 +7,7 @@ target/
 results/
 *~
 /bazel-*
+/buck-out/
+/.buck2-tools/
 /tests/bazel_consumer/MODULE.bazel.lock
 /tests/bazel_consumer/bazel-*

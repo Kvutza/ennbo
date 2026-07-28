@@ -1,5 +1,6 @@
 use ennx::{
-    AcquisitionKind, BpannHistory, ComputeBackend, WeightAsk, WeightCenter, WeightLeaf, WeightSearch,
+    AcquisitionKind, BpannHistory, ComputeBackend, WeightAsk, WeightCenter, WeightLeaf,
+    WeightSearch,
 };
 use ndarray::{array, Axis};
 use tempfile::TempDir;

@@ -1,0 +1,51 @@
+load("//buck2:reindeer_rules.bzl", "app_rust_library")
+
+cxx_library(
+    name = "faiss-bridge",
+    srcs = ["src/faiss_bridge.cpp"],
+    compiler_flags = select({
+        "//:windows-x86_64": ["/std:c++17"],
+        "DEFAULT": [
+            "-std=c++17",
+            "-Wno-deprecated-declarations",
+        ],
+    }),
+    deps = ["//buck2/native:faiss"],
+)
+
+app_rust_library(
+    name = "ennx",
+    srcs = glob([
+        "src/**/*.cl",
+        "src/**/*.metal",
+        "src/**/*.rs",
+    ]),
+    crate = "ennx",
+    crate_root = "src/lib.rs",
+    edition = "2021",
+    features = ["default"] + select({
+        "//:linux-arm64": ["opencl"],
+        "//:linux-x86_64": ["opencl"],
+        "//:macos-arm64": ["metal"],
+        "//:windows-x86_64": ["opencl"],
+    }),
+    visibility = ["PUBLIC"],
+    deps = [
+        ":faiss-bridge",
+        "//rust/crates/bpann:bpann",
+        "//rust:memmap2",
+        "//rust:ndarray",
+        "//rust:ndarray-linalg",
+        "//rust:rand",
+        "//rust:rayon",
+        "//rust:serde",
+        "//rust:sobol",
+        "//rust:thiserror",
+        "//rust:toml",
+    ] + select({
+        "//:linux-arm64": ["//buck2/accelerators:opencl3"],
+        "//:linux-x86_64": ["//buck2/accelerators:opencl3"],
+        "//:macos-arm64": ["//buck2/accelerators:metal"],
+        "//:windows-x86_64": ["//buck2/accelerators:opencl3"],
+    }),
+)

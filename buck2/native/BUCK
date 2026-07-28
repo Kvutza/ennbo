@@ -1,0 +1,138 @@
+http_archive(
+    name = "faiss-source",
+    sha256 = "561376d1a44771bf1230fabeef9c81643468009b45a585382cf38d3a7a94990a",
+    strip_prefix = "faiss-1.12.0",
+    target_compatible_with = ["prelude//os/constraints:macos"],
+    urls = [
+        "https://github.com/facebookresearch/faiss/archive/refs/tags/v1.12.0.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "llvm-openmp-conda",
+    sha256 = "ccbaad6bbc88f135ab849bc36af5fa6eda36a9ed18ce6f58e3dde3d11784c156",
+    target_compatible_with = [
+        "prelude//cpu/constraints:arm64",
+        "prelude//os/constraints:macos",
+    ],
+    type = "zip",
+    urls = [
+        "https://conda.anaconda.org/conda-forge/osx-arm64/llvm-openmp-22.1.8-hc7d1edf_0.conda",
+    ],
+)
+
+python_bootstrap_binary(
+    name = "build-faiss-tool",
+    main = "build_faiss.py",
+)
+
+rust_binary(
+    name = "import-pixi-tool",
+    srcs = ["import_pixi.rs"],
+    crate_root = "import_pixi.rs",
+    edition = "2021",
+)
+
+genrule(
+    name = "linux-native",
+    srcs = ["//:pixi-lock"],
+    out = "native",
+    cmd = "$(exe :import-pixi-tool) $OUT",
+    target_compatible_with = ["prelude//os/constraints:linux"],
+    visibility = ["PUBLIC"],
+)
+
+genrule(
+    name = "faiss-build",
+    default_outs = ["libfaiss.a"],
+    outs = {
+        "faiss": ["libfaiss.a"],
+        "omp-header": ["omp.h"],
+        "openmp": ["libomp.dylib"],
+    },
+    srcs = [
+        ":faiss-source",
+        ":llvm-openmp-conda",
+    ],
+    cmd = " ".join([
+        "$(exe :build-faiss-tool)",
+        "--source",
+        "$(location :faiss-source)",
+        "--openmp",
+        "$(location :llvm-openmp-conda)",
+        "--out-dir",
+        "$OUT",
+        "--jobs",
+        "4",
+    ]),
+    target_compatible_with = ["prelude//os/constraints:macos"],
+    visibility = ["PUBLIC"],
+)
+
+prebuilt_cxx_library(
+    name = "openmp-macos",
+    exported_linker_flags = [
+        "-Wl,-needed_library,$(location :faiss-build[openmp])",
+    ],
+    shared_lib = ":faiss-build[openmp]",
+    soname = "libomp.dylib",
+    target_compatible_with = ["prelude//os/constraints:macos"],
+    visibility = ["PUBLIC"],
+)
+
+prebuilt_cxx_library(
+    name = "faiss-macos",
+    exported_deps = [":openmp-macos"],
+    exported_linker_flags = [
+        "-framework",
+        "Accelerate",
+        "-lc++",
+    ],
+    exported_preprocessor_flags = [
+        "-I$(location :faiss-source)",
+    ],
+    force_static = True,
+    preferred_linkage = "static",
+    static_lib = ":faiss-build[faiss]",
+    static_pic_lib = ":faiss-build[faiss]",
+    target_compatible_with = ["prelude//os/constraints:macos"],
+    visibility = ["PUBLIC"],
+)
+
+cxx_library(
+    name = "faiss-linux-system",
+    exported_linker_flags = [
+        "-L$(location :linux-native)/lib",
+        "-lfaiss",
+        "-lopenblas",
+        "-lOpenCL",
+        "-lstdc++",
+    ],
+    exported_preprocessor_flags = ["-I$(location :linux-native)/include"],
+    target_compatible_with = ["prelude//os/constraints:linux"],
+    visibility = ["PUBLIC"],
+)
+
+cxx_library(
+    name = "faiss-windows-system",
+    exported_linker_flags = ["faiss.lib"],
+    target_compatible_with = ["prelude//os/constraints:windows"],
+    visibility = ["PUBLIC"],
+)
+
+alias(
+    name = "faiss",
+    actual = select({
+        "prelude//os/constraints:linux": ":faiss-linux-system",
+        "prelude//os/constraints:macos": ":faiss-macos",
+        "prelude//os/constraints:windows": ":faiss-windows-system",
+    }),
+    visibility = ["PUBLIC"],
+)
+
+cxx_test(
+    name = "faiss-smoke",
+    srcs = ["faiss_smoke.cpp"],
+    deps = [":faiss"],
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)

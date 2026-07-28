@@ -1,0 +1,77 @@
+#!/bin/sh
+set -eu
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$repo_dir"
+
+python_bin=${ENNX_PYTHON:-"$repo_dir/.pixi/envs/ennx/bin/python"}
+if [ ! -x "$python_bin" ]; then
+    echo "missing CPython 3.13 environment; run: pixi install -e ennx" >&2
+    exit 1
+fi
+
+build_output=$(./buck2w --isolation-dir release build //:wheel \
+    --config ennx.profile=release \
+    --local-only \
+    --num-threads 4 \
+    --console none \
+    --show-output)
+wheel_path=$(printf '%s\n' "$build_output" | awk '$1 == "root//:wheel" { print $2 }')
+if [ -z "$wheel_path" ] || [ ! -f "$wheel_path" ]; then
+    echo "wheel output not found in: $build_output" >&2
+    exit 1
+fi
+
+smoke_dir=$(mktemp -d "${TMPDIR:-/tmp}/ennx-buck2-wheel.XXXXXX")
+trap 'rm -rf "$smoke_dir"' EXIT HUP INT TERM
+"$python_bin" -m zipfile -e "$wheel_path" "$smoke_dir"
+
+extension=$(find "$smoke_dir/ennx" -maxdepth 1 -name 'ennx_rust*.so' -print)
+test -n "$extension"
+
+case $(uname -s) in
+    Darwin)
+        runtime="$smoke_dir/ennx/.dylibs/libomp.dylib"
+        test -f "$runtime"
+        otool -L "$extension" | grep -F '@rpath/libomp.dylib'
+        otool -l "$extension" | grep -A2 LC_RPATH | grep -F '@loader_path/.dylibs'
+        otool -D "$runtime" | grep -F '@rpath/libomp.dylib'
+        nm -u "$extension" | grep -E '___kmpc_|_omp_get_max_threads' >/dev/null
+        if otool -L "$extension" | grep -E '/opt/homebrew|/\\.pixi/|/Library/Caches/|conda'; then
+            echo "wheel extension contains a host-specific library path" >&2
+            exit 1
+        fi
+        ;;
+    Linux)
+        test -f "$smoke_dir/ennx/.dylibs/libfaiss.so"
+        test -f "$smoke_dir/ennx/.dylibs/libopenblas.so.0"
+        test -f "$smoke_dir/ennx/.dylibs/libstdc++.so.6"
+        test ! -e "$smoke_dir/ennx/.dylibs/librust_crates_ennx-py_ennx-py.so"
+        readelf -d "$extension" | grep -F '$ORIGIN/.dylibs'
+        if readelf -d "$extension" | grep -E '/home/|/\\.pixi/|conda'; then
+            echo "wheel extension contains a host-specific library path" >&2
+            exit 1
+        fi
+        unset LD_LIBRARY_PATH
+        ;;
+    *)
+        echo "wheel smoke is unsupported on $(uname -s)" >&2
+        exit 1
+        ;;
+esac
+
+PYTHONPATH="$smoke_dir" "$python_bin" - <<'PY'
+import sys
+
+assert sys.version_info[:2] == (3, 13)
+assert "numpy" not in sys.modules
+from ennx import _rust
+import numpy as np
+
+center, scale = _rust.standardize_y(np.array([1.0, 2.0, 3.0]))
+assert center == 2.0
+assert abs(scale - 0.8164965809277261) < 1e-15
+print(f"native smoke: center={center}, scale={scale}")
+PY
+
+printf '%s\n' "$wheel_path"

@@ -1,0 +1,44 @@
+rust_test(
+    name = "metal",
+    srcs = ["metal.rs"],
+    crate_root = "metal.rs",
+    deps = [
+        "//buck2/native:openmp-macos",
+        "//rust/crates/ennx:ennx",
+    ],
+    rpath = True,
+    runtime_dependency_handling = "symlink",
+    rustc_flags = [
+        "-Clink-arg=-Wl,-rpath,@loader_path/../../native/__faiss-build__/out",
+    ],
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
+rust_test(
+    name = "bpann",
+    srcs = ["bpann.rs"],
+    crate_root = "bpann.rs",
+    deps = ["//rust/crates/bpann:bpann"],
+)
+
+rust_test(
+    name = "opencl",
+    srcs = ["opencl.rs"],
+    crate_root = "opencl.rs",
+    deps = ["//buck2/accelerators:opencl3"],
+)
+
+test_suite(
+    name = "all",
+    tests = [
+        ":bpann",
+        ":opencl",
+    ] + select({
+        "//:macos-arm64": [
+            ":metal",
+            "//buck2/native:faiss-smoke",
+        ],
+        "DEFAULT": [],
+    }),
+    visibility = ["PUBLIC"],
+)

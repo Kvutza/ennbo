@@ -1,0 +1,19 @@
+load("//buck2:reindeer_rules.bzl", "app_rust_library")
+
+app_rust_library(
+    name = "bpann",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "bpann",
+    crate_root = "src/lib.rs",
+    edition = "2021",
+    visibility = ["PUBLIC"],
+    deps = [
+        "//rust:memmap2",
+        "//rust:ndarray",
+        "//rust:rand",
+        "//rust:rayon",
+        "//rust:serde",
+        "//rust:serde_json",
+        "//rust:thiserror",
+    ],
+)

@@ -1,7 +1,7 @@
 [workspace]
 name = "ennx"
 channels = ["conda-forge"]
-platforms = ["osx-arm64", "win-64", "linux-64"]
+platforms = ["osx-arm64", "win-64", "linux-64", "linux-aarch64"]
 
 [feature.ennx.dependencies]
 python = "3.13.*"
@@ -12,11 +12,20 @@ pytest-xdist = "*"
 ruff = "*"
 pandas = "*"
 matplotlib = "*"
+llvm-openmp = "22.1.8.*"
+lld = "20.*"
+libfaiss = { version = "1.10.*", build = "cpu_openblas_*" }
+rust = "1.88.*"
 
 [feature.ennx.tasks]
 test = "python -m pytest -q tests/test_candidate_gen_direct.py tests/test_raasp_candidates.py tests/parity/test_rust_config_passthrough.py"
 test-trials = "python -m pytest -q tests/test_weight_search.py"
-
+buck2-deps = "tools/buck2-deps"
+buck2-build = "./buck2w --isolation-dir dev build //rust/crates/bpann:bpann //rust/crates/ennx:ennx --local-only --num-threads 4 -M none"
+buck2-test = "./buck2w --isolation-dir dev test //buck2/tests:all --local-only --num-threads 4"
+buck2-wheel = "./buck2w --isolation-dir release build //:wheel --config ennx.profile=release --local-only --num-threads 4 --show-output"
+buck2-smoke = "tools/buck2-wheel-smoke"
+buck2-gates = "tools/buck2-gates"
 
 [environments]
 ennx = { features = ["ennx"], no-default-feature = true }
