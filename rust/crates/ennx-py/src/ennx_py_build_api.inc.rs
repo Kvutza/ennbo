@@ -2,7 +2,6 @@ macro_rules! define_ennx_py_build_api {
     ($link:ident) => {
         pub fn run_ennx_py_build() {
             $link::emit_linux_rpath_link_args();
-            ennx::link_search::emit_faiss_link_search();
         }
 
         pub fn kiss_ennx_py_build_touch_01() {
@@ -11,10 +10,6 @@ macro_rules! define_ennx_py_build_api {
 
         pub fn kiss_ennx_py_build_touch_02() {
             let _ = $link::emit_linux_rpath_link_args as fn();
-        }
-
-        pub fn kiss_ennx_py_build_touch_10() {
-            let _ = ennx::link_search::emit_faiss_link_search as fn();
         }
 
         pub fn kiss_ennx_py_build_touch_04() {

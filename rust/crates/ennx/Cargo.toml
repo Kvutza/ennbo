@@ -2,6 +2,7 @@
 name = "ennx"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -9,13 +10,13 @@ keywords.workspace = true
 categories.workspace = true
 description = "Epistemic Nearest Neighbor Bayesian Optimization"
 readme = "README.md"
-build = "src/ennx_build.rs"
+build = "build.rs"
+include = ["build.rs", "src/**", "Cargo.toml", "README.md", "LICENSE", "NOTICE"]
 
 [dependencies]
-bpann = { path = "../bpann" }
-metal = { version = "0.33.0", optional = true }
+bpann = { package = "ennx-bpann", version = "0.0.0", path = "../bpann" }
+faiss = { version = "0.13.0", optional = true }
 ndarray = { workspace = true }
-ndarray-linalg = { workspace = true }
 opencl3 = { version = "0.12.3", optional = true }
 rand = "0.8"
 rayon = "1.10"
@@ -26,11 +27,12 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 usearch = { version = "2.26", optional = true, default-features = false }
 
-[build-dependencies]
-cc = "1.2"
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = { version = "0.33.0", optional = true }
 
 [features]
-default = []
+default = ["faiss", "metal", "opencl"]
+faiss = ["dep:faiss"]
 metal = ["dep:metal"]
 opencl = ["dep:opencl3"]
 usearch = ["dep:usearch"]
@@ -38,6 +40,7 @@ usearch-numkong = ["usearch", "usearch/numkong"]
 
 [dev-dependencies]
 approx = "0.5"
+ndarray = { workspace = true, features = ["approx"] }
 numpy = "0.22"
 rand_chacha = "0.3"
 tempfile = "3"

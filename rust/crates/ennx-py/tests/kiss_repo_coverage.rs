@@ -146,7 +146,6 @@ fn kiss_ennx_py_build_main() {
         ennx_py_build::kiss_ennx_py_build_touch_05 as fn(),
         ennx_py_build::kiss_ennx_py_build_touch_06 as fn(),
         ennx_py_build::kiss_ennx_py_build_touch_07 as fn(),
-        ennx_py_build::kiss_ennx_py_build_touch_10 as fn(),
     );
 }
 

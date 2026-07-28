@@ -9,6 +9,7 @@ resolver = "2"
 [workspace.package]
 version = "0.0.0"
 edition = "2021"
+rust-version = "1.88"
 license = "MIT"
 authors = ["ENNX Contributors"]
 repository = "https://github.com/Kvutza/ennx"
@@ -18,7 +19,6 @@ categories = ["science", "simulation"]
 [workspace.dependencies]
 ennx = { path = "crates/ennx", default-features = false }
 ndarray = "0.16"
-ndarray-linalg = "0.17"
 numpy = "0.22"
 pyo3 = { version = "0.22", features = ["extension-module"] }
 rand = "0.8"

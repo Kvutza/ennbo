@@ -1,6 +1,7 @@
 [package]
 name = "ennx-py"
 version.workspace = true
+publish = false
 edition.workspace = true
 build = "src/ennx_py_build.rs"
 license.workspace = true

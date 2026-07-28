@@ -5,11 +5,6 @@
 
 #![allow(clippy::pedantic, clippy::nursery, clippy::cargo)]
 
-pub mod ennx_build {
-    include!("ennx_build_api.inc.rs");
-    use super::link_search;
-    define_ennx_build_api!(link_search);
-}
 pub mod acquisition;
 pub mod backend;
 pub mod candidates;
@@ -25,7 +20,6 @@ pub mod hypervolume;
 pub mod incumbent_tracker;
 pub mod index;
 pub mod knn;
-pub mod link_search;
 pub mod model;
 pub mod morbo_trust_region;
 pub mod optimizer;

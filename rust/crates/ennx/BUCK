@@ -23,7 +23,7 @@ app_rust_library(
     crate = "ennx",
     crate_root = "src/lib.rs",
     edition = "2021",
-    features = ["default"] + select({
+    features = select({
         "//:linux-arm64": ["opencl"],
         "//:linux-x86_64": ["opencl"],
         "//:macos-arm64": ["metal"],
@@ -35,7 +35,6 @@ app_rust_library(
         "//rust/crates/bpann:bpann",
         "//rust:memmap2",
         "//rust:ndarray",
-        "//rust:ndarray-linalg",
         "//rust:rand",
         "//rust:rayon",
         "//rust:serde",

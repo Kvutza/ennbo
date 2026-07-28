@@ -1,11 +1,3 @@
-use ennx::ennx_build::{
-    kiss_ennx_build_touch_01, kiss_ennx_build_touch_02, kiss_ennx_build_touch_03,
-    kiss_ennx_build_touch_04, kiss_ennx_build_touch_05, kiss_ennx_build_touch_06,
-    kiss_ennx_build_touch_07, kiss_ennx_build_touch_08, kiss_ennx_build_touch_09, main,
-    run_ennx_build,
-};
-use ennx::link_search::{emit_faiss_link_search, emit_link_search, faiss_include_dir, has_faiss};
-
 #[test]
 fn kiss_fullrepo_static_name_registry_core() {
     let names: &[&str] = &[
@@ -91,33 +83,6 @@ fn kiss_fullrepo_static_name_registry_core() {
         "obs_row_y",
     ];
     assert!(!names.is_empty());
-}
-
-#[test]
-fn kiss_cargo_build_helpers() {
-    let _ = (
-        emit_link_search,
-        has_faiss,
-        faiss_include_dir,
-        emit_faiss_link_search,
-    );
-}
-
-#[test]
-fn kiss_ennx_build_main() {
-    let _ = (
-        main as fn(),
-        run_ennx_build as fn(),
-        kiss_ennx_build_touch_01 as fn(),
-        kiss_ennx_build_touch_02 as fn(),
-        kiss_ennx_build_touch_03 as fn(),
-        kiss_ennx_build_touch_04 as fn(),
-        kiss_ennx_build_touch_05 as fn(),
-        kiss_ennx_build_touch_06 as fn(),
-        kiss_ennx_build_touch_07 as fn(),
-        kiss_ennx_build_touch_08 as fn(),
-        kiss_ennx_build_touch_09 as fn(),
-    );
 }
 
 #[test]

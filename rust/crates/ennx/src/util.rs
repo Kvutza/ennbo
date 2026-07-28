@@ -3,7 +3,6 @@
 //! Includes standardization, Pareto front computation, and Sobol sensitivity analysis.
 
 use ndarray::{Array1, ArrayView1, ArrayView2};
-use ndarray_linalg::Norm;
 use rand::Rng;
 
 use crate::error::ENNError;
@@ -71,8 +70,15 @@ pub fn standardize_y(y: &ArrayView1<f64>) -> (f64, f64) {
     };
 
     let mean = y.sum() / n as f64;
-    let centered = y.mapv(|v| v - mean);
-    let scale = centered.norm_l2() / (n as f64).sqrt();
+    let variance = y
+        .iter()
+        .map(|value| {
+            let centered = value - mean;
+            centered * centered
+        })
+        .sum::<f64>()
+        / n as f64;
+    let scale = variance.sqrt();
 
     if !scale.is_finite() || scale == 0.0 {
         (center, 1.0)

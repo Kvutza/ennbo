@@ -37,6 +37,7 @@ fn turbo_test_config(storage: EnnStorage, work_dir: Option<PathBuf>) -> Optimize
             index_driver,
             storage,
             work_dir,
+            y_bounds: None,
         };
     }
     cfg.candidates = CandidateConfig {
@@ -44,6 +45,7 @@ fn turbo_test_config(storage: EnnStorage, work_dir: Option<PathBuf>) -> Optimize
         min_candidates: 20,
         max_candidates: Some(20),
         num_candidates_per_arm: None,
+        num_pert: 20,
         candidate_rv: CandidateRV::Uniform,
     };
     cfg
