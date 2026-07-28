@@ -9,6 +9,7 @@ repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 description = "Python bindings for ENN core algorithms"
+readme = "../../../README"
 
 [lib]
 name = "ennx_rust"
