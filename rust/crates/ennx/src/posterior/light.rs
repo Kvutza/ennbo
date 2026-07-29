@@ -109,6 +109,39 @@ fn fuse_neighbors_to_mu_se(
     (mu, se, se_epi, se_ale, idx_out)
 }
 
+#[cfg(all(target_os = "macos", feature = "metal"))]
+fn agx_posterior(
+    model: &EpistemicNearestNeighbors,
+    dist2s: &ArrayView2<f64>,
+    idx: &ArrayView2<i64>,
+    params: &ENNParams,
+) -> Result<Option<PosteriorLightOut>, ENNError> {
+    if model.backend_driver() != crate::index::IndexDriver::Agx {
+        return Ok(None);
+    }
+    let Some(train_y) = model.train_y_view_opt() else {
+        return Ok(None);
+    };
+    let Ok(output) = super::metal::compute(
+        dist2s,
+        idx,
+        &train_y,
+        &model.y_scale().view(),
+        params.epistemic_variance_scale,
+        params.aleatoric_variance_scale,
+    ) else {
+        return Ok(None);
+    };
+    let idx_out = idx.to_owned();
+    Ok(Some((
+        output.mu,
+        output.se.clone(),
+        output.se,
+        Array2::zeros((dist2s.nrows(), model.num_metrics())),
+        idx_out,
+    )))
+}
+
 /// Fused index_search + mu/se for the no-yvar, no-observation-noise posterior path.
 pub(crate) fn compute_posterior_light(
     model: &EpistemicNearestNeighbors,
@@ -174,6 +207,10 @@ pub(crate) fn compute_posterior_light(
 
     let dist2s = dist2s_full.slice_axis(Axis(1), ndarray::Slice::from(..k));
     let idx = idx_full.slice_axis(Axis(1), ndarray::Slice::from(..k));
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    if let Some(output) = agx_posterior(model, &dist2s, &idx, params)? {
+        return Ok(output);
+    }
     Ok(fuse_neighbors_to_mu_se(model, &dist2s, &idx, params))
 }
 
@@ -341,5 +378,38 @@ mod tests {
         assert_eq!(idx.ncols(), 2);
         assert!(mu.iter().all(|v| v.is_finite()));
         assert!(se.iter().all(|&v| v > 0.0));
+    }
+
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    #[test]
+    fn agx_posterior_matches_cpu_contract() {
+        let train_x =
+            Array2::from_shape_fn((257, 7), |(i, j)| ((i * 37 + j * 13) % 503) as f64 / 503.0);
+        let train_y =
+            Array2::from_shape_fn((257, 3), |(i, j)| ((i * 11 + j * 29) % 101) as f64 / 17.0);
+        let query = Array2::from_shape_fn((65, 7), |(i, j)| {
+            ((i * 19 + j * 7 + 3) % 509) as f64 / 509.0
+        });
+        let cpu = EpistemicNearestNeighbors::new(
+            train_x.clone(),
+            train_y.clone(),
+            None,
+            false,
+            IndexDriver::Exact,
+        )
+        .unwrap();
+        let agx = EpistemicNearestNeighbors::new(train_x, train_y, None, false, IndexDriver::Agx)
+            .unwrap();
+        let params = ENNParams::new(17, 0.7, 0.13).unwrap();
+        let flags = PosteriorFlags::new().with_tie_break_neighbors(false);
+        let cpu = compute_posterior_light(&cpu, &query.view(), &params, &flags).unwrap();
+        let agx = compute_posterior_light(&agx, &query.view(), &params, &flags).unwrap();
+        assert_eq!(cpu.4, agx.4);
+        for (reference, actual) in cpu.0.iter().zip(agx.0.iter()) {
+            assert!((reference - actual).abs() <= 2.0e-5 * (1.0 + reference.abs()));
+        }
+        for (reference, actual) in cpu.1.iter().zip(agx.1.iter()) {
+            assert!((reference - actual).abs() <= 2.0e-5 * (1.0 + reference.abs()));
+        }
     }
 }

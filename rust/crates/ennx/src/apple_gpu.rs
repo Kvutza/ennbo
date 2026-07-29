@@ -140,7 +140,6 @@ impl Runtime {
         let archive_desc = BinaryArchiveDescriptor::new();
         let exists = path.exists();
         if exists {
-            require_agx_slice(&path)?;
             archive_desc.set_url(&url);
         }
         let archive = self
@@ -155,7 +154,6 @@ impl Runtime {
             archive
                 .serialize_to_url(&url)
                 .map_err(|error| format!("write AGX archive {}: {error}", path.display()))?;
-            require_agx_slice(&path)?;
         }
 
         let pipeline = self
@@ -243,19 +241,7 @@ fn archive_path(info: &DeviceInfo, source: &str, name: &str) -> Result<std::path
     Ok(directory.join(format!("{kernel:016x}.metalarc")))
 }
 
-fn require_agx_slice(path: &std::path::Path) -> Result<(), String> {
-    let bytes = std::fs::read(path)
-        .map_err(|error| format!("read AGX archive {}: {error}", path.display()))?;
-    if has_agx_slice(&bytes) {
-        Ok(())
-    } else {
-        Err(format!(
-            "binary archive {} contains no applegpu slice",
-            path.display()
-        ))
-    }
-}
-
+#[cfg(test)]
 fn has_agx_slice(bytes: &[u8]) -> bool {
     const FAT_MAGIC: u32 = 0xcafe_babe;
     const FAT_MAGIC_64: u32 = 0xcafe_babf;

@@ -32,10 +32,11 @@ numerical hot path.
 
 The process-wide runtime owns one `MTLDevice`, one command queue, a source
 pipeline cache, and a native archive cache keyed by device, source content, and
-kernel name. Every native archive is parsed after serialization and must contain
-an `applegpu` architecture slice before ENNX accepts it. Metal indices retain
-observation and scratch buffers, grow geometrically, and update appended rows in
-place. Trials and weights share the same runtime and caches.
+kernel name. Metal validates archive compatibility while creating the pipeline;
+ENNX does not assume that every M-series generation serializes the private
+archive container identically. Metal indices retain observation and scratch
+buffers, grow geometrically, and update appended rows in place. Trials and
+weights share the same runtime and caches.
 
 The runtime recognizes the known Apple GPU generations behind M1 through M4 for
 telemetry. Unknown future M-series devices still use portable MSL compilation;

@@ -2,6 +2,8 @@
 
 mod draw_compute;
 mod light;
+#[cfg(all(target_os = "macos", feature = "metal"))]
+mod metal;
 mod neighbor;
 pub mod neighbor_dist;
 mod tie_break;
