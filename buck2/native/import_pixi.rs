@@ -44,6 +44,52 @@ fn pixi_prefix() -> io::Result<PathBuf> {
         })
 }
 
+fn copy_windows_python_import_lib(
+    prefix: &Path,
+    native: &Path,
+    lib_output: &Path,
+) -> io::Result<()> {
+    let candidates = [prefix.join("libs"), native.join("libs"), native.join("lib")];
+    for directory in candidates {
+        if !directory.is_dir() {
+            continue;
+        }
+        let mut libraries = Vec::new();
+        for entry in fs::read_dir(&directory)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with("python") && name.ends_with(".lib") && name != "pythonXY.lib" {
+                libraries.push((name, entry.path()));
+            }
+        }
+        libraries.sort_by_key(|(name, _)| {
+            if name.eq_ignore_ascii_case("python313.lib") {
+                0
+            } else if name
+                .strip_prefix("python")
+                .and_then(|rest| rest.strip_suffix(".lib"))
+                .is_some_and(|version| version.chars().all(|c| c.is_ascii_digit()))
+            {
+                1
+            } else {
+                2
+            }
+        });
+        if let Some((name, path)) = libraries.into_iter().next() {
+            fs::copy(&path, lib_output.join(&name))?;
+            fs::copy(path, lib_output.join("pythonXY.lib"))?;
+            return Ok(());
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        format!(
+            "no Windows Python import library found under {}",
+            prefix.display()
+        ),
+    ))
+}
+
 fn main() -> io::Result<()> {
     let mut args = env::args_os().skip(1);
     let output = PathBuf::from(args.next().expect("missing output path"));
@@ -68,6 +114,9 @@ fn main() -> io::Result<()> {
         if windows && entry.file_name().to_string_lossy() == "faiss.lib" {
             fs::copy(entry.path(), lib_output.join(entry.file_name()))?;
         }
+    }
+    if windows {
+        copy_windows_python_import_lib(&prefix, &native, &lib_output)?;
     }
     let bin_input = if windows {
         native.join("bin")
