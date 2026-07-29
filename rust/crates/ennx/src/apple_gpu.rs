@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
 use metal::{
     BinaryArchiveDescriptor, Buffer, CommandQueue, CompileOptions, ComputePipelineDescriptor,
@@ -35,6 +36,7 @@ pub(crate) struct Runtime {
     pub(crate) queue: CommandQueue,
     info: DeviceInfo,
     pipelines: Mutex<HashMap<(u64, String), ComputePipelineState>>,
+    schedules: Mutex<HashMap<u64, usize>>,
 }
 
 impl Runtime {
@@ -59,6 +61,7 @@ impl Runtime {
             queue,
             info,
             pipelines: Mutex::new(HashMap::new()),
+            schedules: Mutex::new(HashMap::new()),
         })
     }
 
@@ -182,6 +185,44 @@ impl Runtime {
             std::mem::size_of_val(values) as u64,
             MTLResourceOptions::StorageModeShared | MTLResourceOptions::HazardTrackingModeTracked,
         )
+    }
+
+    pub(crate) fn schedule<F>(
+        &self,
+        family: &str,
+        shape: &[usize],
+        candidates: usize,
+        mut evaluate: F,
+    ) -> Result<usize, String>
+    where
+        F: FnMut(usize) -> Result<Option<Duration>, String>,
+    {
+        let key = source_hash(&format!("{family}:{shape:?}"));
+        if let Some(choice) = self
+            .schedules
+            .lock()
+            .map_err(|_| "Apple GPU schedule cache poisoned")?
+            .get(&key)
+        {
+            return Ok(*choice);
+        }
+        let mut best = None;
+        for candidate in 0..candidates {
+            let Some(elapsed) = evaluate(candidate)? else {
+                continue;
+            };
+            if best.is_none_or(|(_, current)| elapsed < current) {
+                best = Some((candidate, elapsed));
+            }
+        }
+        let choice = best
+            .map(|(candidate, _)| candidate)
+            .ok_or_else(|| format!("no valid Apple GPU schedule for {family} {shape:?}"))?;
+        self.schedules
+            .lock()
+            .map_err(|_| "Apple GPU schedule cache poisoned")?
+            .insert(key, choice);
+        Ok(choice)
     }
 }
 

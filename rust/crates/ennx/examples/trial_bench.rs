@@ -11,6 +11,8 @@ fn main() -> Result<(), String> {
     let backend = match args.get(5).map(String::as_str).unwrap_or("metal") {
         "cpu" => ComputeBackend::Cpu,
         "metal" => ComputeBackend::Metal,
+        "agx" => ComputeBackend::Agx,
+        "auto" => ComputeBackend::Auto,
         "opencl" => ComputeBackend::OpenCl,
         value => return Err(format!("unknown backend {value:?}")),
     };

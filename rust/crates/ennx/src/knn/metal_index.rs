@@ -1,6 +1,5 @@
-use std::collections::HashMap;
 use std::ffi::c_void;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use metal::{ComputePipelineState, MTLSize};
@@ -14,7 +13,6 @@ const THREADS: u64 = 256;
 const TILE_ROWS: usize = 1024;
 const MAX_K: usize = 1024;
 const SOURCE: &str = include_str!("metal_index.metal");
-static DISTANCE_SCHEDULES: OnceLock<Mutex<HashMap<usize, usize>>> = OnceLock::new();
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -118,11 +116,7 @@ impl MetalIndex {
             rows: runtime.buffer::<u32>(1),
             runtime,
             distance,
-            distance_choice: if agx {
-                distance_schedules().lock().unwrap().get(&num_dim).copied()
-            } else {
-                Some(0)
-            },
+            distance_choice: (!agx).then_some(0),
             local_topk,
             merge,
             init_results,
@@ -316,28 +310,29 @@ impl MetalIndex {
         };
         self.run_distance(0, &params);
         let reference = self.distance_values(query_count);
-        let mut best = (0, Duration::MAX);
-        for schedule in 0..self.distance.len() {
-            self.run_distance(schedule, &params);
-            if !same_distances(&reference, &self.distance_values(query_count)) {
-                continue;
-            }
-            let mut times = [Duration::MAX; 3];
-            for elapsed in &mut times {
-                let start = Instant::now();
-                self.run_distance(schedule, &params);
-                *elapsed = start.elapsed();
-            }
-            times.sort_unstable();
-            if times[1] < best.1 {
-                best = (schedule, times[1]);
-            }
-        }
-        distance_schedules()
-            .lock()
-            .unwrap()
-            .insert(self.num_dim, best.0);
-        self.distance_choice = Some(best.0);
+        let runtime = Arc::clone(&self.runtime);
+        let choice = runtime
+            .schedule(
+                "knn.distance",
+                &[self.num_dim],
+                self.distance.len(),
+                |schedule| {
+                    self.run_distance(schedule, &params);
+                    if !same_distances(&reference, &self.distance_values(query_count)) {
+                        return Ok(None);
+                    }
+                    let mut times = [Duration::MAX; 3];
+                    for elapsed in &mut times {
+                        let start = Instant::now();
+                        self.run_distance(schedule, &params);
+                        *elapsed = start.elapsed();
+                    }
+                    times.sort_unstable();
+                    Ok(Some(times[1]))
+                },
+            )
+            .map_err(IndexError::InvalidParameter)?;
+        self.distance_choice = Some(choice);
         Ok(())
     }
 
@@ -393,10 +388,6 @@ impl MetalIndex {
             );
         }
     }
-}
-
-fn distance_schedules() -> &'static Mutex<HashMap<usize, usize>> {
-    DISTANCE_SCHEDULES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn same_distances(left: &[f32], right: &[f32]) -> bool {
