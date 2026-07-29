@@ -43,6 +43,15 @@ genrule(
 )
 
 genrule(
+    name = "windows-native",
+    srcs = ["//:pixi-lock"],
+    out = "native",
+    cmd = "$(exe :import-pixi-tool) $OUT",
+    target_compatible_with = ["prelude//os/constraints:windows"],
+    visibility = ["PUBLIC"],
+)
+
+genrule(
     name = "faiss-build",
     default_outs = ["libfaiss.a"],
     outs = {
@@ -115,7 +124,11 @@ cxx_library(
 
 cxx_library(
     name = "faiss-windows-system",
-    exported_linker_flags = ["faiss.lib"],
+    exported_linker_flags = [
+        "/LIBPATH:$(location :windows-native)\\lib",
+        "faiss.lib",
+    ],
+    exported_preprocessor_flags = ["-I$(location :windows-native)\\include"],
     target_compatible_with = ["prelude//os/constraints:windows"],
     visibility = ["PUBLIC"],
 )

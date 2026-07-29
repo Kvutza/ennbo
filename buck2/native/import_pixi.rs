@@ -20,6 +20,7 @@ fn copy_tree(source: &Path, output: &Path) -> io::Result<()> {
 
 fn runtime_library(name: &str) -> bool {
     name == "libfaiss.so"
+        || name == "faiss.dll"
         || name == "libgfortran.so.5"
         || name == "libgcc_s.so.1"
         || name == "libgomp.so.1"
@@ -27,6 +28,7 @@ fn runtime_library(name: &str) -> bool {
         || name == "libstdc++.so.6"
         || name.starts_with("libstdc++.so.6.")
         || (name.starts_with("libopenblas") && name.contains(".so"))
+        || (name.starts_with("openblas") && name.ends_with(".dll"))
 }
 
 fn pixi_prefix() -> io::Result<PathBuf> {
@@ -47,14 +49,32 @@ fn main() -> io::Result<()> {
     let output = PathBuf::from(args.next().expect("missing output path"));
     assert!(args.next().is_none(), "unexpected argument");
     let prefix = pixi_prefix()?;
+    let windows = cfg!(target_os = "windows");
+    let native = if windows {
+        prefix.join("Library")
+    } else {
+        prefix.clone()
+    };
 
     let include = output.join("include").join("faiss");
     fs::create_dir_all(&include)?;
-    copy_tree(&prefix.join("include").join("faiss"), &include)?;
+    copy_tree(&native.join("include").join("faiss"), &include)?;
 
     let lib_output = output.join("lib");
     fs::create_dir_all(&lib_output)?;
-    for entry in fs::read_dir(prefix.join("lib"))? {
+    let lib_input = native.join("lib");
+    for entry in fs::read_dir(&lib_input)? {
+        let entry = entry?;
+        if windows && entry.file_name().to_string_lossy() == "faiss.lib" {
+            fs::copy(entry.path(), lib_output.join(entry.file_name()))?;
+        }
+    }
+    let bin_input = if windows {
+        native.join("bin")
+    } else {
+        native.join("lib")
+    };
+    for entry in fs::read_dir(bin_input)? {
         let entry = entry?;
         let name = entry.file_name();
         if runtime_library(&name.to_string_lossy()) {

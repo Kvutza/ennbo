@@ -277,6 +277,16 @@ fn main() -> io::Result<()> {
                 })
         }) {
             let name = library.file_name().unwrap().to_string_lossy();
+            wheel_files.insert(format!("{}/{name}", args.package), fs::read(library)?);
+        }
+    }
+    if args.platform_tag == "win_amd64" {
+        for library in all_files.iter().filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(".dll"))
+        }) {
+            let name = library.file_name().unwrap().to_string_lossy();
             wheel_files.insert(
                 format!("{}/.dylibs/{name}", args.package),
                 fs::read(library)?,

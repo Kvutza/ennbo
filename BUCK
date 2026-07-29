@@ -125,7 +125,7 @@ python_wheel(
     package = "ennx",
     platform_tag = "win_amd64",
     python_srcs = glob(["src/ennx/**/*.py"]),
-    runtime_libraries = [],
+    runtime_libraries = ["//buck2/native:windows-native"],
     target_compatible_with = [
         "prelude//cpu/constraints:x86_64",
         "prelude//os/constraints:windows",
