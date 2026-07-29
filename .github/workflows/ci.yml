@@ -96,7 +96,7 @@ jobs:
         if: inputs.target == 'all' || inputs.target == 'wheel'
         run: |
           mkdir -p artifacts
-          find buck-out/release -type f \( -name '*.whl' -o -name '*.tar.gz' \) -exec cp {} artifacts/ \;
+          find buck-out/release -type f -name 'ennx-*.whl' -exec cp {} artifacts/ \;
           test -n "$(find artifacts -type f -print -quit)"
 
       - name: Upload wheel artifacts

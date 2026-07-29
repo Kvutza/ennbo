@@ -33,6 +33,16 @@ jobs:
           environments: ennx
           locked: true
 
+      - name: Restore Buck2 cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .buck2-tools
+            buck-out/dev
+          key: ${{ runner.os }}-buck2-${{ hashFiles('.buckconfig', '.buckroot', 'BUCK', 'buck2/**', 'rust/BUCK', 'rust/crates/**/BUCK', 'pixi.lock', 'rust/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-buck2-
+
       - name: Install DotSlash
         if: runner.os == 'Windows'
         uses: facebook/install-dotslash@latest
@@ -62,11 +72,10 @@ jobs:
             pixi run -e ennx buck2-wheel
           fi
 
-      - name: Collect release artifacts
+      - name: Collect wheel artifacts
         run: |
           mkdir -p release
-          find buck-out/release -type f \( -name '*.whl' -o -name '*.tar.gz' \) -exec cp {} release/ \;
-          cp README LICENSE NOTICE release/
+          find buck-out/release -type f -name 'ennx-*.whl' -exec cp {} release/ \;
           test -n "$(find release -type f -print -quit)"
 
       - name: Upload artifacts
@@ -81,6 +90,9 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -91,6 +103,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          cp README LICENSE NOTICE release/
           gh release create "${GITHUB_REF_NAME}" release/* \
             --repo "${GITHUB_REPOSITORY}" \
             --generate-notes \
