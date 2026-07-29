@@ -3,7 +3,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ennx.turbo.config import AcqType, ENNFitConfig, ENNSurrogateConfig, turbo_enn_config
+from ennx.turbo.config import (
+    AcqType,
+    ENNFitConfig,
+    ENNSurrogateConfig,
+    turbo_enn_config,
+)
 
 try:
     from ennx._rust import Optimizer  # noqa: F401

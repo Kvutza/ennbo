@@ -25,9 +25,9 @@ def sobol_seed_for_state(
 
 
 def reset_timing(opt: object) -> None:
-    setattr(opt, "_dt_fit", 0.0)
-    setattr(opt, "_dt_gen", 0.0)
-    setattr(opt, "_dt_sel", 0.0)
+    opt._dt_fit = 0.0
+    opt._dt_gen = 0.0
+    opt._dt_sel = 0.0
 
 
 def validate_tell_inputs(

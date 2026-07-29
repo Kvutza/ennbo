@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from . import turbo_optimizer_utils, turbo_utils
 from ..config.candidate_rv import CandidateRV
+from . import turbo_optimizer_utils, turbo_utils
 
 if TYPE_CHECKING:
     from numpy.random import Generator

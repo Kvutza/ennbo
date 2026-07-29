@@ -26,8 +26,8 @@ class MorboTrustRegion(ScalarIncumbentMixin):
         rng: Generator,
         candidate_rv: CandidateRV = CandidateRV.SOBOL,
     ) -> None:
-        from .components.incumbent_selector import ChebyshevIncumbentSelector
         from ..config.turbo_tr_config import TurboTRConfig
+        from .components.incumbent_selector import ChebyshevIncumbentSelector
         from .turbo_trust_region import TurboTrustRegion
 
         self._config = config

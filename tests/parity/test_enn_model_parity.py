@@ -30,7 +30,7 @@ def test_posterior_parity_simple():
     out = model.posterior(query, params=params, flags=flags)
 
     rs_model = RustENN(train_x, train_y, scale_x=False, index_driver="Exact")
-    rs_mu, rs_se, rs_se_epi, rs_se_ale, rs_idx = rs_model.posterior(
+    rs_mu, rs_se, rs_se_epi, rs_se_ale, _rs_idx = rs_model.posterior(
         query,
         k_num_neighbors=2,
         epistemic_variance_scale=1.0,

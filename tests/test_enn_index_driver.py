@@ -5,7 +5,7 @@ import pytest
 
 from ennx.ennx.enn_class import EpistemicNearestNeighbors
 from ennx.ennx.enn_class_support import enn_index_neighbor_distances_and_indices
-from ennx.turbo.config.enn_index_driver import ENNIndexDriver, ENN_INDEX_DRIVER_TO_RUST
+from ennx.turbo.config.enn_index_driver import ENN_INDEX_DRIVER_TO_RUST, ENNIndexDriver
 
 
 def _enn(train_x, *, index_driver=ENNIndexDriver.FLAT, work_dir=None):

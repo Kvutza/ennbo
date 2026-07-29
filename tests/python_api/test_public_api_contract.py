@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+import importlib.util
+
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    importlib.util.find_spec("ennx.ennx_rust") is None,
+    reason="ennx_rust extension unavailable",
+)
+
 import inspect
 
 
@@ -71,6 +80,24 @@ class TestPublicAPIExports:
         from ennx import Telemetry
 
         assert inspect.isclass(Telemetry)
+
+    def test_experimental_namespace(self):
+        """Experimental namespace is importable and exposes low-level symbols."""
+        import pytest
+
+        pytest.importorskip("ennx.ennx_rust")
+        import ennx.experimental as experimental_mod
+        from ennx import experimental
+
+        assert inspect.ismodule(experimental)
+        assert experimental is experimental_mod
+        assert experimental.experimental is experimental
+        assert inspect.isclass(experimental.SharingPolicy)
+        assert inspect.isclass(experimental.MultiTrustRegionLoop)
+        assert callable(experimental.make_multi_trust_region)
+        assert inspect.isclass(experimental.Optimizer)
+        assert inspect.isclass(experimental.MultiTrustRegion)
+        assert callable(experimental.create_optimizer_enn)
 
     def test_enum_types(self):
         """Enum types are available."""

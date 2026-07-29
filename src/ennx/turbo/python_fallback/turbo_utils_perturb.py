@@ -11,15 +11,15 @@ if TYPE_CHECKING:
     from scipy.stats._qmc import QMCEngine
 
 __all__ = [
-    "latin_hypercube",
     "argmax_random_tie",
-    "sobol_perturb_np",
-    "uniform_perturb_np",
-    "raasp_perturb",
+    "from_unit",
     "generate_raasp_candidates",
     "generate_raasp_candidates_uniform",
+    "latin_hypercube",
+    "raasp_perturb",
+    "sobol_perturb_np",
     "to_unit",
-    "from_unit",
+    "uniform_perturb_np",
 ]
 
 

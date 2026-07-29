@@ -103,7 +103,6 @@ def test_run_enn_add_stress_syncs_at_checkpoints(monkeypatch):
 
     def _count_sync(self):
         sync_calls.append(1)
-        return None
 
     monkeypatch.setattr(
         "ops.stress.EpistemicNearestNeighbors.ensure_index_sync",
@@ -136,7 +135,6 @@ def test_run_enn_add_stress_disk_no_checkpoint_sync(
 
     def _count_sync(self):
         sync_calls.append(1)
-        return None
 
     monkeypatch.setattr(
         "ops.stress.EpistemicNearestNeighbors.ensure_index_sync",
@@ -168,7 +166,6 @@ def test_run_enn_add_stress_bpann_disk_schedules_flush_after_add(monkeypatch, tm
 
     def _count_flush(self):
         flush_calls.append(1)
-        return None
 
     monkeypatch.setattr(
         "ops.stress.EpistemicNearestNeighbors.schedule_background_flush",
@@ -219,7 +216,6 @@ def test_run_enn_add_stress_batch_mode_schedules_flush_per_batch(monkeypatch, tm
 
     def _count_flush(self):
         flush_calls.append(1)
-        return None
 
     monkeypatch.setattr(
         "ops.stress.EpistemicNearestNeighbors.schedule_background_flush",
@@ -270,7 +266,6 @@ def test_iter_synthetic_observation_batches_stops_at_stop_points():
 
 def test_run_enn_add_stress_segment_is_library_time_only(monkeypatch):
     from ops.stress import EnnAddStressConfig, run_enn_add_stress
-
     from ops.stress import iter_synthetic_observation_batches as real_iter
 
     gen_delay_s = 0.05

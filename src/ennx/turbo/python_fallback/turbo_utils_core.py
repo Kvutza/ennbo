@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import contextlib
-from typing import TYPE_CHECKING, Any, Callable, Iterator
+from collections.abc import Callable, Iterator
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import torch
 
-__all__ = ["record_duration", "torch_seed_context", "get_gp_posterior_suppress_warning"]
+__all__ = ["get_gp_posterior_suppress_warning", "record_duration", "torch_seed_context"]
 
 
 @contextlib.contextmanager
@@ -34,9 +35,13 @@ def torch_seed_context(
         torch.manual_seed(int(seed))
         if device is not None and getattr(device, "type", None) == "cuda":
             torch.cuda.manual_seed_all(int(seed))
-        if device is not None and getattr(device, "type", None) == "mps":
-            if hasattr(torch, "mps") and hasattr(torch.mps, "manual_seed"):
-                torch.mps.manual_seed(int(seed))
+        if (
+            device is not None
+            and getattr(device, "type", None) == "mps"
+            and hasattr(torch, "mps")
+            and hasattr(torch.mps, "manual_seed")
+        ):
+            torch.mps.manual_seed(int(seed))
         yield
 
 
@@ -45,7 +50,7 @@ def get_gp_posterior_suppress_warning(model: Any, x_torch: Any) -> Any:
 
     try:
         from gpytorch.utils.warnings import GPInputWarning
-    except Exception:
+    except ImportError:
         GPInputWarning = None
     if GPInputWarning is None:
         return model.posterior(x_torch)

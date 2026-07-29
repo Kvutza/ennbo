@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from enn_helpers import enn_all_train_rows
 
 

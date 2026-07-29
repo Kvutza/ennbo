@@ -144,4 +144,3 @@ class TestHashSlowVsFastParity:
     )
     def test_slow_vs_fast_comparison(self):
         """Note: Slow and fast versions use different RNGs, so outputs differ."""
-        pass

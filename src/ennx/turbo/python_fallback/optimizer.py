@@ -3,7 +3,11 @@ from __future__ import annotations
 import time
 
 import numpy as np
+from numpy.random import Generator
 
+from ..config.optimizer_config import OptimizerConfig
+from ..types.appendable_array import AppendableArray
+from ..types.telemetry import Telemetry
 from . import turbo_optimizer_utils, turbo_utils
 from .components import AcquisitionOptimizer, Surrogate
 from .components.builder import (
@@ -13,12 +17,6 @@ from .components.builder import (
 )
 from .components.incumbent_tracker import build_incumbent_tracker
 from .strategies import OptimizationStrategy
-from ..types.appendable_array import AppendableArray
-from ..types.telemetry import Telemetry
-
-from numpy.random import Generator
-
-from ..config.optimizer_config import OptimizerConfig
 
 
 class Optimizer:
@@ -129,9 +127,11 @@ class Optimizer:
     def _maybe_resample_weights(self) -> None:
         from ..config.rescalarize import Rescalarize
 
-        if hasattr(self._tr_state, "rescalarize"):
-            if self._tr_state.rescalarize == Rescalarize.ON_PROPOSE:
-                self._tr_state.resample_weights(self._rng)
+        if (
+            hasattr(self._tr_state, "rescalarize")
+            and self._tr_state.rescalarize == Rescalarize.ON_PROPOSE
+        ):
+            self._tr_state.resample_weights(self._rng)
 
     def _generate_candidates(
         self,

@@ -8,11 +8,11 @@ if TYPE_CHECKING:
     from numpy.random import Generator
 
 __all__ = [
+    "ScalarIncumbentMixin",
     "compute_full_box_bounds_1d",
-    "get_single_incumbent_index",
     "get_incumbent_index",
     "get_scalar_incumbent_value",
-    "ScalarIncumbentMixin",
+    "get_single_incumbent_index",
 ]
 
 

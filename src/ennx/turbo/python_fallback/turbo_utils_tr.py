@@ -17,8 +17,8 @@ if TYPE_CHECKING:
 
 __all__ = [
     "generate_tr_candidates",
-    "generate_tr_candidates_orig",
     "generate_tr_candidates_fast",
+    "generate_tr_candidates_orig",
 ]
 
 

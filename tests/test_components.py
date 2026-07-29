@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from ennx import create_optimizer, turbo_one_config
+from ennx.turbo.config import turbo_enn_config, turbo_zero_config
 from ennx.turbo.python_fallback.components.acquisition import (
     ThompsonAcqOptimizer,
     UCBAcqOptimizer,
@@ -17,7 +18,6 @@ from ennx.turbo.python_fallback.components.protocols import (
     SurrogateResult,
 )
 from ennx.turbo.python_fallback.components.surrogates import GPSurrogate
-from ennx.turbo.config import turbo_enn_config, turbo_zero_config
 from ennx.turbo.python_fallback.optimizer import Optimizer
 
 

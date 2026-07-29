@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from ennx.turbo.config import ENNSurrogateConfig, NoSurrogateConfig
 from ennx.turbo.python_fallback.components.incumbent_tracker import (
     IncrementalIncumbentTracker,
     _NoiselessMax,
@@ -10,7 +11,6 @@ from ennx.turbo.python_fallback.components.incumbent_tracker import (
     build_incumbent_tracker,
     incumbent_tracker_m_from_surrogate_config,
 )
-from ennx.turbo.config import ENNSurrogateConfig, NoSurrogateConfig
 
 _KISS_RUST_INCUMBENT_TRACKER_SYMBOLS = (
     "push_top_m",

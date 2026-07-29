@@ -2,10 +2,6 @@ from __future__ import annotations
 
 import numpy as np
 
-from ennx.turbo.python_fallback.components.builder import build_trust_region
-from ennx.turbo.python_fallback.components.incumbent_selector import (
-    ScalarIncumbentSelector,
-)
 from ennx.turbo.config import (
     MorboTRConfig,
     MultiObjectiveConfig,
@@ -14,6 +10,10 @@ from ennx.turbo.config import (
     turbo_zero_config,
 )
 from ennx.turbo.config.turbo_tr_config import TRLengthConfig
+from ennx.turbo.python_fallback.components.builder import build_trust_region
+from ennx.turbo.python_fallback.components.incumbent_selector import (
+    ScalarIncumbentSelector,
+)
 
 
 def get_x_center_fallback(

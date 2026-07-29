@@ -18,9 +18,9 @@ from scripts.compare_ennx_versions import (
     main,
 )
 from scripts.compare_ennx_versions_common import (
-    BenchmarkResult,
     OPTIMIZER_NAMES,
     PROBLEMS,
+    BenchmarkResult,
     apply_quick_overrides,
     build_optimizer_config,
     compute_hypervolume,

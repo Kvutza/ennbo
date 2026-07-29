@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import numpy as np
+from morbo_objectives import (
+    separable_unimodal_objective as _separable_unimodal_objective,
+)
 
 from ennx import create_optimizer
 from ennx.turbo.config import (
@@ -13,10 +16,6 @@ from ennx.turbo.config import (
     MorboTRConfig,
     MultiObjectiveConfig,
     turbo_enn_config,
-)
-
-from morbo_objectives import (
-    separable_unimodal_objective as _separable_unimodal_objective,
 )
 
 

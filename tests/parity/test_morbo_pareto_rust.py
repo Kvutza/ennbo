@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from morbo_objectives import separable_unimodal_objective
 
 from ennx import create_optimizer, turbo_enn_config
 from ennx.turbo.config import (
@@ -15,8 +16,6 @@ from ennx.turbo.config import (
     MultiObjectiveConfig,
 )
 from ennx.turbo.rust_optimizer import RustOptimizer
-
-from morbo_objectives import separable_unimodal_objective
 
 try:
     from ennx import _rust  # noqa: F401

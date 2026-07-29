@@ -237,10 +237,10 @@ def test_enn_neighbor_search_exclude_nearest():
     train_x = rng.standard_normal((20, 3))
     enn = _enn(train_x, scale_x=False)
     query = train_x[:3]
-    dist2s_include, idx_include = enn_neighbor_distances_and_indices(
+    dist2s_include, _idx_include = enn_neighbor_distances_and_indices(
         enn.rust_backend, query, search_k=3, exclude_nearest=False
     )
-    dist2s_exclude, idx_exclude = enn_neighbor_distances_and_indices(
+    dist2s_exclude, _idx_exclude = enn_neighbor_distances_and_indices(
         enn.rust_backend, query, search_k=3, exclude_nearest=True
     )
     assert dist2s_include.shape == (3, 3) and dist2s_exclude.shape == (3, 2)

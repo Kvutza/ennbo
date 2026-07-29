@@ -198,8 +198,8 @@ def test_turbo_enn_config_scale_x_flag_runs():
 
 
 def test_find_x_center_uses_top_k_for_mu_single_objective():
-    from ennx.turbo.python_fallback.components.posterior_result import PosteriorResult
     from ennx.turbo.optimizer_config import TurboTRConfig
+    from ennx.turbo.python_fallback.components.posterior_result import PosteriorResult
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(0)
@@ -230,8 +230,8 @@ def test_find_x_center_uses_top_k_for_mu_single_objective():
 
 
 def test_find_x_center_uses_top_k_union_for_multiobjective():
-    from ennx.turbo.python_fallback.components.posterior_result import PosteriorResult
     from ennx.turbo.optimizer_config import MorboTRConfig
+    from ennx.turbo.python_fallback.components.posterior_result import PosteriorResult
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(0)

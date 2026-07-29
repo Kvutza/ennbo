@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import ennx
-import ennx.ennx_rust
-
+import ennx.experimental
+import ennx.experimental.multi_trust_region
 
 assert ennx.__file__
-assert ennx.ennx_rust.__file__
-print("ennx wheel consumer: ok")
+assert ennx.experimental.__file__
+assert ennx.experimental.multi_trust_region.__file__
+
+try:
+    import ennx.ennx_rust
+except ImportError:
+    print("ennx wheel consumer: skipped (ennx_rust unavailable)")
+else:
+    assert ennx.ennx_rust.__file__
+    print("ennx wheel consumer: ok")

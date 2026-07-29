@@ -4,9 +4,9 @@ import importlib
 
 import pytest
 
+from ennx.turbo.config import turbo_enn_config, turbo_one_config, turbo_zero_config
 from ennx.turbo.python_fallback import gp_surface
 from ennx.turbo.python_fallback.components.builder import build_surrogate
-from ennx.turbo.config import turbo_enn_config, turbo_one_config, turbo_zero_config
 
 
 def test_build_surrogate_accepts_gp_only():

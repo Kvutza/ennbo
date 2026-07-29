@@ -5,11 +5,11 @@ import numpy as np
 import pytest
 
 from ennx import create_optimizer
+from ennx.turbo.config import CandidateRV
+from ennx.turbo.optimizer_config import turbo_enn_config, turbo_zero_config
 from ennx.turbo.python_fallback.components.no_surrogate import NoSurrogate
 from ennx.turbo.python_fallback.components.surrogate_result import SurrogateResult
-from ennx.turbo.config import CandidateRV
 from ennx.turbo.python_fallback.optimizer import Optimizer
-from ennx.turbo.optimizer_config import turbo_enn_config, turbo_zero_config
 
 pytestmark = pytest.mark.slow
 

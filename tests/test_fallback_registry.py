@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
 from ennx import create_optimizer, turbo_enn_config, turbo_one_config
-from dataclasses import replace
-
 from ennx.turbo.config import (
     CandidateGenConfig,
     ENNFitConfig,

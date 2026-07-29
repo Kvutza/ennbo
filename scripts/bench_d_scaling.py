@@ -13,7 +13,9 @@ from ennx.turbo.python_fallback.turbo_utils import (
 )
 
 
-def benchmark_d_scaling(ds=[100, 1000, 5000, 10000], n=1000, num_candidates=5000):
+def benchmark_d_scaling(ds=None, n=1000, num_candidates=5000):
+    if ds is None:
+        ds = [100, 1000, 5000, 10000]
     print(f"Benchmarking scaling with D (N={n}, num_candidates={num_candidates})\n")
 
     results = []
