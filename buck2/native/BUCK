@@ -132,6 +132,7 @@ alias(
 
 cxx_test(
     name = "faiss-smoke",
+    compiler_flags = ["-std=c++17"],
     srcs = ["faiss_smoke.cpp"],
     deps = [":faiss"],
     target_compatible_with = ["prelude//os/constraints:macos"],

@@ -38,8 +38,13 @@ jobs:
 
       - name: Run platform build and tests
         run: |
-          pixi run -e ennx buck2-build
-          pixi run -e ennx buck2-test
+          if [[ "${{ matrix.os }}" == windows-* ]]; then
+            pixi run -e ennx bash ./buck2w --isolation-dir dev build //rust/crates/bpann:bpann //rust/crates/ennx:ennx --local-only --num-threads 4 -M none
+            pixi run -e ennx bash ./buck2w --isolation-dir dev test //buck2/tests:all --local-only --num-threads 4
+          else
+            pixi run -e ennx buck2-build
+            pixi run -e ennx buck2-test
+          fi
 
       - name: Build wheel
         run: pixi run -e ennx buck2-wheel
