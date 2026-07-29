@@ -67,6 +67,15 @@ struct Scratch {
     center_capacity: usize,
 }
 
+#[derive(Default)]
+struct Resident {
+    history: Vec<(usize, f32)>,
+    steps: Vec<Step>,
+    centers: Vec<Center>,
+    region_centers: Vec<usize>,
+    candidates_per_region: usize,
+}
+
 pub(super) struct Engine {
     runtime: Arc<Runtime>,
     rows: Buffer,
@@ -78,6 +87,7 @@ pub(super) struct Engine {
     multi_tr_pick: ComputePipelineState,
     write: ComputePipelineState,
     scratch: Scratch,
+    resident: Resident,
 }
 
 impl Engine {
@@ -153,6 +163,7 @@ impl Engine {
             multi_tr_pick,
             write,
             scratch,
+            resident: Resident::default(),
         })
     }
 
@@ -168,25 +179,11 @@ impl Engine {
     ) -> Result<(usize, f32), String> {
         self.ensure_candidates(seeds.len())?;
         let distance_groups = distance_groups(seeds.len(), history.len(), self.tile_count)?;
-        let history_slots: Vec<u32> = history
-            .iter()
-            .map(|&(slot, _)| to_u32(slot, "history slot"))
-            .collect::<Result<_, _>>()?;
-        let outcomes: Vec<f32> = history.iter().map(|&(_, value)| value).collect();
-        let seeds: Vec<Seed> = seeds
-            .iter()
-            .map(|&seed| Seed {
-                low: seed as u32,
-                high: (seed >> 32) as u32,
-            })
-            .collect();
-        let draws = crate::weights::thompson_draws(seeds.len(), config.seed);
         let steps = make_steps(leaves, config.length);
-        copy_to(&self.scratch.history_slots, &history_slots);
-        copy_to(&self.scratch.outcomes, &outcomes);
-        copy_to(&self.scratch.seeds, &seeds);
-        copy_to(&self.scratch.draws, &draws);
-        copy_to(&self.scratch.leaves, &steps);
+        self.sync_history(history)?;
+        self.sync_steps(&steps);
+        self.write_seeds(seeds);
+        self.sync_draws(seeds.len(), config);
 
         let params = Params {
             row_bytes: to_u32(self.row_bytes, "row bytes")?,
@@ -338,18 +335,11 @@ impl Engine {
         self.ensure_candidates(total_candidates)?;
         let center_count = self.write_centers(tree, seeds_per_region)?;
         let distance_groups = distance_groups(seeds.len(), history.len(), self.tile_count)?;
-        let history_slots: Vec<u32> = history
-            .iter()
-            .map(|&(slot, _)| to_u32(slot, "history slot"))
-            .collect::<Result<_, _>>()?;
-        let outcomes: Vec<f32> = history.iter().map(|&(_, y)| y).collect();
-        let draws = crate::weights::thompson_draws(seeds.len(), config.seed);
         let steps = make_steps(leaves, config.length);
-        copy_to(&self.scratch.history_slots, &history_slots);
-        copy_to(&self.scratch.outcomes, &outcomes);
-        copy_to(&self.scratch.seeds, &seeds);
-        copy_to(&self.scratch.draws, &draws);
-        copy_to(&self.scratch.leaves, &steps);
+        self.sync_history(history)?;
+        self.sync_steps(&steps);
+        self.write_seeds(seeds);
+        self.sync_draws(seeds.len(), config);
 
         let params = Params {
             row_bytes: to_u32(self.row_bytes, "row bytes")?,
@@ -492,7 +482,63 @@ impl Engine {
             "partial distances",
         )?;
         self.scratch.candidate_capacity = capacity;
+        self.resident.region_centers.clear();
         Ok(())
+    }
+
+    fn sync_history(&mut self, history: &[(usize, f32)]) -> Result<(), String> {
+        let prefix = self
+            .resident
+            .history
+            .iter()
+            .zip(history)
+            .take_while(|((old_slot, old_value), (slot, value))| {
+                old_slot == slot && old_value.to_bits() == value.to_bits()
+            })
+            .count();
+        if prefix == history.len() && history.len() == self.resident.history.len() {
+            return Ok(());
+        }
+        let start = if prefix == self.resident.history.len() {
+            prefix
+        } else {
+            0
+        };
+        for (index, &(slot, value)) in history.iter().enumerate().skip(start) {
+            let slot = to_u32(slot, "history slot")?;
+            copy_one(&self.scratch.history_slots, index, slot);
+            copy_one(&self.scratch.outcomes, index, value);
+        }
+        self.resident.history.clear();
+        self.resident.history.extend_from_slice(history);
+        Ok(())
+    }
+
+    fn sync_steps(&mut self, steps: &[Step]) {
+        if self.resident.steps == steps {
+            return;
+        }
+        copy_to(&self.scratch.leaves, steps);
+        self.resident.steps.clear();
+        self.resident.steps.extend_from_slice(steps);
+    }
+
+    fn sync_draws(&self, count: usize, config: Ask) {
+        if config.acquisition == crate::weights::AcquisitionKind::Thompson {
+            let draws = crate::weights::thompson_draws(count, config.seed);
+            copy_to(&self.scratch.draws, &draws);
+        }
+    }
+
+    fn write_seeds(&self, seeds: &[u64]) {
+        debug_assert_eq!(size_of::<Seed>(), size_of::<u64>());
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                seeds.as_ptr().cast::<u8>(),
+                self.scratch.seeds.contents().cast::<u8>(),
+                std::mem::size_of_val(seeds),
+            );
+        }
     }
 
     fn write_centers(
@@ -503,6 +549,12 @@ impl Engine {
         let Some((centers, region_centers)) = tree else {
             return Ok(0);
         };
+        if self.resident.centers == centers
+            && self.resident.region_centers == region_centers
+            && self.resident.candidates_per_region == candidates_per_region
+        {
+            return Ok(centers.len());
+        }
         if centers.len() > self.scratch.center_capacity {
             let capacity = centers.len().next_power_of_two();
             self.scratch.centers = shared(
@@ -512,32 +564,38 @@ impl Engine {
             )?;
             self.scratch.center_capacity = capacity;
         }
-        let steps: Vec<CenterStep> = centers
-            .iter()
-            .map(|center| {
-                Ok(CenterStep {
-                    parent: center
-                        .parent
-                        .map(|parent| to_u32(parent, "center parent"))
-                        .transpose()?
-                        .unwrap_or(u32::MAX),
+        for (index, center) in centers.iter().enumerate() {
+            let parent = center
+                .parent
+                .map(|parent| to_u32(parent, "center parent"))
+                .transpose()?
+                .unwrap_or(u32::MAX);
+            copy_one(
+                &self.scratch.centers,
+                index,
+                CenterStep {
+                    parent,
                     seed: Seed {
                         low: center.seed as u32,
                         high: (center.seed >> 32) as u32,
                     },
-                })
-            })
-            .collect::<Result<_, String>>()?;
-        let region_centers: Vec<u32> = region_centers
-            .iter()
-            .map(|&center| to_u32(center, "region center"))
-            .collect::<Result<_, _>>()?;
-        let candidate_centers: Vec<u32> = region_centers
-            .into_iter()
-            .flat_map(|center| std::iter::repeat_n(center, candidates_per_region))
-            .collect();
-        copy_to(&self.scratch.centers, &steps);
-        copy_to(&self.scratch.candidate_centers, &candidate_centers);
+                },
+            );
+        }
+        for (region, &center) in region_centers.iter().enumerate() {
+            let center = to_u32(center, "region center")?;
+            let start = region * candidates_per_region;
+            for candidate in start..start + candidates_per_region {
+                copy_one(&self.scratch.candidate_centers, candidate, center);
+            }
+        }
+        self.resident.centers.clear();
+        self.resident.centers.extend_from_slice(centers);
+        self.resident.region_centers.clear();
+        self.resident
+            .region_centers
+            .extend_from_slice(region_centers);
+        self.resident.candidates_per_region = candidates_per_region;
         Ok(centers.len())
     }
 }
@@ -556,6 +614,12 @@ fn copy_to<T>(buffer: &Buffer, values: &[T]) {
             buffer.contents().cast::<u8>(),
             std::mem::size_of_val(values),
         );
+    }
+}
+
+fn copy_one<T: Copy>(buffer: &Buffer, index: usize, value: T) {
+    unsafe {
+        buffer.contents().cast::<T>().add(index).write(value);
     }
 }
 

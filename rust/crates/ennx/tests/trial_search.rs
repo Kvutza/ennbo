@@ -118,6 +118,38 @@ fn agx_acquisition_reductions_match_cpu_across_simd_boundaries() {
 
 #[cfg(all(target_os = "macos", feature = "metal"))]
 #[test]
+fn agx_resident_state_matches_cpu_across_rolling_history() {
+    let mut cpu = WeightSearch::new(&base(), 0.25, leaves(), 4, ComputeBackend::Cpu).unwrap();
+    let mut agx = WeightSearch::new(&base(), 0.25, leaves(), 4, ComputeBackend::Agx).unwrap();
+    for round in 0..9 {
+        let seeds: Vec<u64> = (0..7)
+            .map(|candidate| 100 + round * 7 + candidate)
+            .collect();
+        let config = WeightAsk {
+            neighbors: (round as usize + 1).min(4),
+            length: if round % 3 == 0 { 0.65 } else { 0.8 },
+            acquisition: if round % 2 == 0 {
+                AcquisitionKind::Ucb
+            } else {
+                AcquisitionKind::Thompson
+            },
+            seed: 900 + round,
+            ..WeightAsk::default()
+        };
+        let cpu_trial = cpu.ask(&seeds, config).unwrap();
+        let agx_trial = agx.ask(&seeds, config).unwrap();
+        assert_eq!(agx_trial.index, cpu_trial.index);
+        assert!((agx_trial.score - cpu_trial.score).abs() <= 1.0e-5);
+        assert_eq!(agx.row(agx_trial).unwrap(), cpu.row(cpu_trial).unwrap());
+        let value = round as f32 * 0.125;
+        let accept = round % 2 == 0;
+        cpu.tell(cpu_trial, value, accept).unwrap();
+        agx.tell(agx_trial, value, accept).unwrap();
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+#[test]
 fn metal_matches_cpu_with_external_history_shortlist() {
     let packed_rows: Vec<u8> = [base(), base()]
         .into_iter()

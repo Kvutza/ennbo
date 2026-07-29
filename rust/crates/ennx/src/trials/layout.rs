@@ -29,7 +29,7 @@ pub(crate) fn check_layout(leaves: &[Leaf]) -> Result<usize, String> {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Step {
     pub byte_offset: u32,
     pub element_offset: u32,
