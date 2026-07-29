@@ -30,9 +30,11 @@ jobs:
         with:
           pixi-version: latest
           cache: true
+          environments: ennx
+          locked: true
 
       - name: Install environment
-        run: pixi install -e ennx
+        run: pixi install -e ennx --locked
 
       - name: Run platform build and tests
         run: |
