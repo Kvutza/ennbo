@@ -70,9 +70,49 @@ fn metal_matches_cpu_trial_bytes() {
     ] {
         let cpu = ask(ComputeBackend::Cpu, acquisition).unwrap();
         let metal = ask(ComputeBackend::Metal, acquisition).unwrap();
+        let agx = ask(ComputeBackend::Agx, acquisition).unwrap();
         assert_eq!(metal.0, cpu.0);
         assert!((metal.1 - cpu.1).abs() <= 1.0e-5, "{metal:?} != {cpu:?}");
         assert_eq!(metal.2, cpu.2);
+        assert_eq!(agx.0, cpu.0);
+        assert!((agx.1 - cpu.1).abs() <= 1.0e-5, "{agx:?} != {cpu:?}");
+        assert_eq!(agx.2, cpu.2);
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+#[test]
+fn agx_acquisition_reductions_match_cpu_across_simd_boundaries() {
+    for count in [1usize, 31, 32, 33, 63, 64, 65, 257] {
+        let seeds: Vec<u64> = (0..count).map(|index| 10_001 + index as u64).collect();
+        for acquisition in [
+            AcquisitionKind::Ucb,
+            AcquisitionKind::Thompson,
+            AcquisitionKind::Pareto,
+        ] {
+            let run = |backend| -> Result<(usize, f32), String> {
+                let mut search = WeightSearch::new(&base(), 0.25, leaves(), 4, backend)?;
+                let trial = search.ask(
+                    &seeds,
+                    WeightAsk {
+                        neighbors: 1,
+                        length: 0.65,
+                        beta: 1.3,
+                        acquisition,
+                        seed: 41,
+                        ..WeightAsk::default()
+                    },
+                )?;
+                Ok((trial.index, trial.score))
+            };
+            let cpu = run(ComputeBackend::Cpu).unwrap();
+            let agx = run(ComputeBackend::Agx).unwrap();
+            assert_eq!(agx.0, cpu.0, "candidate count {count}");
+            assert!(
+                (agx.1 - cpu.1).abs() <= 1.0e-5,
+                "candidate count {count}: {agx:?} != {cpu:?}"
+            );
+        }
     }
 }
 
@@ -133,10 +173,6 @@ fn metal_multi_tr_matches_independent_cpu_regions() {
         Ok(search)
     };
 
-    let actual = warm(ComputeBackend::Metal)
-        .unwrap()
-        .ask_multi_tr(2, 3, &seeds, config)
-        .unwrap();
     let mut expected = Vec::new();
     for (region, region_seeds) in seeds.chunks_exact(3).enumerate() {
         let trial = warm(ComputeBackend::Cpu)
@@ -146,12 +182,18 @@ fn metal_multi_tr_matches_independent_cpu_regions() {
         expected.push((region * 3 + trial.index, trial.score));
     }
 
-    assert_eq!(actual.len(), expected.len());
-    for ((actual_index, actual_score), (expected_index, expected_score)) in
-        actual.into_iter().zip(expected)
-    {
-        assert_eq!(actual_index, expected_index);
-        assert!((actual_score - expected_score).abs() <= 1.0e-5);
+    for backend in [ComputeBackend::Metal, ComputeBackend::Agx] {
+        let actual = warm(backend)
+            .unwrap()
+            .ask_multi_tr(2, 3, &seeds, config)
+            .unwrap();
+        assert_eq!(actual.len(), expected.len());
+        for ((actual_index, actual_score), &(expected_index, expected_score)) in
+            actual.into_iter().zip(&expected)
+        {
+            assert_eq!(actual_index, expected_index);
+            assert!((actual_score - expected_score).abs() <= 1.0e-5);
+        }
     }
 }
 
@@ -186,10 +228,13 @@ fn metal_multi_tr_resolves_perturbation_tree() {
 
     let cpu = run(ComputeBackend::Cpu);
     let metal = run(ComputeBackend::Metal);
-    assert_eq!(metal.len(), cpu.len());
-    for ((metal_index, metal_score), (cpu_index, cpu_score)) in metal.into_iter().zip(cpu) {
-        assert_eq!(metal_index, cpu_index);
-        assert!((metal_score - cpu_score).abs() <= 1.0e-5);
+    let agx = run(ComputeBackend::Agx);
+    for result in [metal, agx] {
+        assert_eq!(result.len(), cpu.len());
+        for ((index, score), &(cpu_index, cpu_score)) in result.into_iter().zip(&cpu) {
+            assert_eq!(index, cpu_index);
+            assert!((score - cpu_score).abs() <= 1.0e-5);
+        }
     }
 }
 

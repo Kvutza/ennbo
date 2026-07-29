@@ -8,6 +8,7 @@ fn main() -> Result<(), String> {
     let history = arg(&args, 2, 10)?;
     let candidates = arg(&args, 3, 8)?;
     let rounds = arg(&args, 4, 10)?;
+    let regions = arg(&args, 6, 1)?;
     let backend = match args.get(5).map(String::as_str).unwrap_or("metal") {
         "cpu" => ComputeBackend::Cpu,
         "metal" => ComputeBackend::Metal,
@@ -41,26 +42,34 @@ fn main() -> Result<(), String> {
 
     let mut times = Vec::with_capacity(rounds);
     for round in 0..rounds {
-        let seeds: Vec<u64> = (0..candidates)
-            .map(|candidate| 10_000 + (round * candidates + candidate) as u64)
+        let total = candidates
+            .checked_mul(regions)
+            .ok_or("candidate count overflow")?;
+        let seeds: Vec<u64> = (0..total)
+            .map(|candidate| 10_000 + (round * total + candidate) as u64)
             .collect();
         let start = Instant::now();
-        let trial = search.ask(
-            &seeds,
-            WeightAsk {
-                seed: round as u64,
-                ..ask
-            },
-        )?;
+        let config = WeightAsk {
+            seed: round as u64,
+            ..ask
+        };
+        let trial = if regions == 1 {
+            Some(search.ask(&seeds, config)?)
+        } else {
+            search.ask_multi_tr(regions, candidates, &seeds, config)?;
+            None
+        };
         times.push(start.elapsed().as_secs_f64());
-        search.tell(trial, round as f32, round % 2 == 0)?;
+        if let Some(trial) = trial {
+            search.tell(trial, round as f32, round % 2 == 0)?;
+        }
     }
     times.sort_by(f64::total_cmp);
     let median = times[times.len() / 2];
     let min = times[0];
     println!(
-        "elements={elements} row_bytes={row_bytes} history={history} candidates={candidates} \
-         rounds={rounds} min_ms={:.3} median_ms={:.3}",
+        "elements={elements} row_bytes={row_bytes} history={history} regions={regions} \
+         candidates_per_region={candidates} rounds={rounds} min_ms={:.3} median_ms={:.3}",
         min * 1_000.0,
         median * 1_000.0
     );

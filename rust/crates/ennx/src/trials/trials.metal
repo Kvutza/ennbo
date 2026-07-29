@@ -486,18 +486,61 @@ kernel void score_trials(
 kernel void pick_trial(
     device const float* scores [[buffer(0)]],
     device uint* choice [[buffer(1)]],
-    constant Params& params [[buffer(2)]]
+    constant Params& params [[buffer(2)]],
+    uint thread_index [[thread_index_in_threadgroup]],
+    uint threads [[threads_per_threadgroup]]
 ) {
-    uint best = 0;
-    float best_score = scores[0];
-    for (uint index = 1; index < params.candidates; ++index) {
+    float best_score = -INFINITY;
+    uint best = UINT_MAX;
+    for (uint index = thread_index; index < params.candidates; index += threads) {
         float score = scores[index];
-        if (score > best_score) {
+        if (score > best_score || (score == best_score && index < best)) {
             best = index;
             best_score = score;
         }
     }
-    choice[0] = best;
+
+    for (uint offset = 16u; offset > 0u; offset >>= 1u) {
+        float other_score = simd_shuffle_down(best_score, offset);
+        uint other = simd_shuffle_down(best, offset);
+        if (
+            other_score > best_score
+            || (other_score == best_score && other < best)
+        ) {
+            best_score = other_score;
+            best = other;
+        }
+    }
+
+    threadgroup float group_scores[kThreads / 32];
+    threadgroup uint group_indices[kThreads / 32];
+    uint lane = thread_index % 32u;
+    uint simd_index = thread_index / 32u;
+    if (lane == 0u) {
+        group_scores[simd_index] = best_score;
+        group_indices[simd_index] = best;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    if (simd_index == 0u) {
+        uint simd_count = (threads + 31u) / 32u;
+        best_score = lane < simd_count ? group_scores[lane] : -INFINITY;
+        best = lane < simd_count ? group_indices[lane] : UINT_MAX;
+        for (uint offset = 16u; offset > 0u; offset >>= 1u) {
+            float other_score = simd_shuffle_down(best_score, offset);
+            uint other = simd_shuffle_down(best, offset);
+            if (
+                other_score > best_score
+                || (other_score == best_score && other < best)
+            ) {
+                best_score = other_score;
+                best = other;
+            }
+        }
+        if (lane == 0u) {
+            choice[0] = best;
+        }
+    }
 }
 
 struct MultiTRParams {
@@ -511,6 +554,7 @@ kernel void multi_tr_pick_trials(
     device float* selected_scores [[buffer(2)]],
     constant MultiTRParams& params [[buffer(3)]],
     uint thread_index [[thread_index_in_threadgroup]],
+    uint threads [[threads_per_threadgroup]],
     uint region_index [[threadgroup_position_in_grid]]
 ) {
     if (region_index >= params.num_regions) {
@@ -523,7 +567,7 @@ kernel void multi_tr_pick_trials(
     for (
         uint index = thread_index;
         index < params.candidates_per_region;
-        index += kThreads
+        index += threads
     ) {
         float score = region_scores[index];
         if (
@@ -558,8 +602,9 @@ kernel void multi_tr_pick_trials(
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     if (simd_index == 0u) {
-        best_score = lane < kThreads / 32 ? group_scores[lane] : -INFINITY;
-        best_index = lane < kThreads / 32 ? group_indices[lane] : UINT_MAX;
+        uint simd_count = (threads + 31u) / 32u;
+        best_score = lane < simd_count ? group_scores[lane] : -INFINITY;
+        best_index = lane < simd_count ? group_indices[lane] : UINT_MAX;
         for (uint offset = 16u; offset > 0u; offset >>= 1u) {
             float other_score = simd_shuffle_down(best_score, offset);
             uint other_index = simd_shuffle_down(best_index, offset);

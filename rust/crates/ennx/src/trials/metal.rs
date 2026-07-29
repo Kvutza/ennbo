@@ -238,7 +238,7 @@ impl Engine {
         encoder.set_buffer(0, Some(&self.scratch.scores), 0);
         encoder.set_buffer(1, Some(&self.scratch.choice), 0);
         set_params(encoder, 2, &params);
-        encoder.dispatch_thread_groups(group(1), group(1));
+        encoder.dispatch_thread_groups(group(1), group(selection_threads(seeds.len())));
 
         encoder.set_compute_pipeline_state(&self.write);
         encoder.set_buffer(0, Some(&self.rows), 0);
@@ -410,7 +410,10 @@ impl Engine {
             size_of::<MultiTrParams>() as u64,
             (&multi_tr_params as *const MultiTrParams).cast::<c_void>(),
         );
-        encoder.dispatch_thread_groups(group(num_regions as u64), group(THREADS));
+        encoder.dispatch_thread_groups(
+            group(num_regions as u64),
+            group(selection_threads(seeds_per_region)),
+        );
 
         encoder.end_encoding();
         command.commit();
@@ -591,6 +594,10 @@ fn distance_groups(candidates: usize, history: usize, tiles: usize) -> Result<u6
         .and_then(|value| value.checked_mul(tiles))
         .and_then(|value| u64::try_from(value).ok())
         .ok_or("distance dispatch size overflow".to_string())
+}
+
+fn selection_threads(candidates: usize) -> u64 {
+    candidates.next_power_of_two().clamp(32, THREADS as usize) as u64
 }
 
 const fn size_of<T>() -> usize {
