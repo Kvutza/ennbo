@@ -70,11 +70,29 @@ import sys
 assert sys.version_info[:2] == (3, 13)
 assert "numpy" not in sys.modules
 from ennx import _rust
+from ennx import EpistemicNearestNeighbors
+from ennx.ennx.enn_class_support import enn_index_neighbor_distances_and_indices
+from ennx.turbo.config import ENNIndexDriver
 import numpy as np
 
 center, scale = _rust.standardize_y(np.array([1.0, 2.0, 3.0]))
 assert center == 2.0
 assert abs(scale - 0.8164965809277261) < 1e-15
+
+rng = np.random.default_rng(17)
+train_x = rng.normal(size=(32, 5))
+train_y = np.zeros((32, 1), dtype=float)
+query = rng.normal(size=(4, 5))
+flat = EpistemicNearestNeighbors(train_x, train_y, index_driver=ENNIndexDriver.FLAT)
+usearch = EpistemicNearestNeighbors(train_x, train_y, index_driver=ENNIndexDriver.USEARCH)
+expected = enn_index_neighbor_distances_and_indices(
+    flat.rust_backend, query, search_k=10, exclude_nearest=False
+)
+actual = enn_index_neighbor_distances_and_indices(
+    usearch.rust_backend, query, search_k=10, exclude_nearest=False
+)
+assert np.array_equal(actual[1], expected[1])
+assert np.max(np.abs(actual[0] - expected[0])) == 0.0
 print(f"native smoke: center={center}, scale={scale}")
 PY
 

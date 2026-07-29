@@ -41,9 +41,7 @@ fn candidates() -> Vec<PathBuf> {
 fn main() {
     println!("cargo:rerun-if-env-changed=FAISS_LIB_DIR");
     println!("cargo:rerun-if-env-changed=CONDA_PREFIX");
-    if std::env::var_os("CARGO_FEATURE_FAISS").is_none()
-        || std::env::var_os("DOCS_RS").is_some()
-    {
+    if std::env::var_os("CARGO_FEATURE_FAISS").is_none() || std::env::var_os("DOCS_RS").is_some() {
         return;
     }
     let lib = candidates()

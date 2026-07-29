@@ -257,7 +257,7 @@ mod tests {
         run_exact_regression_test(|train_x| index_unit(train_x, IndexDriver::Exact));
     }
 
-    #[cfg(feature = "usearch")]
+    #[cfg(any(feature = "usearch", feature = "usearch-native"))]
     #[test]
     fn test_usearch_search_and_incremental_add() {
         let index = index_unit(

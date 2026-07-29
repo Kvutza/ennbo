@@ -1,6 +1,7 @@
-load("@crates//:defs.bzl", "aliases", "all_crate_deps", "crate_edition")
+load("@crates//:defs.bzl", "aliases", "crate_edition")
 load("@rules_cc//cc:defs.bzl", "cc_library")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+load("//rust/crates/ennx:defs.bzl", "ennx_crate_deps")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -11,7 +12,28 @@ ENNX_SRCS = glob(
     exclude = ["src/ennx_build.rs"],
 )
 
-ENNX_DEPS = all_crate_deps(normal = True) + [
+ENNX_CRATES = [
+    "memmap2",
+    "ndarray",
+    "rand",
+    "rayon",
+    "serde",
+    "sobol",
+    "thiserror",
+    "toml",
+]
+
+ENNX_TEST_CRATES = ENNX_CRATES + [
+    "approx",
+    "rand_chacha",
+    "tempfile",
+]
+
+ENNX_DEPS = ennx_crate_deps(ENNX_CRATES) + [
+    "//rust/crates/bpann",
+]
+
+ENNX_TEST_DEPS = ennx_crate_deps(ENNX_TEST_CRATES) + [
     "//rust/crates/bpann",
 ]
 
@@ -25,14 +47,33 @@ cc_library(
     deps = ["@faiss_src//:faiss"],
 )
 
+cc_library(
+    name = "usearch_bridge",
+    srcs = ["src/usearch_bridge.cpp"],
+    hdrs = ["src/usearch_bridge.h"],
+    copts = select({
+        "@platforms//os:windows": ["/std:c++17"],
+        "//conditions:default": [
+            "-std=c++17",
+            "-Wno-unknown-pragmas",
+        ],
+    }),
+    includes = ["src"],
+    deps = ["@usearch_src//:usearch"],
+)
+
 rust_library(
     name = "ennx_cpu",
     srcs = ENNX_SRCS,
     aliases = aliases(),
+    crate_features = ["usearch-native"],
     crate_name = "ennx",
     crate_root = "src/lib.rs",
     edition = crate_edition(),
-    link_deps = [":faiss_bridge"],
+    link_deps = [
+        ":faiss_bridge",
+        ":usearch_bridge",
+    ],
     deps = ENNX_DEPS,
 )
 
@@ -41,11 +82,17 @@ rust_library(
     srcs = ENNX_SRCS,
     aliases = aliases(),
     compile_data = glob(["src/**/*.metal"]),
-    crate_features = ["metal"],
+    crate_features = [
+        "metal",
+        "usearch-native",
+    ],
     crate_name = "ennx",
     crate_root = "src/lib.rs",
     edition = crate_edition(),
-    link_deps = [":faiss_bridge"],
+    link_deps = [
+        ":faiss_bridge",
+        ":usearch_bridge",
+    ],
     target_compatible_with = ["@platforms//os:macos"],
     deps = ENNX_DEPS + [
         "@accelerator_crates//:metal",
@@ -57,11 +104,17 @@ rust_library(
     srcs = ENNX_SRCS,
     aliases = aliases(),
     compile_data = glob(["src/**/*.cl"]),
-    crate_features = ["opencl"],
+    crate_features = [
+        "opencl",
+        "usearch-native",
+    ],
     crate_name = "ennx",
     crate_root = "src/lib.rs",
     edition = crate_edition(),
-    link_deps = [":faiss_bridge"],
+    link_deps = [
+        ":faiss_bridge",
+        ":usearch_bridge",
+    ],
     deps = ENNX_DEPS + [
         "@accelerator_crates//:opencl3",
     ],
@@ -89,10 +142,7 @@ rust_test(
         proc_macro_dev = True,
     ),
     crate = ":ennx_cpu",
-    deps = all_crate_deps(
-        normal_dev = True,
-        proc_macro_dev = True,
-    ),
+    deps = ENNX_TEST_DEPS,
 )
 
 rust_binary(
@@ -132,25 +182,23 @@ rust_test(
     crate_root = "tests/trial_search.rs",
     edition = crate_edition(),
     target_compatible_with = ["@platforms//os:macos"],
-    deps = all_crate_deps(
-        normal_dev = True,
-        proc_macro_dev = True,
-    ) + [
+    deps = ENNX_TEST_DEPS + [
         ":ennx_metal",
-        "@crates//:ndarray",
     ],
 )
 
 rust_test(
     name = "trial_search_opencl_test",
     srcs = ["tests/trial_search.rs"],
-    aliases = aliases(normal_dev = True, proc_macro_dev = True),
+    aliases = aliases(
+        normal_dev = True,
+        proc_macro_dev = True,
+    ),
     crate_features = ["opencl"],
     crate_name = "trial_search_opencl_test",
     crate_root = "tests/trial_search.rs",
     edition = crate_edition(),
-    deps = all_crate_deps(normal_dev = True, proc_macro_dev = True) + [
+    deps = ENNX_TEST_DEPS + [
         ":ennx_opencl",
-        "@crates//:ndarray",
     ],
 )

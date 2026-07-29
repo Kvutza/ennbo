@@ -3,7 +3,7 @@
 pub(crate) mod faiss_backend;
 pub use faiss_backend::MmapColumnStore;
 
-#[cfg(feature = "usearch")]
+#[cfg(any(feature = "usearch", feature = "usearch-native"))]
 mod usearch_backend;
 
 #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -18,7 +18,7 @@ use crate::index::{IndexDriver, IndexError};
 
 pub(crate) use faiss_backend::FaissBackend;
 
-#[cfg(feature = "usearch")]
+#[cfg(any(feature = "usearch", feature = "usearch-native"))]
 use usearch_backend::USearchBackend;
 
 #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -29,7 +29,7 @@ use opencl_index::OpenClIndex;
 /// In-memory exact and accelerator-backed index implementations.
 pub(crate) enum KnnBackend {
     Faiss(Mutex<FaissBackend>),
-    #[cfg(feature = "usearch")]
+    #[cfg(any(feature = "usearch", feature = "usearch-native"))]
     USearch(Mutex<USearchBackend>),
     #[cfg(all(target_os = "macos", feature = "metal"))]
     Metal(Mutex<MetalIndex>),
@@ -50,17 +50,17 @@ impl KnnBackend {
                 train_scaled,
             )?))),
             IndexDriver::USearch => {
-                #[cfg(feature = "usearch")]
+                #[cfg(any(feature = "usearch", feature = "usearch-native"))]
                 {
                     return Ok(Self::USearch(Mutex::new(USearchBackend::new(
                         num_dim,
                         train_scaled,
                     )?)));
                 }
-                #[cfg(not(feature = "usearch"))]
+                #[cfg(not(any(feature = "usearch", feature = "usearch-native")))]
                 {
                     Err(IndexError::InvalidParameter(
-                        "USearch index is unavailable; build with the usearch feature".to_string(),
+                        "USearch index is unavailable; build with the usearch or usearch-native feature".to_string(),
                     ))
                 }
             }
@@ -104,7 +104,7 @@ impl KnnBackend {
     pub(crate) fn len(&self) -> usize {
         match self {
             Self::Faiss(inner) => inner.lock().expect("knn mutex poisoned").len(),
-            #[cfg(feature = "usearch")]
+            #[cfg(any(feature = "usearch", feature = "usearch-native"))]
             Self::USearch(inner) => inner.lock().expect("knn mutex poisoned").len(),
             #[cfg(all(target_os = "macos", feature = "metal"))]
             Self::Metal(inner) => inner.lock().expect("knn mutex poisoned").len(),
@@ -119,7 +119,7 @@ impl KnnBackend {
                 .lock()
                 .expect("knn mutex poisoned")
                 .memory_usage_bytes(),
-            #[cfg(feature = "usearch")]
+            #[cfg(any(feature = "usearch", feature = "usearch-native"))]
             Self::USearch(inner) => inner
                 .lock()
                 .expect("knn mutex poisoned")
@@ -143,7 +143,7 @@ impl KnnBackend {
                 .lock()
                 .expect("knn mutex poisoned")
                 .rebuild(train_scaled),
-            #[cfg(feature = "usearch")]
+            #[cfg(any(feature = "usearch", feature = "usearch-native"))]
             Self::USearch(inner) => inner
                 .lock()
                 .expect("knn mutex poisoned")
@@ -171,7 +171,7 @@ impl KnnBackend {
                 .lock()
                 .expect("knn mutex poisoned")
                 .add(rows_scaled, start_key),
-            #[cfg(feature = "usearch")]
+            #[cfg(any(feature = "usearch", feature = "usearch-native"))]
             Self::USearch(inner) => inner
                 .lock()
                 .expect("knn mutex poisoned")
@@ -202,7 +202,7 @@ impl KnnBackend {
                     .expect("knn mutex poisoned")
                     .search(queries_scaled, k_eff, search_k)
             }
-            #[cfg(feature = "usearch")]
+            #[cfg(any(feature = "usearch", feature = "usearch-native"))]
             Self::USearch(inner) => {
                 inner
                     .lock()
@@ -306,7 +306,7 @@ mod knn_backend_tests {
         }
     }
 
-    #[cfg(feature = "usearch")]
+    #[cfg(any(feature = "usearch", feature = "usearch-native"))]
     #[test]
     fn knn_backend_usearch() {
         let train = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
@@ -315,7 +315,7 @@ mod knn_backend_tests {
         assert!(matches!(backend, KnnBackend::USearch(_)));
     }
 
-    #[cfg(not(feature = "usearch"))]
+    #[cfg(not(any(feature = "usearch", feature = "usearch-native")))]
     #[test]
     fn knn_backend_usearch_requires_feature() {
         let train = array![[0.0, 0.0]];
@@ -323,7 +323,9 @@ mod knn_backend_tests {
             Ok(_) => panic!("expected USearch feature error"),
             Err(error) => error,
         };
-        assert!(error.to_string().contains("usearch feature"));
+        assert!(error
+            .to_string()
+            .contains("usearch or usearch-native feature"));
     }
 
     #[test]

@@ -1,26 +1,10 @@
+#[cfg(all(feature = "usearch", feature = "usearch-native"))]
+compile_error!("features \"usearch\" and \"usearch-native\" are mutually exclusive");
+
 use ndarray::{Array2, ArrayView1, ArrayView2};
-use usearch::{new_index, Index, IndexOptions, MetricKind, ScalarKind};
 
 use super::pad_neighbor_cols_to_search_k;
 use crate::index::IndexError;
-
-pub(crate) struct USearchBackend {
-    index: Index,
-    rows: Vec<f64>,
-    num_dim: usize,
-}
-
-fn options(num_dim: usize) -> IndexOptions {
-    IndexOptions {
-        dimensions: num_dim,
-        metric: MetricKind::L2sq,
-        quantization: ScalarKind::F32,
-        connectivity: 0,
-        expansion_add: 0,
-        expansion_search: 0,
-        multi: false,
-    }
-}
 
 fn usearch_error(error: impl std::fmt::Display) -> IndexError {
     IndexError::InvalidParameter(error.to_string())
@@ -64,6 +48,231 @@ fn rerank(
     Ok(neighbors)
 }
 
+#[cfg(feature = "usearch")]
+mod backend {
+    use super::{usearch_error, IndexError};
+    use usearch::{new_index, Index, IndexOptions, MetricKind, ScalarKind};
+
+    pub(super) struct BackendIndex {
+        index: Index,
+    }
+
+    fn options(num_dim: usize) -> IndexOptions {
+        IndexOptions {
+            dimensions: num_dim,
+            metric: MetricKind::L2sq,
+            quantization: ScalarKind::F32,
+            connectivity: 0,
+            expansion_add: 0,
+            expansion_search: 0,
+            multi: false,
+        }
+    }
+
+    impl BackendIndex {
+        pub(super) fn new(num_dim: usize) -> Result<Self, IndexError> {
+            let index = new_index(&options(num_dim)).map_err(usearch_error)?;
+            Ok(Self { index })
+        }
+
+        pub(super) fn reserve(&mut self, capacity: usize) -> Result<(), IndexError> {
+            self.index.reserve(capacity).map_err(usearch_error)
+        }
+
+        pub(super) fn add(&mut self, key: u64, vector: &[f32]) -> Result<(), IndexError> {
+            self.index.add(key, vector).map_err(usearch_error)
+        }
+
+        pub(super) fn search(
+            &self,
+            query: &[f32],
+            wanted: usize,
+            exact: bool,
+        ) -> Result<Vec<u64>, IndexError> {
+            let matches = if exact {
+                self.index.exact_search(query, wanted)
+            } else {
+                self.index.search(query, wanted)
+            }
+            .map_err(usearch_error)?;
+            Ok(matches.keys)
+        }
+
+        pub(super) fn expansion_search(&self) -> usize {
+            self.index.expansion_search()
+        }
+
+        pub(super) fn memory_usage_bytes(&self) -> usize {
+            self.index.memory_usage()
+        }
+    }
+}
+
+#[cfg(feature = "usearch-native")]
+mod backend {
+    use super::{usearch_error, IndexError};
+    use std::ffi::{c_char, c_void, CStr};
+    use std::ptr;
+
+    const ERROR_BUFFER_LEN: usize = 512;
+
+    extern "C" {
+        fn ennx_usearch_new(
+            num_dim: usize,
+            error: *mut c_char,
+            error_capacity: usize,
+        ) -> *mut c_void;
+        fn ennx_usearch_destroy(handle: *mut c_void);
+        fn ennx_usearch_reserve(
+            handle: *mut c_void,
+            capacity: usize,
+            error: *mut c_char,
+            error_capacity: usize,
+        ) -> bool;
+        fn ennx_usearch_add(
+            handle: *mut c_void,
+            key: u64,
+            vector: *const f32,
+            num_dim: usize,
+            error: *mut c_char,
+            error_capacity: usize,
+        ) -> bool;
+        fn ennx_usearch_search(
+            handle: *const c_void,
+            query: *const f32,
+            num_dim: usize,
+            wanted: usize,
+            exact: bool,
+            out_keys: *mut u64,
+            out_capacity: usize,
+            out_count: *mut usize,
+            error: *mut c_char,
+            error_capacity: usize,
+        ) -> bool;
+        fn ennx_usearch_expansion_search(handle: *const c_void) -> usize;
+        fn ennx_usearch_memory_usage(handle: *const c_void) -> usize;
+    }
+
+    fn error_from_buffer(buffer: &[c_char], fallback: &str) -> IndexError {
+        let message = unsafe { CStr::from_ptr(buffer.as_ptr()) }
+            .to_string_lossy()
+            .trim()
+            .to_owned();
+        if message.is_empty() {
+            usearch_error(fallback)
+        } else {
+            usearch_error(message)
+        }
+    }
+
+    fn call_error_bool(ok: bool, error: &[c_char], fallback: &str) -> Result<(), IndexError> {
+        if ok {
+            Ok(())
+        } else {
+            Err(error_from_buffer(error, fallback))
+        }
+    }
+
+    pub(super) struct BackendIndex {
+        handle: *mut c_void,
+    }
+
+    unsafe impl Send for BackendIndex {}
+
+    impl Drop for BackendIndex {
+        fn drop(&mut self) {
+            if !self.handle.is_null() {
+                unsafe { ennx_usearch_destroy(self.handle) };
+                self.handle = ptr::null_mut();
+            }
+        }
+    }
+
+    impl BackendIndex {
+        pub(super) fn new(num_dim: usize) -> Result<Self, IndexError> {
+            let mut error = [0 as c_char; ERROR_BUFFER_LEN];
+            let handle = unsafe { ennx_usearch_new(num_dim, error.as_mut_ptr(), error.len()) };
+            if handle.is_null() {
+                return Err(error_from_buffer(
+                    &error,
+                    "failed to construct the native USearch index",
+                ));
+            }
+            Ok(Self { handle })
+        }
+
+        pub(super) fn reserve(&mut self, capacity: usize) -> Result<(), IndexError> {
+            let mut error = [0 as c_char; ERROR_BUFFER_LEN];
+            let ok = unsafe {
+                ennx_usearch_reserve(self.handle, capacity, error.as_mut_ptr(), error.len())
+            };
+            call_error_bool(ok, &error, "failed to reserve native USearch capacity")
+        }
+
+        pub(super) fn add(&mut self, key: u64, vector: &[f32]) -> Result<(), IndexError> {
+            let mut error = [0 as c_char; ERROR_BUFFER_LEN];
+            let ok = unsafe {
+                ennx_usearch_add(
+                    self.handle,
+                    key,
+                    vector.as_ptr(),
+                    vector.len(),
+                    error.as_mut_ptr(),
+                    error.len(),
+                )
+            };
+            call_error_bool(ok, &error, "failed to add a native USearch vector")
+        }
+
+        pub(super) fn search(
+            &self,
+            query: &[f32],
+            wanted: usize,
+            exact: bool,
+        ) -> Result<Vec<u64>, IndexError> {
+            let mut error = [0 as c_char; ERROR_BUFFER_LEN];
+            let mut keys = vec![0u64; wanted];
+            let mut count = 0usize;
+            let ok = unsafe {
+                ennx_usearch_search(
+                    self.handle,
+                    query.as_ptr(),
+                    query.len(),
+                    wanted,
+                    exact,
+                    keys.as_mut_ptr(),
+                    keys.len(),
+                    &mut count,
+                    error.as_mut_ptr(),
+                    error.len(),
+                )
+            };
+            call_error_bool(ok, &error, "native USearch search failed")?;
+            keys.truncate(count);
+            Ok(keys)
+        }
+
+        pub(super) fn expansion_search(&self) -> usize {
+            unsafe { ennx_usearch_expansion_search(self.handle) }
+        }
+
+        pub(super) fn memory_usage_bytes(&self) -> usize {
+            unsafe { ennx_usearch_memory_usage(self.handle) }
+        }
+    }
+}
+
+#[cfg(feature = "usearch")]
+use backend::BackendIndex;
+#[cfg(feature = "usearch-native")]
+use backend::BackendIndex;
+
+pub(crate) struct USearchBackend {
+    index: BackendIndex,
+    rows: Vec<f64>,
+    num_dim: usize,
+}
+
 impl USearchBackend {
     pub(crate) fn new(num_dim: usize, train_scaled: &ArrayView2<f64>) -> Result<Self, IndexError> {
         if num_dim == 0 {
@@ -71,7 +280,7 @@ impl USearchBackend {
                 "USearch requires at least one dimension".to_string(),
             ));
         }
-        let index = new_index(&options(num_dim)).map_err(usearch_error)?;
+        let index = BackendIndex::new(num_dim)?;
         let mut backend = Self {
             index,
             rows: Vec::new(),
@@ -87,7 +296,7 @@ impl USearchBackend {
 
     pub(crate) fn memory_usage_bytes(&self) -> usize {
         self.index
-            .memory_usage()
+            .memory_usage_bytes()
             .saturating_add(self.rows.len().saturating_mul(std::mem::size_of::<f64>()))
     }
 
@@ -135,13 +344,8 @@ impl USearchBackend {
     }
 
     fn shortlist(&self, query: &[f32], count: usize) -> Result<Vec<u64>, IndexError> {
-        let matches = if count == self.len() {
-            self.index.exact_search(query, count)
-        } else {
-            self.index.search(query, count)
-        }
-        .map_err(usearch_error)?;
-        Ok(matches.keys)
+        let exact = count == self.len();
+        self.index.search(query, count, exact)
     }
 
     pub(crate) fn search(

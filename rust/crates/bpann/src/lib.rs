@@ -33,10 +33,10 @@ mod acceptance_tests {
     use crate::distance::row_sq_l2;
     use crate::index::bpann_mean_recall_at_k;
     use ndarray::{array, Array1, Array2};
-    use std::fs;
     use rand::Rng;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
+    use std::fs;
     use tempfile::TempDir;
 
     const DATA_SEED: u64 = 42;

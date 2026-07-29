@@ -7,7 +7,12 @@ app_rust_library(
     crate_root = "src/lib.rs",
     dlopen_enable = True,
     edition = "2021",
-    features = ["default"],
+    features = ["default", "usearch"] + select({
+        "//:linux-arm64": ["opencl"],
+        "//:linux-x86_64": ["opencl"],
+        "//:macos-arm64": ["metal"],
+        "//:windows-x86_64": ["opencl"],
+    }),
     rustc_flags = select({
         "//:linux-arm64": ["-Clink-arg=-Wl,-rpath,$ORIGIN/.dylibs"],
         "//:linux-x86_64": ["-Clink-arg=-Wl,-rpath,$ORIGIN/.dylibs"],

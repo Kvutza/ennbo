@@ -24,10 +24,10 @@ app_rust_library(
     crate_root = "src/lib.rs",
     edition = "2021",
     features = select({
-        "//:linux-arm64": ["opencl"],
-        "//:linux-x86_64": ["opencl"],
-        "//:macos-arm64": ["metal"],
-        "//:windows-x86_64": ["opencl"],
+        "//:linux-arm64": ["opencl", "usearch"],
+        "//:linux-x86_64": ["opencl", "usearch"],
+        "//:macos-arm64": ["metal", "usearch"],
+        "//:windows-x86_64": ["opencl", "usearch"],
     }),
     visibility = ["PUBLIC"],
     deps = [
@@ -41,6 +41,7 @@ app_rust_library(
         "//rust:sobol",
         "//rust:thiserror",
         "//rust:toml",
+        "//rust:usearch",
     ] + select({
         "//:linux-arm64": ["//buck2/accelerators:opencl3"],
         "//:linux-x86_64": ["//buck2/accelerators:opencl3"],

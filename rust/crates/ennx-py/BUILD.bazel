@@ -1,6 +1,7 @@
-load("@crates//:defs.bzl", "aliases", "all_crate_deps", "crate_edition")
+load("@crates//:defs.bzl", "aliases", "crate_edition")
 load("@rules_rust//rust:defs.bzl", "rust_shared_library")
 load("//:bazel/python_extension.bzl", "copy_extension")
+load("//rust/crates/ennx:defs.bzl", "ennx_crate_deps")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -11,7 +12,14 @@ ENNX_PY_SRCS = glob(
     exclude = ["src/ennx_py_build.rs"],
 )
 
-ENNX_PY_DEPS = all_crate_deps(normal = True)
+ENNX_PY_CRATES = [
+    "ndarray",
+    "numpy",
+    "pyo3",
+    "rand",
+]
+
+ENNX_PY_DEPS = ennx_crate_deps(ENNX_PY_CRATES)
 
 PYO3_LINK_FLAGS = select({
     "@platforms//os:macos": [
@@ -25,6 +33,7 @@ rust_shared_library(
     name = "ennx_rust_cpu",
     srcs = ENNX_PY_SRCS,
     aliases = aliases(),
+    crate_features = ["usearch-native"],
     crate_name = "ennx_rust",
     crate_root = "src/lib.rs",
     edition = crate_edition(),
@@ -41,6 +50,10 @@ rust_shared_library(
     name = "ennx_rust_metal",
     srcs = ENNX_PY_SRCS,
     aliases = aliases(),
+    crate_features = [
+        "metal",
+        "usearch-native",
+    ],
     crate_name = "ennx_rust",
     crate_root = "src/lib.rs",
     edition = crate_edition(),
@@ -48,16 +61,20 @@ rust_shared_library(
         "CARGO_MANIFEST_DIR": "rust/crates/ennx-py",
     },
     rustc_flags = PYO3_LINK_FLAGS,
+    target_compatible_with = ["@platforms//os:macos"],
     deps = ENNX_PY_DEPS + [
         "//rust/crates/ennx:ennx_metal",
     ],
-    target_compatible_with = ["@platforms//os:macos"],
 )
 
 rust_shared_library(
     name = "ennx_rust_opencl",
     srcs = ENNX_PY_SRCS,
     aliases = aliases(),
+    crate_features = [
+        "opencl",
+        "usearch-native",
+    ],
     crate_name = "ennx_rust",
     crate_root = "src/lib.rs",
     edition = crate_edition(),

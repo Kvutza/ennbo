@@ -36,7 +36,8 @@ faiss = ["dep:faiss"]
 metal = ["dep:metal"]
 opencl = ["dep:opencl3"]
 usearch = ["dep:usearch"]
-usearch-numkong = ["usearch", "usearch/numkong"]
+usearch-native = []
+usearch-numkong = ["dep:usearch", "usearch/numkong"]
 
 [dev-dependencies]
 approx = "0.5"

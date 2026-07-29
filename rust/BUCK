@@ -146,6 +146,44 @@ reindeer_rust_library(
 )
 
 http_archive(
+    name = "cc-1.4.0.crate",
+    sha256 = "5add81bb678e6cb321aff7fa0dc7689ad82b112dbc032cea19f91d6b8e3582b9",
+    strip_prefix = "cc-1.4.0",
+    urls = ["https://static.crates.io/crates/cc/1.4.0/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "cc-1",
+    srcs = [":cc-1.4.0.crate"],
+    crate = "cc",
+    crate_root = "cc-1.4.0.crate/src/lib.rs",
+    edition = "2018",
+    env = {
+        "CARGO_BIN_NAME": "cc",
+        "CARGO_CRATE_NAME": "cc",
+        "CARGO_MANIFEST_DIR": "cc-1.4.0.crate",
+        "CARGO_PKG_AUTHORS": "Alex Crichton <alex@alexcrichton.com>",
+        "CARGO_PKG_DESCRIPTION": "A build-time dependency for Cargo build scripts to assist in invoking the native\nC compiler to compile native C code into a static archive to be linked into Rust\ncode.\n",
+        "CARGO_PKG_HOMEPAGE": "https://github.com/rust-lang/cc-rs",
+        "CARGO_PKG_NAME": "cc",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/rust-lang/cc-rs",
+        "CARGO_PKG_RUST_VERSION": "1.63",
+        "CARGO_PKG_VERSION": "1.4.0",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "4",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    visibility = [],
+    deps = [
+        ":find-msvc-tools-0.1",
+        ":shlex-2",
+    ],
+)
+
+http_archive(
     name = "cfg-if-1.0.4.crate",
     sha256 = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801",
     strip_prefix = "cfg-if-1.0.4",
@@ -217,6 +255,49 @@ reindeer_rust_library(
         ":libc-0.2",
         ":opencl-sys-0.6",
         ":thiserror-2",
+    ],
+)
+
+http_archive(
+    name = "codespan-reporting-0.13.1.crate",
+    sha256 = "af491d569909a7e4dee0ad7db7f5341fef5c614d5b8ec8cf765732aba3cff681",
+    strip_prefix = "codespan-reporting-0.13.1",
+    urls = ["https://static.crates.io/crates/codespan-reporting/0.13.1/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "codespan-reporting-0.13",
+    srcs = [":codespan-reporting-0.13.1.crate"],
+    crate = "codespan_reporting",
+    crate_root = "codespan-reporting-0.13.1.crate/src/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "codespan_reporting",
+        "CARGO_CRATE_NAME": "codespan_reporting",
+        "CARGO_MANIFEST_DIR": "codespan-reporting-0.13.1.crate",
+        "CARGO_PKG_AUTHORS": "Brendan Zabarauskas <bjzaba@yahoo.com.au>",
+        "CARGO_PKG_DESCRIPTION": "Beautiful diagnostic reporting for text-based programming languages",
+        "CARGO_PKG_HOMEPAGE": "https://github.com/brendanzab/codespan",
+        "CARGO_PKG_NAME": "codespan-reporting",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/brendanzab/codespan",
+        "CARGO_PKG_RUST_VERSION": "1.67",
+        "CARGO_PKG_VERSION": "0.13.1",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "13",
+        "CARGO_PKG_VERSION_PATCH": "1",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = [
+        "default",
+        "std",
+        "termcolor",
+    ],
+    visibility = [],
+    deps = [
+        ":termcolor-1",
+        ":unicode-width-0.2",
     ],
 )
 
@@ -713,6 +794,267 @@ buildscript_run(
 )
 
 http_archive(
+    name = "cxx-1.0.198.crate",
+    sha256 = "6fe442a792c7c736eea18b32a7f8a3b63cf8aafabda6760042dc2fdeda456291",
+    strip_prefix = "cxx-1.0.198",
+    urls = ["https://static.crates.io/crates/cxx/1.0.198/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "cxx-1",
+    srcs = [":cxx-1.0.198.crate"],
+    crate = "cxx",
+    crate_root = "cxx-1.0.198.crate/src/lib.rs",
+    edition = "2024",
+    env = {
+        "CARGO_BIN_NAME": "cxx",
+        "CARGO_CRATE_NAME": "cxx",
+        "CARGO_MANIFEST_DIR": "cxx-1.0.198.crate",
+        "CARGO_PKG_AUTHORS": "David Tolnay <dtolnay@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "Safe interop between Rust and C++",
+        "CARGO_PKG_HOMEPAGE": "https://cxx.rs",
+        "CARGO_PKG_NAME": "cxx",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/dtolnay/cxx",
+        "CARGO_PKG_RUST_VERSION": "1.85",
+        "CARGO_PKG_VERSION": "1.0.198",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "198",
+        "CARGO_PKG_VERSION_PRE": "",
+        "OUT_DIR": "$(location :cxx-1-build-script-run[out_dir])",
+    },
+    features = [
+        "alloc",
+        "default",
+        "std",
+    ],
+    rustc_flags = ["@$(location :cxx-1-build-script-run[rustc_flags])"],
+    visibility = [],
+    deps = [
+        ":cxxbridge-macro-1",
+        ":foldhash-0.2",
+        ":link-cplusplus-1",
+    ],
+)
+
+reindeer_rust_binary(
+    name = "cxx-1-build-script-build",
+    srcs = [":cxx-1.0.198.crate"],
+    crate = "build_script_build",
+    crate_root = "cxx-1.0.198.crate/build.rs",
+    edition = "2024",
+    env = {
+        "CARGO_BIN_NAME": "build-script-build",
+        "CARGO_CRATE_NAME": "build_script_build",
+        "CARGO_MANIFEST_DIR": "cxx-1.0.198.crate",
+        "CARGO_PKG_AUTHORS": "David Tolnay <dtolnay@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "Safe interop between Rust and C++",
+        "CARGO_PKG_HOMEPAGE": "https://cxx.rs",
+        "CARGO_PKG_NAME": "cxx",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/dtolnay/cxx",
+        "CARGO_PKG_RUST_VERSION": "1.85",
+        "CARGO_PKG_VERSION": "1.0.198",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "198",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = [
+        "alloc",
+        "default",
+        "std",
+    ],
+    visibility = [],
+    deps = [
+        ":cc-1",
+        ":cxxbridge-flags-1",
+    ],
+)
+
+buildscript_run(
+    name = "cxx-1-build-script-run",
+    package_name = "cxx",
+    buildscript_rule = ":cxx-1-build-script-build",
+    env = {
+        "CARGO_MANIFEST_LINKS": "cxxbridge1",
+        "CARGO_PKG_AUTHORS": "David Tolnay <dtolnay@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "Safe interop between Rust and C++",
+        "CARGO_PKG_HOMEPAGE": "https://cxx.rs",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/dtolnay/cxx",
+        "CARGO_PKG_RUST_VERSION": "1.85",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "198",
+        "CARGO_PKG_VERSION_PRE": "",
+        "DEBUG": "false",
+        "NUM_JOBS": "4",
+        "OPT_LEVEL": "3",
+        "PROFILE": "release",
+    },
+    features = [
+        "alloc",
+        "default",
+        "std",
+    ],
+    platform = {
+        "linux-arm64": dict(
+            env = {
+                "AR": "/usr/bin/env ar",
+                "CC": "/usr/bin/env clang",
+                "CXX": "/usr/bin/env clang++",
+            },
+        ),
+        "linux-x86_64": dict(
+            env = {
+                "AR": "/usr/bin/env ar",
+                "CC": "/usr/bin/env clang",
+                "CXX": "/usr/bin/env clang++",
+            },
+        ),
+        "macos-arm64": dict(
+            env = {
+                "AR": "/usr/bin/env ar",
+                "CC": "/usr/bin/env clang",
+                "CXX": "/usr/bin/env clang++",
+            },
+        ),
+        "macos-x86_64": dict(
+            env = {
+                "AR": "/usr/bin/env ar",
+                "CC": "/usr/bin/env clang",
+                "CXX": "/usr/bin/env clang++",
+            },
+        ),
+    },
+    rustc_link_lib = True,
+    rustc_link_search = True,
+    version = "1.0.198",
+)
+
+http_archive(
+    name = "cxx-build-1.0.198.crate",
+    sha256 = "e3184a94384c663718698311a78a51ac00c484c10b4eeac06fb0a068c5f64fa2",
+    strip_prefix = "cxx-build-1.0.198",
+    urls = ["https://static.crates.io/crates/cxx-build/1.0.198/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "cxx-build-1",
+    srcs = [":cxx-build-1.0.198.crate"],
+    crate = "cxx_build",
+    crate_root = "cxx-build-1.0.198.crate/src/lib.rs",
+    edition = "2024",
+    env = {
+        "CARGO_BIN_NAME": "cxx_build",
+        "CARGO_CRATE_NAME": "cxx_build",
+        "CARGO_MANIFEST_DIR": "cxx-build-1.0.198.crate",
+        "CARGO_PKG_AUTHORS": "David Tolnay <dtolnay@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "C++ code generator for integrating `cxx` crate into a Cargo build.",
+        "CARGO_PKG_HOMEPAGE": "https://cxx.rs",
+        "CARGO_PKG_NAME": "cxx-build",
+        "CARGO_PKG_README": "",
+        "CARGO_PKG_REPOSITORY": "https://github.com/dtolnay/cxx",
+        "CARGO_PKG_RUST_VERSION": "1.85",
+        "CARGO_PKG_VERSION": "1.0.198",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "198",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    visibility = [],
+    deps = [
+        ":cc-1",
+        ":codespan-reporting-0.13",
+        ":indexmap-2",
+        ":proc-macro2-1",
+        ":quote-1",
+        ":scratch-1",
+        ":syn-3",
+    ],
+)
+
+http_archive(
+    name = "cxxbridge-flags-1.0.198.crate",
+    sha256 = "52850339faed2eaadd24e286dc1d8268cc6f8a7bd9524d713adc9099566b4c89",
+    strip_prefix = "cxxbridge-flags-1.0.198",
+    urls = ["https://static.crates.io/crates/cxxbridge-flags/1.0.198/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "cxxbridge-flags-1",
+    srcs = [":cxxbridge-flags-1.0.198.crate"],
+    crate = "cxxbridge_flags",
+    crate_root = "cxxbridge-flags-1.0.198.crate/src/lib.rs",
+    edition = "2024",
+    env = {
+        "CARGO_BIN_NAME": "cxxbridge_flags",
+        "CARGO_CRATE_NAME": "cxxbridge_flags",
+        "CARGO_MANIFEST_DIR": "cxxbridge-flags-1.0.198.crate",
+        "CARGO_PKG_AUTHORS": "David Tolnay <dtolnay@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "Compiler configuration of the `cxx` crate (implementation detail)",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "cxxbridge-flags",
+        "CARGO_PKG_README": "",
+        "CARGO_PKG_REPOSITORY": "https://github.com/dtolnay/cxx",
+        "CARGO_PKG_RUST_VERSION": "1.85",
+        "CARGO_PKG_VERSION": "1.0.198",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "198",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = ["default"],
+    visibility = [],
+)
+
+http_archive(
+    name = "cxxbridge-macro-1.0.198.crate",
+    sha256 = "2c77c856545d886c9bd5215409ebb63b925e262135248b50c79e5a5f194ee47c",
+    strip_prefix = "cxxbridge-macro-1.0.198",
+    urls = ["https://static.crates.io/crates/cxxbridge-macro/1.0.198/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "cxxbridge-macro-1",
+    srcs = [":cxxbridge-macro-1.0.198.crate"],
+    crate = "cxxbridge_macro",
+    crate_root = "cxxbridge-macro-1.0.198.crate/src/lib.rs",
+    edition = "2024",
+    env = {
+        "CARGO_BIN_NAME": "cxxbridge_macro",
+        "CARGO_CRATE_NAME": "cxxbridge_macro",
+        "CARGO_MANIFEST_DIR": "cxxbridge-macro-1.0.198.crate",
+        "CARGO_PKG_AUTHORS": "David Tolnay <dtolnay@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "Implementation detail of the `cxx` crate.",
+        "CARGO_PKG_HOMEPAGE": "https://cxx.rs",
+        "CARGO_PKG_NAME": "cxxbridge-macro",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/dtolnay/cxx",
+        "CARGO_PKG_RUST_VERSION": "1.85",
+        "CARGO_PKG_VERSION": "1.0.198",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "198",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    proc_macro = True,
+    visibility = [],
+    deps = [
+        ":indexmap-2",
+        ":proc-macro2-1",
+        ":quote-1",
+        ":syn-3",
+    ],
+)
+
+http_archive(
     name = "dlopen2-0.8.2.crate",
     sha256 = "5e2c5bd4158e66d1e215c49b837e11d62f3267b30c92f1d171c4d3105e3dc4d4",
     strip_prefix = "dlopen2-0.8.2",
@@ -1006,6 +1348,75 @@ buildscript_run(
         "CARGO_PKG_VERSION_PRE": "",
     },
     version = "0.7.0",
+)
+
+http_archive(
+    name = "find-msvc-tools-0.1.9.crate",
+    sha256 = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582",
+    strip_prefix = "find-msvc-tools-0.1.9",
+    urls = ["https://static.crates.io/crates/find-msvc-tools/0.1.9/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "find-msvc-tools-0.1",
+    srcs = [":find-msvc-tools-0.1.9.crate"],
+    crate = "find_msvc_tools",
+    crate_root = "find-msvc-tools-0.1.9.crate/src/lib.rs",
+    edition = "2018",
+    env = {
+        "CARGO_BIN_NAME": "find_msvc_tools",
+        "CARGO_CRATE_NAME": "find_msvc_tools",
+        "CARGO_MANIFEST_DIR": "find-msvc-tools-0.1.9.crate",
+        "CARGO_PKG_AUTHORS": "",
+        "CARGO_PKG_DESCRIPTION": "Find windows-specific tools, read MSVC versions from the registry and from COM interfaces",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "find-msvc-tools",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/rust-lang/cc-rs",
+        "CARGO_PKG_RUST_VERSION": "1.63",
+        "CARGO_PKG_VERSION": "0.1.9",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "1",
+        "CARGO_PKG_VERSION_PATCH": "9",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    visibility = [],
+)
+
+http_archive(
+    name = "foldhash-0.2.0.crate",
+    sha256 = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb",
+    strip_prefix = "foldhash-0.2.0",
+    urls = ["https://static.crates.io/crates/foldhash/0.2.0/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "foldhash-0.2",
+    srcs = [":foldhash-0.2.0.crate"],
+    crate = "foldhash",
+    crate_root = "foldhash-0.2.0.crate/src/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "foldhash",
+        "CARGO_CRATE_NAME": "foldhash",
+        "CARGO_MANIFEST_DIR": "foldhash-0.2.0.crate",
+        "CARGO_PKG_AUTHORS": "Orson Peters <orsonpeters@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "A fast, non-cryptographic, minimally DoS-resistant hashing algorithm.",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "foldhash",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/orlp/foldhash",
+        "CARGO_PKG_RUST_VERSION": "1.60",
+        "CARGO_PKG_VERSION": "0.2.0",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "2",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = ["std"],
+    visibility = [],
 )
 
 http_archive(
@@ -1519,6 +1930,128 @@ reindeer_rust_library(
     },
     visibility = [],
     deps = [":rle-decode-fast-1"],
+)
+
+http_archive(
+    name = "link-cplusplus-1.0.12.crate",
+    sha256 = "7f78c730aaa7d0b9336a299029ea49f9ee53b0ed06e9202e8cb7db9bae7b8c82",
+    strip_prefix = "link-cplusplus-1.0.12",
+    urls = ["https://static.crates.io/crates/link-cplusplus/1.0.12/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "link-cplusplus-1",
+    srcs = [":link-cplusplus-1.0.12.crate"],
+    crate = "link_cplusplus",
+    crate_root = "link-cplusplus-1.0.12.crate/src/lib.rs",
+    edition = "2018",
+    env = {
+        "CARGO_BIN_NAME": "link_cplusplus",
+        "CARGO_CRATE_NAME": "link_cplusplus",
+        "CARGO_MANIFEST_DIR": "link-cplusplus-1.0.12.crate",
+        "CARGO_PKG_AUTHORS": "David Tolnay <dtolnay@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "Link libstdc++ or libc++ automatically or manually",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "link-cplusplus",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/dtolnay/link-cplusplus",
+        "CARGO_PKG_RUST_VERSION": "1.68",
+        "CARGO_PKG_VERSION": "1.0.12",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "12",
+        "CARGO_PKG_VERSION_PRE": "",
+        "OUT_DIR": "$(location :link-cplusplus-1-build-script-run[out_dir])",
+    },
+    features = ["default"],
+    rustc_flags = ["@$(location :link-cplusplus-1-build-script-run[rustc_flags])"],
+    visibility = [],
+)
+
+reindeer_rust_binary(
+    name = "link-cplusplus-1-build-script-build",
+    srcs = [":link-cplusplus-1.0.12.crate"],
+    crate = "build_script_build",
+    crate_root = "link-cplusplus-1.0.12.crate/build.rs",
+    edition = "2018",
+    env = {
+        "CARGO_BIN_NAME": "build-script-build",
+        "CARGO_CRATE_NAME": "build_script_build",
+        "CARGO_MANIFEST_DIR": "link-cplusplus-1.0.12.crate",
+        "CARGO_PKG_AUTHORS": "David Tolnay <dtolnay@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "Link libstdc++ or libc++ automatically or manually",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "link-cplusplus",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/dtolnay/link-cplusplus",
+        "CARGO_PKG_RUST_VERSION": "1.68",
+        "CARGO_PKG_VERSION": "1.0.12",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "12",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = ["default"],
+    visibility = [],
+    deps = [":cc-1"],
+)
+
+buildscript_run(
+    name = "link-cplusplus-1-build-script-run",
+    package_name = "link-cplusplus",
+    buildscript_rule = ":link-cplusplus-1-build-script-build",
+    env = {
+        "CARGO_MANIFEST_LINKS": "cplusplus",
+        "CARGO_PKG_AUTHORS": "David Tolnay <dtolnay@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "Link libstdc++ or libc++ automatically or manually",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/dtolnay/link-cplusplus",
+        "CARGO_PKG_RUST_VERSION": "1.68",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "12",
+        "CARGO_PKG_VERSION_PRE": "",
+        "DEBUG": "false",
+        "NUM_JOBS": "4",
+        "OPT_LEVEL": "3",
+        "PROFILE": "release",
+    },
+    features = ["default"],
+    platform = {
+        "linux-arm64": dict(
+            env = {
+                "AR": "/usr/bin/env ar",
+                "CC": "/usr/bin/env clang",
+                "CXX": "/usr/bin/env clang++",
+            },
+        ),
+        "linux-x86_64": dict(
+            env = {
+                "AR": "/usr/bin/env ar",
+                "CC": "/usr/bin/env clang",
+                "CXX": "/usr/bin/env clang++",
+            },
+        ),
+        "macos-arm64": dict(
+            env = {
+                "AR": "/usr/bin/env ar",
+                "CC": "/usr/bin/env clang",
+                "CXX": "/usr/bin/env clang++",
+            },
+        ),
+        "macos-x86_64": dict(
+            env = {
+                "AR": "/usr/bin/env ar",
+                "CC": "/usr/bin/env clang",
+                "CXX": "/usr/bin/env clang++",
+            },
+        ),
+    },
+    rustc_link_lib = True,
+    rustc_link_search = True,
+    version = "1.0.12",
 )
 
 http_archive(
@@ -2552,6 +3085,7 @@ reindeer_rust_library(
     features = [
         "default",
         "proc-macro",
+        "span-locations",
     ],
     rustc_flags = ["@$(location :proc-macro2-1-build-script-run[rustc_flags])"],
     visibility = [],
@@ -2584,6 +3118,7 @@ reindeer_rust_binary(
     features = [
         "default",
         "proc-macro",
+        "span-locations",
     ],
     visibility = [],
 )
@@ -2607,6 +3142,7 @@ buildscript_run(
     features = [
         "default",
         "proc-macro",
+        "span-locations",
     ],
     version = "1.0.107",
 )
@@ -3544,6 +4080,87 @@ reindeer_rust_library(
     visibility = [],
 )
 
+http_archive(
+    name = "scratch-1.0.9.crate",
+    sha256 = "d68f2ec51b097e4c1a75b681a8bec621909b5e91f15bb7b840c4f2f7b01148b2",
+    strip_prefix = "scratch-1.0.9",
+    urls = ["https://static.crates.io/crates/scratch/1.0.9/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "scratch-1",
+    srcs = [":scratch-1.0.9.crate"],
+    crate = "scratch",
+    crate_root = "scratch-1.0.9.crate/src/lib.rs",
+    edition = "2015",
+    env = {
+        "CARGO_BIN_NAME": "scratch",
+        "CARGO_CRATE_NAME": "scratch",
+        "CARGO_MANIFEST_DIR": "scratch-1.0.9.crate",
+        "CARGO_PKG_AUTHORS": "David Tolnay <dtolnay@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "Compile-time temporary directory shared by multiple crates and erased by `cargo clean`",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "scratch",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/dtolnay/scratch",
+        "CARGO_PKG_RUST_VERSION": "1.0",
+        "CARGO_PKG_VERSION": "1.0.9",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "9",
+        "CARGO_PKG_VERSION_PRE": "",
+        "OUT_DIR": "$(location :scratch-1-build-script-run[out_dir])",
+    },
+    rustc_flags = ["@$(location :scratch-1-build-script-run[rustc_flags])"],
+    visibility = [],
+)
+
+reindeer_rust_binary(
+    name = "scratch-1-build-script-build",
+    srcs = [":scratch-1.0.9.crate"],
+    crate = "build_script_build",
+    crate_root = "scratch-1.0.9.crate/build.rs",
+    edition = "2015",
+    env = {
+        "CARGO_BIN_NAME": "build-script-build",
+        "CARGO_CRATE_NAME": "build_script_build",
+        "CARGO_MANIFEST_DIR": "scratch-1.0.9.crate",
+        "CARGO_PKG_AUTHORS": "David Tolnay <dtolnay@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "Compile-time temporary directory shared by multiple crates and erased by `cargo clean`",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "scratch",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/dtolnay/scratch",
+        "CARGO_PKG_RUST_VERSION": "1.0",
+        "CARGO_PKG_VERSION": "1.0.9",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "9",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    visibility = [],
+)
+
+buildscript_run(
+    name = "scratch-1-build-script-run",
+    package_name = "scratch",
+    buildscript_rule = ":scratch-1-build-script-build",
+    env = {
+        "CARGO_PKG_AUTHORS": "David Tolnay <dtolnay@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "Compile-time temporary directory shared by multiple crates and erased by `cargo clean`",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/dtolnay/scratch",
+        "CARGO_PKG_RUST_VERSION": "1.0",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "9",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    version = "1.0.9",
+)
+
 alias(
     name = "serde",
     actual = ":serde-1",
@@ -3928,6 +4545,44 @@ reindeer_rust_library(
     deps = [":serde-1"],
 )
 
+http_archive(
+    name = "shlex-2.0.1.crate",
+    sha256 = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba",
+    strip_prefix = "shlex-2.0.1",
+    urls = ["https://static.crates.io/crates/shlex/2.0.1/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "shlex-2",
+    srcs = [":shlex-2.0.1.crate"],
+    crate = "shlex",
+    crate_root = "shlex-2.0.1.crate/src/lib.rs",
+    edition = "2018",
+    env = {
+        "CARGO_BIN_NAME": "shlex",
+        "CARGO_CRATE_NAME": "shlex",
+        "CARGO_MANIFEST_DIR": "shlex-2.0.1.crate",
+        "CARGO_PKG_AUTHORS": "comex <comexk@gmail.com>:Fenhl <fenhl@fenhl.net>:Adrian Taylor <adetaylor@chromium.org>:Alex Touchet <alextouchet@outlook.com>:Daniel Parks <dp+git@oxidized.org>:Garrett Berg <googberg@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "Split a string into shell words, like Python's shlex.",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "shlex",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/comex/rust-shlex",
+        "CARGO_PKG_RUST_VERSION": "1.46.0",
+        "CARGO_PKG_VERSION": "2.0.1",
+        "CARGO_PKG_VERSION_MAJOR": "2",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "1",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = [
+        "default",
+        "std",
+    ],
+    visibility = [],
+)
+
 alias(
     name = "sobol",
     actual = ":sobol-1",
@@ -4056,18 +4711,11 @@ reindeer_rust_library(
         "clone-impls",
         "default",
         "derive",
+        "full",
         "parsing",
         "printing",
         "proc-macro",
     ],
-    platform = {
-        "macos-arm64": dict(
-            features = ["full"],
-        ),
-        "macos-x86_64": dict(
-            features = ["full"],
-        ),
-    },
     visibility = [],
     deps = [
         ":proc-macro2-1",
@@ -4158,6 +4806,48 @@ buildscript_run(
     },
     features = ["default"],
     version = "0.12.16",
+)
+
+http_archive(
+    name = "termcolor-1.4.1.crate",
+    sha256 = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755",
+    strip_prefix = "termcolor-1.4.1",
+    urls = ["https://static.crates.io/crates/termcolor/1.4.1/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "termcolor-1",
+    srcs = [":termcolor-1.4.1.crate"],
+    crate = "termcolor",
+    crate_root = "termcolor-1.4.1.crate/src/lib.rs",
+    edition = "2018",
+    env = {
+        "CARGO_BIN_NAME": "termcolor",
+        "CARGO_CRATE_NAME": "termcolor",
+        "CARGO_MANIFEST_DIR": "termcolor-1.4.1.crate",
+        "CARGO_PKG_AUTHORS": "Andrew Gallant <jamslam@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "A simple cross platform library for writing colored text to a terminal.\n",
+        "CARGO_PKG_HOMEPAGE": "https://github.com/BurntSushi/termcolor",
+        "CARGO_PKG_NAME": "termcolor",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/BurntSushi/termcolor",
+        "CARGO_PKG_RUST_VERSION": "",
+        "CARGO_PKG_VERSION": "1.4.1",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "4",
+        "CARGO_PKG_VERSION_PATCH": "1",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    platform = {
+        "windows-gnu": dict(
+            deps = [":winapi-util-0.1"],
+        ),
+        "windows-msvc": dict(
+            deps = [":winapi-util-0.1"],
+        ),
+    },
+    visibility = [],
 )
 
 alias(
@@ -4630,6 +5320,44 @@ reindeer_rust_library(
 )
 
 http_archive(
+    name = "unicode-width-0.2.2.crate",
+    sha256 = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254",
+    strip_prefix = "unicode-width-0.2.2",
+    urls = ["https://static.crates.io/crates/unicode-width/0.2.2/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "unicode-width-0.2",
+    srcs = [":unicode-width-0.2.2.crate"],
+    crate = "unicode_width",
+    crate_root = "unicode-width-0.2.2.crate/src/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "unicode_width",
+        "CARGO_CRATE_NAME": "unicode_width",
+        "CARGO_MANIFEST_DIR": "unicode-width-0.2.2.crate",
+        "CARGO_PKG_AUTHORS": "kwantam <kwantam@gmail.com>:Manish Goregaokar <manishsmail@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "Determine displayed width of `char` and `str` types\naccording to Unicode Standard Annex #11 rules.\n",
+        "CARGO_PKG_HOMEPAGE": "https://github.com/unicode-rs/unicode-width",
+        "CARGO_PKG_NAME": "unicode-width",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/unicode-rs/unicode-width",
+        "CARGO_PKG_RUST_VERSION": "1.66",
+        "CARGO_PKG_VERSION": "0.2.2",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "2",
+        "CARGO_PKG_VERSION_PATCH": "2",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = [
+        "cjk",
+        "default",
+    ],
+    visibility = [],
+)
+
+http_archive(
     name = "unindent-0.2.4.crate",
     sha256 = "7264e107f553ccae879d21fbea1d6724ac785e8c3bfc762137959b5802826ef3",
     strip_prefix = "unindent-0.2.4",
@@ -4661,6 +5389,131 @@ reindeer_rust_library(
         "CARGO_PKG_VERSION_PRE": "",
     },
     visibility = [],
+)
+
+alias(
+    name = "usearch",
+    actual = ":usearch-2",
+    visibility = ["PUBLIC"],
+)
+
+http_archive(
+    name = "usearch-2.26.0.crate",
+    sha256 = "1cd7f672d20412962c457b11c858c6c5aecb949808a5345a95e1d671112bcf72",
+    strip_prefix = "usearch-2.26.0",
+    urls = ["https://static.crates.io/crates/usearch/2.26.0/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "usearch-2",
+    srcs = [":usearch-2.26.0.crate"],
+    crate = "usearch",
+    crate_root = "usearch-2.26.0.crate/rust/lib.rs",
+    edition = "2024",
+    env = {
+        "CARGO_BIN_NAME": "usearch",
+        "CARGO_CRATE_NAME": "usearch",
+        "CARGO_MANIFEST_DIR": "usearch-2.26.0.crate",
+        "CARGO_PKG_AUTHORS": "Ash Vardanian <1983160+ashvardanian@users.noreply.github.com>",
+        "CARGO_PKG_DESCRIPTION": "Smaller & Faster Single-File Vector Search Engine from Unum",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "usearch",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/unum-cloud/USearch",
+        "CARGO_PKG_RUST_VERSION": "",
+        "CARGO_PKG_VERSION": "2.26.0",
+        "CARGO_PKG_VERSION_MAJOR": "2",
+        "CARGO_PKG_VERSION_MINOR": "26",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+        "OUT_DIR": "$(location :usearch-2-build-script-run[out_dir])",
+    },
+    rustc_flags = ["@$(location :usearch-2-build-script-run[rustc_flags])"],
+    visibility = [],
+    deps = [":cxx-1"],
+)
+
+reindeer_rust_binary(
+    name = "usearch-2-build-script-build",
+    srcs = [":usearch-2.26.0.crate"],
+    crate = "build_script_build",
+    crate_root = "usearch-2.26.0.crate/build.rs",
+    edition = "2024",
+    env = {
+        "CARGO_BIN_NAME": "build-script-build",
+        "CARGO_CRATE_NAME": "build_script_build",
+        "CARGO_MANIFEST_DIR": "usearch-2.26.0.crate",
+        "CARGO_PKG_AUTHORS": "Ash Vardanian <1983160+ashvardanian@users.noreply.github.com>",
+        "CARGO_PKG_DESCRIPTION": "Smaller & Faster Single-File Vector Search Engine from Unum",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "usearch",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/unum-cloud/USearch",
+        "CARGO_PKG_RUST_VERSION": "",
+        "CARGO_PKG_VERSION": "2.26.0",
+        "CARGO_PKG_VERSION_MAJOR": "2",
+        "CARGO_PKG_VERSION_MINOR": "26",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    visibility = [],
+    deps = [":cxx-build-1"],
+)
+
+buildscript_run(
+    name = "usearch-2-build-script-run",
+    package_name = "usearch",
+    buildscript_rule = ":usearch-2-build-script-build",
+    env = {
+        "CARGO_PKG_AUTHORS": "Ash Vardanian <1983160+ashvardanian@users.noreply.github.com>",
+        "CARGO_PKG_DESCRIPTION": "Smaller & Faster Single-File Vector Search Engine from Unum",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/unum-cloud/USearch",
+        "CARGO_PKG_RUST_VERSION": "",
+        "CARGO_PKG_VERSION_MAJOR": "2",
+        "CARGO_PKG_VERSION_MINOR": "26",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+        "DEBUG": "false",
+        "NUM_JOBS": "4",
+        "OPT_LEVEL": "3",
+        "PROFILE": "release",
+    },
+    platform = {
+        "linux-arm64": dict(
+            env = {
+                "AR": "/usr/bin/env ar",
+                "CC": "/usr/bin/env clang",
+                "CXX": "/usr/bin/env clang++",
+            },
+        ),
+        "linux-x86_64": dict(
+            env = {
+                "AR": "/usr/bin/env ar",
+                "CC": "/usr/bin/env clang",
+                "CXX": "/usr/bin/env clang++",
+            },
+        ),
+        "macos-arm64": dict(
+            env = {
+                "AR": "/usr/bin/env ar",
+                "CC": "/usr/bin/env clang",
+                "CXX": "/usr/bin/env clang++",
+            },
+        ),
+        "macos-x86_64": dict(
+            env = {
+                "AR": "/usr/bin/env ar",
+                "CC": "/usr/bin/env clang",
+                "CXX": "/usr/bin/env clang++",
+            },
+        ),
+    },
+    rustc_link_lib = True,
+    rustc_link_search = True,
+    version = "2.26.0",
 )
 
 http_archive(
@@ -4780,6 +5633,41 @@ buildscript_run(
 )
 
 http_archive(
+    name = "winapi-util-0.1.11.crate",
+    sha256 = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22",
+    strip_prefix = "winapi-util-0.1.11",
+    urls = ["https://static.crates.io/crates/winapi-util/0.1.11/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "winapi-util-0.1",
+    srcs = [":winapi-util-0.1.11.crate"],
+    crate = "winapi_util",
+    crate_root = "winapi-util-0.1.11.crate/src/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "winapi_util",
+        "CARGO_CRATE_NAME": "winapi_util",
+        "CARGO_MANIFEST_DIR": "winapi-util-0.1.11.crate",
+        "CARGO_PKG_AUTHORS": "Andrew Gallant <jamslam@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "A dumping ground for high level safe wrappers over windows-sys.",
+        "CARGO_PKG_HOMEPAGE": "https://github.com/BurntSushi/winapi-util",
+        "CARGO_PKG_NAME": "winapi-util",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/BurntSushi/winapi-util",
+        "CARGO_PKG_RUST_VERSION": "",
+        "CARGO_PKG_VERSION": "0.1.11",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "1",
+        "CARGO_PKG_VERSION_PATCH": "11",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    visibility = [],
+    deps = [":windows-sys-0.61"],
+)
+
+http_archive(
     name = "winapi-x86_64-pc-windows-gnu-0.4.0.crate",
     sha256 = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f",
     strip_prefix = "winapi-x86_64-pc-windows-gnu-0.4.0",
@@ -4858,6 +5746,85 @@ buildscript_run(
         "CARGO_PKG_VERSION_PRE": "",
     },
     version = "0.4.0",
+)
+
+http_archive(
+    name = "windows-link-0.2.1.crate",
+    sha256 = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5",
+    strip_prefix = "windows-link-0.2.1",
+    urls = ["https://static.crates.io/crates/windows-link/0.2.1/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "windows-link-0.2",
+    srcs = [":windows-link-0.2.1.crate"],
+    crate = "windows_link",
+    crate_root = "windows-link-0.2.1.crate/src/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "windows_link",
+        "CARGO_CRATE_NAME": "windows_link",
+        "CARGO_MANIFEST_DIR": "windows-link-0.2.1.crate",
+        "CARGO_PKG_AUTHORS": "",
+        "CARGO_PKG_DESCRIPTION": "Linking for Windows",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "windows-link",
+        "CARGO_PKG_README": "readme.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/microsoft/windows-rs",
+        "CARGO_PKG_RUST_VERSION": "1.71",
+        "CARGO_PKG_VERSION": "0.2.1",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "2",
+        "CARGO_PKG_VERSION_PATCH": "1",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    visibility = [],
+)
+
+http_archive(
+    name = "windows-sys-0.61.2.crate",
+    sha256 = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc",
+    strip_prefix = "windows-sys-0.61.2",
+    urls = ["https://static.crates.io/crates/windows-sys/0.61.2/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "windows-sys-0.61",
+    srcs = [":windows-sys-0.61.2.crate"],
+    crate = "windows_sys",
+    crate_root = "windows-sys-0.61.2.crate/src/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "windows_sys",
+        "CARGO_CRATE_NAME": "windows_sys",
+        "CARGO_MANIFEST_DIR": "windows-sys-0.61.2.crate",
+        "CARGO_PKG_AUTHORS": "",
+        "CARGO_PKG_DESCRIPTION": "Rust for Windows",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "windows-sys",
+        "CARGO_PKG_README": "readme.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/microsoft/windows-rs",
+        "CARGO_PKG_RUST_VERSION": "1.71",
+        "CARGO_PKG_VERSION": "0.61.2",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "61",
+        "CARGO_PKG_VERSION_PATCH": "2",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = [
+        "Win32",
+        "Win32_Foundation",
+        "Win32_Storage",
+        "Win32_Storage_FileSystem",
+        "Win32_System",
+        "Win32_System_Console",
+        "Win32_System_SystemInformation",
+        "default",
+    ],
+    visibility = [],
+    deps = [":windows-link-0.2"],
 )
 
 http_archive(
