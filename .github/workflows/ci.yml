@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform slice to run
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - ubuntu-24.04
+          - macos-14
+          - windows-2025
+      target:
+        description: Work to run
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - build-test
+          - wheel
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: ${{ matrix.os }} / ${{ inputs.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.platform == 'all' && '["ubuntu-24.04","macos-14","windows-2025"]' || format('["{0}"]', inputs.platform)) }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Pixi
+        uses: prefix-dev/setup-pixi@v0.9.0
+        with:
+          pixi-version: latest
+          cache: true
+          environments: ennx
+          locked: true
+
+      - name: Restore Buck2 cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .buck2-tools
+            buck-out/dev
+          key: ${{ runner.os }}-buck2-${{ hashFiles('.buckconfig', '.buckroot', 'BUCK', 'buck2/**', 'rust/BUCK', 'rust/crates/**/BUCK', 'pixi.lock', 'rust/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-buck2-
+
+      - name: Install DotSlash
+        if: runner.os == 'Windows'
+        uses: facebook/install-dotslash@latest
+
+      - name: Install OpenCL development package
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ocl-icd-opencl-dev
+
+      - name: Install environment
+        run: pixi install -e ennx --locked
+
+      - name: Build and test
+        if: inputs.target == 'all' || inputs.target == 'build-test'
+        run: |
+          if [[ "${{ matrix.os }}" == windows-* ]]; then
+            pixi run -e ennx bash ./buck2w --isolation-dir dev build //rust/crates/bpann:bpann //rust/crates/ennx:ennx --local-only --num-threads 4 -M none
+            pixi run -e ennx bash ./buck2w --isolation-dir dev test //buck2/tests:all --local-only --num-threads 4
+          else
+            pixi run -e ennx buck2-build
+            pixi run -e ennx buck2-test
+          fi
+
+      - name: Build wheel
+        if: inputs.target == 'all' || inputs.target == 'wheel'
+        run: |
+          if [[ "${{ matrix.os }}" == windows-* ]]; then
+            pixi run -e ennx bash ./buck2w --isolation-dir release build //:wheel --config ennx.profile=release --local-only --num-threads 4 --show-output
+          else
+            pixi run -e ennx buck2-wheel
+          fi
+
+      - name: Collect wheel artifacts
+        if: inputs.target == 'all' || inputs.target == 'wheel'
+        run: |
+          mkdir -p artifacts
+          find buck-out/release -type f \( -name '*.whl' -o -name '*.tar.gz' \) -exec cp {} artifacts/ \;
+          test -n "$(find artifacts -type f -print -quit)"
+
+      - name: Upload wheel artifacts
+        if: inputs.target == 'all' || inputs.target == 'wheel'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ennx-${{ matrix.os }}
+          path: artifacts/
+          if-no-files-found: error
