@@ -12,6 +12,7 @@ pub mod config;
 pub mod disk_bpann;
 pub mod draw;
 pub mod error;
+pub mod experimental;
 pub mod file_config;
 pub mod fit;
 pub mod fitter;
@@ -70,7 +71,10 @@ pub use optimizer::{
     MultiTrustRegionConfig, MultiTrustRegionState, ObservationDelta, Optimizer, RegionBatch,
     RegionCandidate, SharingPolicy, Telemetry,
 };
-pub use optimizer_factory::{create_optimizer_enn, create_optimizer_lhd, create_optimizer_zero};
+pub use optimizer_factory::{
+    create_optimizer_enn, create_optimizer_enn_multi_tr, create_optimizer_lhd,
+    create_optimizer_zero,
+};
 pub use params::{ENNNormal, ENNParams, ParamsError, PosteriorFlags};
 pub use posterior::{
     compute_conditional_posterior_internals, compute_posterior_internals, WeightedPosteriorData,

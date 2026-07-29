@@ -7,7 +7,7 @@ app_rust_library(
     crate_root = "src/lib.rs",
     dlopen_enable = True,
     edition = "2021",
-    features = ["default", "usearch"] + select({
+    features = ["default", "usearch-native"] + select({
         "//:linux-arm64": ["opencl"],
         "//:linux-x86_64": ["opencl"],
         "//:macos-arm64": ["metal"],
@@ -25,6 +25,8 @@ app_rust_library(
     }),
     visibility = ["PUBLIC"],
     deps = [
+        "//rust/crates/ennx:faiss-bridge",
+        "//rust/crates/ennx:usearch-bridge",
         "//rust/crates/ennx:ennx",
         "//rust:ndarray",
         "//rust:numpy",

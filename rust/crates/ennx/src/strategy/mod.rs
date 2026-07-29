@@ -1,6 +1,6 @@
 //! Optimization strategies for ask/tell pattern.
 
-use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
+use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis};
 use rand::seq::SliceRandom;
 use rand::RngCore;
 
@@ -10,7 +10,7 @@ use crate::acquisition::{ParetoAcquisition, RandomAcquisition, UCBAcquisition};
 use crate::candidates::{generate_candidates, generate_lhd, generate_uniform};
 use crate::config::{AcquisitionConfig, InitStrategy};
 use crate::error::ENNError;
-use crate::optimizer::{Optimizer, Telemetry};
+use crate::optimizer::{MultiTrustRegionConfig, MultiTrustRegionState, Optimizer, SharingPolicy, Telemetry};
 
 /// Strategy state for initialization phase.
 #[derive(Debug, Clone)]
@@ -34,6 +34,35 @@ impl InitStrategyState {
 #[derive(Debug, Clone, Default)]
 pub struct TurboStrategyState;
 
+/// Strategy state for the experimental multi-trust-region phase.
+#[derive(Debug, Clone)]
+pub struct ExperimentalStrategyState {
+    pub init: InitStrategyState,
+    pub multi_tr: MultiTrustRegionState,
+    pub in_init: bool,
+    pub pending_regions: Option<Vec<usize>>,
+}
+
+impl ExperimentalStrategyState {
+    pub fn new(
+        num_dim: usize,
+        num_regions: usize,
+        num_init: usize,
+        rng: &mut dyn RngCore,
+    ) -> Result<Self, ENNError> {
+        let mut config = MultiTrustRegionConfig::new(num_regions, Default::default());
+        config.sharing_policy = SharingPolicy::Shared;
+        let multi_tr = MultiTrustRegionState::new(num_dim, config, None, rng)
+            .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+        Ok(Self {
+            init: InitStrategyState::new(InitStrategy::LHD, num_init),
+            multi_tr,
+            in_init: num_init > 0,
+            pending_regions: None,
+        })
+    }
+}
+
 /// Strategy enum - uses concrete types instead of trait objects.
 #[derive(Debug, Clone)]
 pub enum Strategy {
@@ -47,6 +76,8 @@ pub enum Strategy {
         turbo: TurboStrategyState,
         in_init: bool,
     },
+    /// Experimental multi-trust-region strategy.
+    Experimental(ExperimentalStrategyState),
 }
 
 impl Strategy {
@@ -60,6 +91,21 @@ impl Strategy {
         Strategy::Turbo(TurboStrategyState)
     }
 
+    /// Create a new experimental multi-trust-region strategy.
+    pub fn experimental(
+        num_dim: usize,
+        num_regions: usize,
+        num_init: usize,
+        rng: &mut dyn RngCore,
+    ) -> Result<Self, ENNError> {
+        Ok(Strategy::Experimental(ExperimentalStrategyState::new(
+            num_dim,
+            num_regions,
+            num_init,
+            rng,
+        )?))
+    }
+
     /// Create a new hybrid strategy.
     pub fn hybrid(init_strategy: InitStrategy, num_init: usize) -> Self {
         Strategy::Hybrid {
@@ -71,7 +117,7 @@ impl Strategy {
 
     /// Generate candidates (ask).
     pub fn ask(
-        &self,
+        &mut self,
         optimizer: &mut Optimizer,
         num_arms: usize,
         telemetry: &mut Telemetry,
@@ -86,6 +132,7 @@ impl Strategy {
                 ..
             } => ask_init_hybrid(init, optimizer, num_arms, rng),
             Strategy::Hybrid { .. } => ask_turbo(optimizer, num_arms, telemetry, rng),
+            Strategy::Experimental(state) => ask_experimental(state, optimizer, num_arms, telemetry, rng),
         }
     }
 
@@ -117,6 +164,7 @@ impl Strategy {
                     tell_turbo(optimizer, x, y, telemetry, rng)
                 }
             }
+            Strategy::Experimental(state) => tell_experimental(state, optimizer, x, y, telemetry, rng),
         }
     }
 
@@ -129,6 +177,7 @@ impl Strategy {
                 in_init: true,
                 ..
             } => Some((init.completed, init.num_init)),
+            Strategy::Experimental(state) if state.in_init => Some((state.init.completed, state.init.num_init)),
             _ => None,
         }
     }
@@ -312,6 +361,101 @@ fn ask_turbo(
     Ok(selected)
 }
 
+fn experimental_restart_all_regions(
+    state: &mut ExperimentalStrategyState,
+    optimizer: &Optimizer,
+) -> Result<(), ENNError> {
+    if state.multi_tr.active_count() > 0 {
+        return Ok(());
+    }
+
+    let center = optimizer
+        .incumbent_x_unit()
+        .cloned()
+        .unwrap_or_else(|| Array1::from_elem(optimizer.num_dim(), 0.5));
+    let center_view = center.view();
+    for region in 0..state.multi_tr.num_regions() {
+        state
+            .multi_tr
+            .restart_region(region, &center_view)
+            .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+    }
+    Ok(())
+}
+
+fn ask_experimental(
+    state: &mut ExperimentalStrategyState,
+    optimizer: &mut Optimizer,
+    num_arms: usize,
+    telemetry: &mut Telemetry,
+    rng: &mut dyn RngCore,
+) -> Result<Array2<f64>, ENNError> {
+    if state.in_init {
+        state.pending_regions = None;
+        return ask_init(&state.init, optimizer, num_arms, rng);
+    }
+
+    experimental_restart_all_regions(state, optimizer)?;
+
+    let batches = state
+        .multi_tr
+        .allocate(num_arms)
+        .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+    let num_dim = optimizer.num_dim();
+    let config = optimizer.config().candidates.clone();
+    let lengthscales = optimizer.surrogate().and_then(|s| s.lengthscales());
+    let ls_ref: Option<ArrayView1<f64>> = lengthscales.as_ref().map(|ls| ls.view());
+
+    let mut selected_rows: Vec<Array1<f64>> = Vec::with_capacity(num_arms);
+    let mut pending_regions: Vec<usize> = Vec::with_capacity(num_arms);
+
+    for batch in batches {
+        let x_center = state.multi_tr.centers.row(batch.region).to_owned();
+        let (lower_1d, upper_1d) = state.multi_tr.compute_bounds_1d(batch.region, ls_ref.as_ref());
+        let num_candidates = config.num_candidates(num_dim, batch.len);
+        telemetry.num_candidates += num_candidates;
+
+        let x_cand = {
+            let sobol_engine = optimizer.sobol_engine_mut();
+            generate_candidates(
+                || (lower_1d.clone(), upper_1d.clone()),
+                &x_center.view(),
+                ls_ref.as_ref(),
+                num_candidates,
+                config.candidate_rv,
+                rng,
+                sobol_engine,
+                config.num_pert,
+            )?
+        };
+
+        let start = std::time::Instant::now();
+        let selected = select_arms(optimizer, &x_cand.view(), batch.len, rng)?;
+        telemetry.dt_sel += start.elapsed().as_secs_f64();
+
+        for row in selected.rows() {
+            selected_rows.push(row.to_owned());
+            pending_regions.push(batch.region);
+        }
+    }
+
+    state.pending_regions = Some(pending_regions);
+
+    if selected_rows.is_empty() {
+        return Err(ENNError::InvalidParameter(
+            "experimental strategy produced no candidates".to_string(),
+        ));
+    }
+
+    let selected_views = selected_rows.iter().map(|row| row.view()).collect::<Vec<_>>();
+    ndarray::stack(Axis(0), &selected_views).map_err(|_e| {
+        ENNError::InvalidShape {
+            expected: vec![num_arms, optimizer.num_dim()],
+            got: vec![selected_rows.len(), optimizer.num_dim()],
+        }
+    })
+}
+
 /// Tell for TuRBO phase.
 fn tell_turbo(
     optimizer: &mut Optimizer,
@@ -347,6 +491,63 @@ fn tell_turbo(
         // the next tell to rebuild from full y_obs() (Θ(N) RAM on disk). The
         // tracker is already maintained incrementally in add_observations.
         morbo_sync_ranges_from_obs(optimizer)?;
+    }
+
+    Ok(())
+}
+
+fn tell_experimental(
+    state: &mut ExperimentalStrategyState,
+    optimizer: &mut Optimizer,
+    x: &ArrayView2<f64>,
+    y: &ArrayView2<f64>,
+    telemetry: &mut Telemetry,
+    rng: &mut dyn RngCore,
+) -> Result<(), ENNError> {
+    if y.ncols() != 1 {
+        return Err(ENNError::InvalidParameter(format!(
+            "experimental multi-trust-region strategy expects scalar y, got {} columns",
+            y.ncols()
+        )));
+    }
+
+    tell_common(optimizer, x, y, Some(telemetry), rng)?;
+
+    state.init.completed += x.nrows();
+    if state.in_init && state.init.completed >= state.init.num_init {
+        state.in_init = false;
+    }
+
+    let y_scalar = y.column(0);
+    let pending_regions = state.pending_regions.take();
+    if let Some(regions) = pending_regions.as_deref() {
+        state
+            .multi_tr
+            .tell(x, &y_scalar, Some(regions))
+            .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+    } else {
+        state
+            .multi_tr
+            .tell_update(x, &y_scalar)
+            .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+    }
+
+    if state.multi_tr.active_count() == 0 {
+        experimental_restart_all_regions(state, optimizer)?;
+    } else {
+        let restart_center = optimizer
+            .incumbent_x_unit()
+            .cloned()
+            .unwrap_or_else(|| Array1::from_elem(optimizer.num_dim(), 0.5));
+        let restart_center_view = restart_center.view();
+        for region in 0..state.multi_tr.num_regions() {
+            if !state.multi_tr.active_mask[region] {
+                state
+                    .multi_tr
+                    .restart_region(region, &restart_center_view)
+                    .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+            }
+        }
     }
 
     Ok(())

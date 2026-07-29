@@ -140,7 +140,7 @@ impl Optimizer {
     pub fn ask(&mut self, num_arms: usize, rng: &mut dyn RngCore) -> Result<Array2<f64>, ENNError> {
         let start = std::time::Instant::now();
 
-        let strategy = std::mem::replace(&mut self.strategy, Strategy::turbo());
+        let mut strategy = std::mem::replace(&mut self.strategy, Strategy::turbo());
         let mut telemetry = std::mem::take(&mut self.telemetry);
         let result = strategy.ask(self, num_arms, &mut telemetry, rng);
         self.strategy = strategy;

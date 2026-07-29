@@ -337,6 +337,38 @@ pub fn create_optimizer_enn_py(
     Ok(PyOptimizer { inner: optimizer })
 }
 
+/// Create experimental multi-trust-region TuRBO-ENN optimizer
+#[pyfunction(name = "create_optimizer_enn_multi_tr")]
+#[pyo3(signature = (bounds, k=10, num_init=10, num_regions=4, seed=42, config_overrides=None))]
+pub fn create_optimizer_enn_multi_tr_py(
+    bounds: PyReadonlyArray2<f64>,
+    k: i32,
+    num_init: usize,
+    num_regions: usize,
+    seed: u64,
+    config_overrides: Option<Bound<'_, pyo3::types::PyDict>>,
+) -> PyResult<PyOptimizer> {
+    use ennx::optimizer_factory::create_optimizer_enn_multi_tr_with_overrides;
+
+    let mut rng = StdRng::seed_from_u64(seed);
+    let overrides: Option<ennx::ConfigOverrides> = config_overrides
+        .as_ref()
+        .map(|d| parse_config_overrides_from_dict(d))
+        .transpose()?;
+
+    let optimizer = create_optimizer_enn_multi_tr_with_overrides(
+        bounds.as_array().to_owned(),
+        k,
+        num_init,
+        num_regions,
+        &mut rng,
+        overrides.as_ref(),
+    )
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    Ok(PyOptimizer { inner: optimizer })
+}
+
 /// Create TuRBO-ZERO optimizer
 #[pyfunction(name = "create_optimizer_zero")]
 #[pyo3(signature = (bounds, num_init=10, seed=42, config_overrides=None))]
@@ -473,11 +505,87 @@ impl PyMultiTrustRegion {
             .tell_update(&x_view, &y_view)
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
+
+    /// Allocate a candidate budget across regions with the default region utility.
+    pub fn allocate(&self, budget: usize) -> PyResult<Vec<(usize, usize, usize)>> {
+        let batches = self
+            .inner
+            .allocate(budget)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(batches
+            .into_iter()
+            .map(|batch| (batch.region, batch.start, batch.len))
+            .collect())
+    }
+
+    /// Allocate a candidate budget across regions using an explicit utility vector.
+    pub fn allocate_with<'py>(
+        &self,
+        budget: usize,
+        utility: PyReadonlyArray1<'py, f64>,
+    ) -> PyResult<Vec<(usize, usize, usize)>> {
+        let batches = self
+            .inner
+            .allocate_with(budget, &utility.as_array())
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(batches
+            .into_iter()
+            .map(|batch| (batch.region, batch.start, batch.len))
+            .collect())
+    }
+
+    /// Select globally best and diverse region candidates.
+    pub fn select(
+        &self,
+        candidates: Vec<(usize, usize, u64, f64)>,
+        num_arms: usize,
+    ) -> PyResult<Vec<(usize, usize, u64, f64)>> {
+        let candidates = candidates
+            .into_iter()
+            .map(|(index, region, seed, score)| ennx::RegionCandidate {
+                index,
+                region,
+                seed,
+                score,
+            })
+            .collect::<Vec<_>>();
+        let selected = self
+            .inner
+            .select(&candidates, num_arms)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(selected
+            .into_iter()
+            .map(|candidate| {
+                (
+                    candidate.index,
+                    candidate.region,
+                    candidate.seed,
+                    candidate.score,
+                )
+            })
+            .collect())
+    }
+
+    /// Variance of completed objectives for a region.
+    pub fn variance(&self, region: usize) -> Option<f64> {
+        self.inner.variance(region)
+    }
+
+    /// Restart a region with a new center in unit coordinates.
+    pub fn restart_region<'py>(
+        &mut self,
+        region: usize,
+        new_center: PyReadonlyArray1<'py, f64>,
+    ) -> PyResult<()> {
+        self.inner
+            .restart_region(region, &new_center.as_array())
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
 }
 
 #[cfg(test)]
 mod kiss_pymethods_coverage {
-    use super::{PyOptimizer, PyTelemetry};
+    use super::{PyMultiTrustRegion, PyOptimizer, PyTelemetry};
 
     #[test]
     fn py_optimizer_pymethods_are_linked() {
@@ -492,6 +600,11 @@ mod kiss_pymethods_coverage {
             PyOptimizer::y_obs,
             PyOptimizer::incumbent_x_unit,
             PyOptimizer::bounds,
+            PyMultiTrustRegion::allocate,
+            PyMultiTrustRegion::allocate_with,
+            PyMultiTrustRegion::select,
+            PyMultiTrustRegion::variance,
+            PyMultiTrustRegion::restart_region,
             std::mem::size_of::<PyOptimizer>,
             std::mem::size_of::<PyTelemetry>,
         );

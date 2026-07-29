@@ -77,6 +77,10 @@ pub fn pymodule_optimizer(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(
+        crate::py_optimizer::create_optimizer_enn_multi_tr_py,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
         crate::py_optimizer::create_optimizer_zero_py,
         m
     )?)?;

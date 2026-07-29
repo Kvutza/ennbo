@@ -1,0 +1,67 @@
+from __future__ import annotations
+
+import sys
+
+from .._lazy import lazy_getattr
+
+_LAZY_ATTRS: dict[str, tuple[str, str]] = {
+    "Optimizer": (".._rust", "Optimizer"),
+    "Telemetry": (".._rust", "Telemetry"),
+    "MultiTrustRegion": ("..ennx_rust.optimizer", "MultiTrustRegion"),
+    "WeightSearch": ("..ennx_rust.optimizer", "WeightSearch"),
+    "BpannHistory": ("..ennx_rust.optimizer", "BpannHistory"),
+    "SharingPolicy": (".multi_trust_region", "SharingPolicy"),
+    "RegionBatch": (".multi_trust_region", "RegionBatch"),
+    "RegionCandidate": (".multi_trust_region", "RegionCandidate"),
+    "CandidateProposal": (".multi_trust_region", "CandidateProposal"),
+    "RegionRound": (".multi_trust_region", "RegionRound"),
+    "MultiTrustRegionLoop": (".multi_trust_region", "MultiTrustRegionLoop"),
+    "make_multi_trust_region": (".multi_trust_region", "make_multi_trust_region"),
+    "allocate_region_batches": (".multi_trust_region", "allocate_region_batches"),
+    "select_region_candidates": (".multi_trust_region", "select_region_candidates"),
+    "multi_trust_region": (".multi_trust_region", "multi_trust_region"),
+    "create_optimizer_enn": (".._rust", "create_optimizer_enn"),
+    "create_optimizer_enn_multi_tr": (".._rust", "create_optimizer_enn_multi_tr"),
+    "create_optimizer_zero": (".._rust", "create_optimizer_zero"),
+    "create_optimizer_lhd": (".._rust", "create_optimizer_lhd"),
+    "weight_int4_select_ucb": ("..ennx_rust.optimizer", "weight_int4_select_ucb"),
+    "weight_select_ucb": ("..ennx_rust.optimizer", "weight_select_ucb"),
+}
+
+experimental = sys.modules[__name__]
+
+
+def __getattr__(name: str):
+    return lazy_getattr(
+        name=name,
+        module_name=__name__,
+        package=__package__,
+        mapping=_LAZY_ATTRS,
+        extra="`pip install 'ennx[with-deps]'`",
+    )
+
+
+__all__: list[str] = [
+    "BpannHistory",
+    "CandidateProposal",
+    "MultiTrustRegion",
+    "MultiTrustRegionLoop",
+    "Optimizer",
+    "RegionBatch",
+    "RegionCandidate",
+    "RegionRound",
+    "SharingPolicy",
+    "Telemetry",
+    "WeightSearch",
+    "allocate_region_batches",
+    "create_optimizer_enn",
+    "create_optimizer_enn_multi_tr",
+    "create_optimizer_lhd",
+    "create_optimizer_zero",
+    "experimental",
+    "make_multi_trust_region",
+    "multi_trust_region",
+    "select_region_candidates",
+    "weight_int4_select_ucb",
+    "weight_select_ucb",
+]

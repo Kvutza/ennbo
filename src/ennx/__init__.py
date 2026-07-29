@@ -5,6 +5,7 @@ from ._lazy import lazy_getattr
 _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "EpistemicNearestNeighbors": (".ennx.enn_class", "EpistemicNearestNeighbors"),
     "ENNStatefulFitter": (".ennx.enn_fitter", "ENNStatefulFitter"),
+    "experimental": (".experimental", "experimental"),
     "create_optimizer": (".turbo.rust_optimizer", "create_optimizer"),
     "create_optimizer_enn": ("._rust", "create_optimizer_enn"),
     "create_optimizer_zero": ("._rust", "create_optimizer_zero"),
@@ -38,5 +39,25 @@ def __getattr__(name: str):
 
 
 __all__: list[str] = [
-    *_LAZY_ATTRS.keys(),
+    "AcqType",
+    "CandidateRV",
+    "ENNStatefulFitter",
+    "EpistemicNearestNeighbors",
+    "InitStrategy",
+    "MorboTRConfig",
+    "NoTRConfig",
+    "OptimizerConfig",
+    "Telemetry",
+    "TurboTRConfig",
+    "create_optimizer",
+    "create_optimizer_enn",
+    "create_optimizer_lhd",
+    "create_optimizer_zero",
+    "experimental",
+    "lhd_only_config",
+    "quantize_fp4_e2m1",
+    "quantize_int4",
+    "turbo_enn_config",
+    "turbo_one_config",
+    "turbo_zero_config",
 ]

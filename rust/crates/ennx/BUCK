@@ -11,6 +11,21 @@ cxx_library(
         ],
     }),
     deps = ["//buck2/native:faiss"],
+    visibility = ["PUBLIC"],
+)
+
+cxx_library(
+    name = "usearch-bridge",
+    srcs = ["src/usearch_bridge.cpp"],
+    compiler_flags = select({
+        "//:windows-x86_64": ["/std:c++17"],
+        "DEFAULT": [
+            "-std=c++17",
+            "-Wno-unknown-pragmas",
+        ],
+    }),
+    deps = ["//buck2/native:usearch"],
+    visibility = ["PUBLIC"],
 )
 
 app_rust_library(
@@ -24,14 +39,15 @@ app_rust_library(
     crate_root = "src/lib.rs",
     edition = "2021",
     features = select({
-        "//:linux-arm64": ["opencl", "usearch"],
-        "//:linux-x86_64": ["opencl", "usearch"],
-        "//:macos-arm64": ["metal", "usearch"],
-        "//:windows-x86_64": ["opencl", "usearch"],
+        "//:linux-arm64": ["opencl", "usearch-native"],
+        "//:linux-x86_64": ["opencl", "usearch-native"],
+        "//:macos-arm64": ["metal", "usearch-native"],
+        "//:windows-x86_64": ["opencl", "usearch-native"],
     }),
     visibility = ["PUBLIC"],
     deps = [
         ":faiss-bridge",
+        ":usearch-bridge",
         "//rust/crates/bpann:bpann",
         "//rust:memmap2",
         "//rust:ndarray",
@@ -41,7 +57,6 @@ app_rust_library(
         "//rust:sobol",
         "//rust:thiserror",
         "//rust:toml",
-        "//rust:usearch",
     ] + select({
         "//:linux-arm64": ["//buck2/accelerators:opencl3"],
         "//:linux-x86_64": ["//buck2/accelerators:opencl3"],

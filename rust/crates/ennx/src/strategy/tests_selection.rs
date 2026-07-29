@@ -205,6 +205,28 @@ fn turbo_strategy_state_default_and_tell_common_paths() {
 }
 
 #[test]
+fn experimental_multi_tr_strategy_round_trip() {
+    let bounds = array![[0.0, 1.0], [0.0, 1.0]];
+    let mut rng = StdRng::seed_from_u64(203);
+    let strategy = Strategy::experimental(2, 3, 2, &mut rng).unwrap();
+    let mut opt =
+        Optimizer::new_with_strategy(bounds, turbo_zero_config(), strategy, &mut rng).unwrap();
+
+    let x_init = opt.ask(2, &mut rng).unwrap();
+    assert_eq!(x_init.nrows(), 2);
+    let y_init = array![[0.0], [1.0]];
+    opt.tell(&x_init.view(), &y_init.view(), &mut rng).unwrap();
+    assert!(opt.init_progress().is_none());
+
+    let x_next = opt.ask(2, &mut rng).unwrap();
+    assert_eq!(x_next.nrows(), 2);
+
+    let y_next = array![[1.5], [2.0]];
+    opt.tell(&x_next.view(), &y_next.view(), &mut rng).unwrap();
+    assert!(opt.telemetry().num_candidates > 0);
+}
+
+#[test]
 fn ask_scores_full_configured_candidate_pool() {
     let bounds = array![[0.0, 1.0], [0.0, 1.0]];
     let mut rng = StdRng::seed_from_u64(201);

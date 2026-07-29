@@ -30,26 +30,28 @@ ENNStatefulFitter = _ext.fit.ENNStatefulFitter
 subsample_loglik = _ext.fit.subsample_loglik
 Optimizer = _ext.optimizer.Optimizer
 create_optimizer_enn = _ext.optimizer.create_optimizer_enn
+create_optimizer_enn_multi_tr = _ext.optimizer.create_optimizer_enn_multi_tr
 create_optimizer_zero = _ext.optimizer.create_optimizer_zero
 create_optimizer_lhd = _ext.optimizer.create_optimizer_lhd
 
 
 __all__ = [
-    "hypervolume_2d_max",
-    "normal_hash_batch_multi_seed_fast",
-    "standardize_y",
-    "pareto_front_2d_maximize",
-    "calculate_sobol_indices",
-    "sobol_sequence",
-    "arms_from_pareto_fronts",
-    "set_config_path",
-    "ensure_config_file",
-    "EpistemicNearestNeighbors",
     "ENNParams",
     "ENNStatefulFitter",
-    "subsample_loglik",
+    "EpistemicNearestNeighbors",
     "Optimizer",
+    "arms_from_pareto_fronts",
+    "calculate_sobol_indices",
     "create_optimizer_enn",
-    "create_optimizer_zero",
+    "create_optimizer_enn_multi_tr",
     "create_optimizer_lhd",
+    "create_optimizer_zero",
+    "ensure_config_file",
+    "hypervolume_2d_max",
+    "normal_hash_batch_multi_seed_fast",
+    "pareto_front_2d_maximize",
+    "set_config_path",
+    "sobol_sequence",
+    "standardize_y",
+    "subsample_loglik",
 ]

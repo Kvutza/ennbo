@@ -21,6 +21,17 @@ pub fn create_optimizer_enn(
     create_optimizer_enn_with_overrides(bounds, k, num_init, rng, None)
 }
 
+/// Create an experimental multi-trust-region optimizer for TuRBO-ENN.
+pub fn create_optimizer_enn_multi_tr(
+    bounds: Array2<f64>,
+    k: i32,
+    num_init: usize,
+    num_regions: usize,
+    rng: &mut dyn RngCore,
+) -> Result<Optimizer, ENNError> {
+    create_optimizer_enn_multi_tr_with_overrides(bounds, k, num_init, num_regions, rng, None)
+}
+
 /// Create TuRBO-ENN with optional config overrides (for future Python pass-through).
 pub fn create_optimizer_enn_with_overrides(
     bounds: Array2<f64>,
@@ -37,6 +48,26 @@ pub fn create_optimizer_enn_with_overrides(
         config = o.apply_to(config);
     }
     let strategy = Strategy::hybrid(InitStrategy::LHD, num_init);
+    Optimizer::new_with_strategy(bounds, config, strategy, rng)
+}
+
+/// Create experimental multi-trust-region TuRBO-ENN with optional config overrides.
+pub fn create_optimizer_enn_multi_tr_with_overrides(
+    bounds: Array2<f64>,
+    k: i32,
+    num_init: usize,
+    num_regions: usize,
+    rng: &mut dyn RngCore,
+    overrides: Option<&ConfigOverrides>,
+) -> Result<Optimizer, ENNError> {
+    let mut config = turbo_enn_config();
+    if let SurrogateConfig::ENN(enn_cfg) = &mut config.surrogate {
+        enn_cfg.k = k;
+    }
+    if let Some(o) = overrides {
+        config = o.apply_to(config);
+    }
+    let strategy = Strategy::experimental(bounds.nrows(), num_regions, num_init, rng)?;
     Optimizer::new_with_strategy(bounds, config, strategy, rng)
 }
 
@@ -102,6 +133,9 @@ mod tests {
 
         let mut enn = create_optimizer_enn(bounds.clone(), 3, 2, &mut rng).unwrap();
         let _ = enn.ask(1, &mut rng).unwrap();
+
+        let mut exp = create_optimizer_enn_multi_tr(bounds.clone(), 3, 2, 3, &mut rng).unwrap();
+        let _ = exp.ask(2, &mut rng).unwrap();
 
         let mut zero = create_optimizer_zero(bounds.clone(), 2, &mut rng).unwrap();
         let _ = zero.ask(1, &mut rng).unwrap();

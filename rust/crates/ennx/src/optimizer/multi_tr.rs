@@ -189,6 +189,10 @@ impl MultiTrustRegionState {
         self.active_mask.iter().filter(|&&a| a).count()
     }
 
+    pub fn sharing_policy(&self) -> SharingPolicy {
+        self.config.sharing_policy
+    }
+
     /// Divide a flat candidate budget among active regions with a UCB policy.
     pub fn allocate(&self, budget: usize) -> Result<Vec<RegionBatch>, TrustRegionError> {
         self.allocate_with(budget, &self.mean_y.view())
@@ -219,15 +223,37 @@ impl MultiTrustRegionState {
                 "no active trust regions".to_string(),
             ));
         }
+        if budget == 0 {
+            return Err(TrustRegionError::InvalidParameter(
+                "candidate budget must be > 0".to_string(),
+            ));
+        }
+
+        let total_trials = self.trial_counts.iter().sum::<u64>().max(1) as f64;
         if budget < active.len() {
-            return Err(TrustRegionError::InvalidParameter(format!(
-                "candidate budget {budget} is smaller than {} active regions",
-                active.len()
-            )));
+            let mut ranked = active;
+            ranked.sort_by(|&a, &b| {
+                self.priority(b, 0, total_trials, utility[b])
+                    .total_cmp(&self.priority(a, 0, total_trials, utility[a]))
+                    .then_with(|| a.cmp(&b))
+            });
+            let mut start = 0;
+            return Ok(ranked
+                .into_iter()
+                .take(budget)
+                .map(|region| {
+                    let batch = RegionBatch {
+                        region,
+                        start,
+                        len: 1,
+                    };
+                    start += 1;
+                    batch
+                })
+                .collect());
         }
 
         let mut counts = vec![1usize; self.num_regions];
-        let total_trials = self.trial_counts.iter().sum::<u64>().max(1) as f64;
         for _ in active.len()..budget {
             let region = active
                 .iter()
@@ -623,6 +649,25 @@ mod tests {
         let plan = tr.allocate_with(6, &array![0.0, 10.0].view()).unwrap();
         assert!(plan[1].len > plan[0].len);
         assert!(tr.allocate_with(6, &array![f64::NAN].view()).is_err());
+    }
+
+    #[test]
+    fn allocation_allows_small_budgets() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut tr = MultiTrustRegionState::new(
+            2,
+            MultiTrustRegionConfig::new(4, Default::default()),
+            None,
+            &mut rng,
+        )
+        .unwrap();
+        tr.mean_y = array![1.0, 4.0, 2.0, 3.0];
+
+        let plan = tr.allocate(2).unwrap();
+        assert_eq!(plan.len(), 2);
+        assert_eq!(plan.iter().map(|batch| batch.len).sum::<usize>(), 2);
+        assert!(plan.iter().all(|batch| batch.len == 1));
+        assert!(plan[0].region != plan[1].region);
     }
 
     #[test]
