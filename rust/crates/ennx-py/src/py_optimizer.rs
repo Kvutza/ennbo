@@ -76,6 +76,8 @@ fn parse_index_driver(s: &str) -> PyResult<ennx::index::IndexDriver> {
     use ennx::index::IndexDriver;
     match s.to_lowercase().as_str() {
         "exact" | "flat" => Ok(IndexDriver::Exact),
+        "auto" => Ok(IndexDriver::Auto),
+        "agx" => Ok(IndexDriver::Agx),
         "usearch" | "hnsw_usearch" => Ok(IndexDriver::USearch),
         "bpann_disk" => Ok(IndexDriver::BpAnnDisk),
         "metal" => Ok(IndexDriver::Metal),

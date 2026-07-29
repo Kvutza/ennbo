@@ -1,11 +1,13 @@
 use std::cell::RefCell;
 use std::ffi::c_void;
+use std::sync::Arc;
 
-use metal::{CompileOptions, ComputePipelineState, Device, MTLResourceOptions, MTLSize};
+use metal::{ComputePipelineState, MTLSize};
 
 use super::{
     acquisition_code, thompson_draws, WeightBlock, WeightSelectConfig, WeightSelectResult,
 };
+use crate::apple_gpu::Runtime;
 
 const THREADS: u64 = 256;
 const MAX_NEIGHBORS: usize = 2048;
@@ -39,12 +41,13 @@ struct MetalParams {
 }
 
 struct MetalCtx {
-    device: Device,
+    runtime: Arc<Runtime>,
     pipeline: ComputePipelineState,
 }
 
 thread_local! {
     static CTX: RefCell<Option<MetalCtx>> = const { RefCell::new(None) };
+    static AGX_CTX: RefCell<Option<MetalCtx>> = const { RefCell::new(None) };
 }
 
 pub(super) fn select(
@@ -63,9 +66,20 @@ pub(super) fn select(
         ));
     }
     let metal_blocks = to_metal_blocks(blocks)?;
-    CTX.with(|cell| {
+    let context = if matches!(
+        config.backend,
+        crate::weights::ComputeBackend::Agx | crate::weights::ComputeBackend::Auto
+    ) {
+        &AGX_CTX
+    } else {
+        &CTX
+    };
+    context.with(|cell| {
         if cell.borrow().is_none() {
-            *cell.borrow_mut() = Some(MetalCtx::new()?);
+            *cell.borrow_mut() = Some(MetalCtx::new(matches!(
+                config.backend,
+                crate::weights::ComputeBackend::Agx | crate::weights::ComputeBackend::Auto
+            ))?);
         }
         let borrow = cell.borrow();
         let ctx = borrow.as_ref().expect("Metal context initialized");
@@ -83,23 +97,14 @@ pub(super) fn select(
 }
 
 impl MetalCtx {
-    fn new() -> Result<Self, String> {
-        let device = Device::system_default().ok_or("no default Metal device found")?;
-        let options = CompileOptions::new();
-        let library = device
-            .new_library_with_source(SOURCE, &options)
-            .map_err(|error| {
-                format!("failed to compile Metal quantized-weight kernels: {error}")
-            })?;
-        let function = library
-            .get_function("score_weight_neighbors", None)
-            .map_err(|error| format!("missing Metal quantized-weight kernel: {error}"))?;
-        let pipeline = device
-            .new_compute_pipeline_state_with_function(&function)
-            .map_err(|error| {
-                format!("failed to create Metal quantized-weight pipeline: {error}")
-            })?;
-        Ok(Self { device, pipeline })
+    fn new(agx: bool) -> Result<Self, String> {
+        let runtime = Runtime::shared()?;
+        let pipeline = if agx {
+            runtime.agx_pipeline(SOURCE, "quantized-weight", "score_weight_neighbors")?
+        } else {
+            runtime.pipeline(SOURCE, "quantized-weight", "score_weight_neighbors")?
+        };
+        Ok(Self { runtime, pipeline })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -120,10 +125,7 @@ impl MetalCtx {
         let block_buffer = self.buffer_with_slice(blocks);
         let draws = thompson_draws(candidate_count, config.seed);
         let draw_buffer = self.buffer_with_slice(&draws);
-        let score_buffer = self.device.new_buffer(
-            (candidate_count * std::mem::size_of::<f32>()) as u64,
-            MTLResourceOptions::StorageModeShared,
-        );
+        let score_buffer = self.runtime.buffer::<f32>(candidate_count);
         let params = MetalParams {
             row_bytes: to_u32(row_bytes, "row_bytes")?,
             observations: to_u32(observation_count, "observations")?,
@@ -137,8 +139,7 @@ impl MetalCtx {
             acquisition: acquisition_code(config.acquisition),
         };
 
-        let queue = self.device.new_command_queue();
-        let command_buffer = queue.new_command_buffer();
+        let command_buffer = self.runtime.queue.new_command_buffer();
         let encoder = command_buffer.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.pipeline);
         encoder.set_buffer(0, Some(&obs_buffer), 0);
@@ -184,11 +185,7 @@ impl MetalCtx {
     }
 
     fn buffer_with_slice<T>(&self, values: &[T]) -> metal::Buffer {
-        self.device.new_buffer_with_data(
-            values.as_ptr().cast::<c_void>(),
-            std::mem::size_of_val(values) as u64,
-            MTLResourceOptions::StorageModeShared,
-        )
+        self.runtime.buffer_with(values)
     }
 }
 

@@ -628,6 +628,16 @@ impl Engine {
                     Err("Metal trial search is not available in this build".to_string())
                 }
             }
+            ComputeBackend::Agx => {
+                #[cfg(all(target_os = "macos", feature = "metal"))]
+                {
+                    Ok(Self::Metal(metal::Engine::new_agx(base, leaves, slots)?))
+                }
+                #[cfg(not(all(target_os = "macos", feature = "metal")))]
+                {
+                    Err("AGX trial search is not available in this build".to_string())
+                }
+            }
             ComputeBackend::OpenCl => {
                 #[cfg(feature = "opencl")]
                 {
@@ -641,7 +651,10 @@ impl Engine {
             ComputeBackend::Auto => {
                 #[cfg(all(target_os = "macos", feature = "metal"))]
                 {
-                    return Ok(Self::Metal(metal::Engine::new(base, leaves, slots)?));
+                    return Ok(Self::Metal(
+                        metal::Engine::new_agx(base, leaves, slots)
+                            .or_else(|_| metal::Engine::new(base, leaves, slots))?,
+                    ));
                 }
                 #[cfg(all(feature = "opencl", not(all(target_os = "macos", feature = "metal"))))]
                 {

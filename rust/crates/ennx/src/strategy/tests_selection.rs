@@ -1,7 +1,7 @@
 use super::{
-    ask_init, ask_init_hybrid, ask_turbo, select_with_pareto, select_with_random,
-    select_with_thompson, select_with_ucb, tell_common, tell_init, tell_turbo, InitStrategy,
-    InitStrategyState, Strategy, TurboStrategyState,
+    ask_init, ask_init_hybrid, ask_turbo, select_segmented_arms, select_with_pareto,
+    select_with_random, select_with_thompson, select_with_ucb, tell_common, tell_init, tell_turbo,
+    CandidateSegment, InitStrategy, InitStrategyState, Strategy, TurboStrategyState,
 };
 use crate::config::{turbo_enn_config, turbo_zero_config, AcquisitionConfig};
 use crate::optimizer::{Optimizer, Telemetry};
@@ -279,4 +279,56 @@ fn select_with_functions_direct_smoke() {
 
     let out_pf = select_with_pareto(sur, &x_cand.view(), 2, &mut rng).unwrap();
     assert_eq!(out_pf.nrows(), 2);
+}
+
+#[test]
+fn segmented_selection_covers_every_acquisition() {
+    let candidates = array![
+        [0.1, 0.2],
+        [0.3, 0.4],
+        [0.5, 0.6],
+        [0.7, 0.8],
+        [0.9, 0.1],
+        [0.2, 0.9]
+    ];
+    let segments = [
+        CandidateSegment {
+            start: 0,
+            end: 3,
+            arms: 1,
+            region: 0,
+        },
+        CandidateSegment {
+            start: 3,
+            end: 6,
+            arms: 2,
+            region: 1,
+        },
+    ];
+    let fit_x = array![[0.0, 0.0], [1.0, 1.0], [0.2, 0.8]];
+    let fit_y = array![[0.0], [1.0], [0.5]];
+    let bounds = array![[0.0, 1.0], [0.0, 1.0]];
+    let acquisitions = [
+        AcquisitionConfig::Random,
+        AcquisitionConfig::Thompson,
+        AcquisitionConfig::UCB { beta: 1.0 },
+        AcquisitionConfig::Pareto,
+    ];
+
+    for (seed, acquisition) in acquisitions.into_iter().enumerate() {
+        let mut rng = StdRng::seed_from_u64(seed as u64 + 500);
+        let mut config = turbo_enn_config();
+        config.acquisition = acquisition;
+        let mut optimizer =
+            Optimizer::new_with_strategy(bounds.clone(), config, Strategy::turbo(), &mut rng)
+                .unwrap();
+        optimizer
+            .tell(&fit_x.view(), &fit_y.view(), &mut rng)
+            .unwrap();
+        let selected =
+            select_segmented_arms(&optimizer, &candidates.view(), &segments, &mut rng).unwrap();
+        assert_eq!(selected.len(), 3);
+        assert!(selected[0] < 3);
+        assert!(selected[1..].iter().all(|index| *index >= 3));
+    }
 }

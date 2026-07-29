@@ -2,6 +2,12 @@ use rand::distributions::{Distribution, Standard};
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
+#[cfg(all(target_os = "macos", feature = "metal"))]
+use std::collections::HashMap;
+#[cfg(all(target_os = "macos", feature = "metal"))]
+use std::sync::{Mutex, OnceLock};
+#[cfg(all(target_os = "macos", feature = "metal"))]
+use std::time::Instant;
 
 use crate::util::insert_neighbor;
 
@@ -36,6 +42,7 @@ pub enum ComputeBackend {
     Auto,
     Cpu,
     Metal,
+    Agx,
     OpenCl,
 }
 
@@ -45,9 +52,10 @@ impl ComputeBackend {
             "" | "auto" => Ok(Self::Auto),
             "cpu" => Ok(Self::Cpu),
             "metal" => Ok(Self::Metal),
+            "agx" => Ok(Self::Agx),
             "opencl" | "ocl" => Ok(Self::OpenCl),
             other => Err(format!(
-                "unknown compute backend {other:?}; expected 'auto', 'cpu', 'metal', or 'opencl'"
+                "unknown compute backend {other:?}; expected 'auto', 'cpu', 'metal', 'agx', or 'opencl'"
             )),
         }
     }
@@ -154,6 +162,17 @@ struct Prediction {
     se: f32,
 }
 
+#[cfg(all(target_os = "macos", feature = "metal"))]
+struct WeightSelection<'a> {
+    observations: &'a [u8],
+    observation_count: usize,
+    outcomes: &'a [f32],
+    candidates: &'a [u8],
+    candidate_count: usize,
+    blocks: &'a [WeightBlock],
+    row_bytes: usize,
+}
+
 pub fn select_weights(
     observations: &[u8],
     observation_count: usize,
@@ -194,6 +213,25 @@ pub fn select_weights(
                 return Err("Metal ENN backend is not available in this build".to_string());
             }
         }
+        ComputeBackend::Agx => {
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            {
+                return metal_weights::select(
+                    observations,
+                    observation_count,
+                    outcomes,
+                    candidates,
+                    candidate_count,
+                    blocks,
+                    row_bytes,
+                    config,
+                );
+            }
+            #[cfg(not(all(target_os = "macos", feature = "metal")))]
+            {
+                return Err("AGX ENN backend is not available in this build".to_string());
+            }
+        }
         ComputeBackend::OpenCl => {
             #[cfg(feature = "opencl")]
             {
@@ -216,14 +254,16 @@ pub fn select_weights(
         ComputeBackend::Auto => {
             #[cfg(all(target_os = "macos", feature = "metal"))]
             {
-                return metal_weights::select(
-                    observations,
-                    observation_count,
-                    outcomes,
-                    candidates,
-                    candidate_count,
-                    blocks,
-                    row_bytes,
+                return select_weights_auto(
+                    WeightSelection {
+                        observations,
+                        observation_count,
+                        outcomes,
+                        candidates,
+                        candidate_count,
+                        blocks,
+                        row_bytes,
+                    },
                     config,
                 );
             }
@@ -253,6 +293,75 @@ pub fn select_weights(
         row_bytes,
         config,
     )
+}
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+fn select_weights_auto(
+    input: WeightSelection<'_>,
+    config: WeightSelectConfig,
+) -> Result<WeightSelectResult, String> {
+    static ROUTES: OnceLock<Mutex<HashMap<u32, bool>>> = OnceLock::new();
+    let work = input
+        .observation_count
+        .saturating_mul(input.candidate_count)
+        .saturating_mul(input.row_bytes)
+        .max(1);
+    let bucket = work.ilog2();
+    let routes = ROUTES.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(&gpu) = routes
+        .lock()
+        .map_err(|_| "weight route cache poisoned")?
+        .get(&bucket)
+    {
+        let backend = if gpu {
+            ComputeBackend::Agx
+        } else {
+            ComputeBackend::Cpu
+        };
+        return select_weights(
+            input.observations,
+            input.observation_count,
+            input.outcomes,
+            input.candidates,
+            input.candidate_count,
+            input.blocks,
+            WeightSelectConfig { backend, ..config },
+        );
+    }
+
+    let cpu_start = Instant::now();
+    let cpu = select_weights(
+        input.observations,
+        input.observation_count,
+        input.outcomes,
+        input.candidates,
+        input.candidate_count,
+        input.blocks,
+        WeightSelectConfig {
+            backend: ComputeBackend::Cpu,
+            ..config
+        },
+    )?;
+    let cpu_time = cpu_start.elapsed();
+    let gpu_start = Instant::now();
+    let gpu = metal_weights::select(
+        input.observations,
+        input.observation_count,
+        input.outcomes,
+        input.candidates,
+        input.candidate_count,
+        input.blocks,
+        input.row_bytes,
+        config,
+    )?;
+    let gpu_time = gpu_start.elapsed();
+    let agrees = cpu.index == gpu.index && (cpu.score - gpu.score).abs() <= 1e-4;
+    let use_gpu = agrees && gpu_time < cpu_time;
+    routes
+        .lock()
+        .map_err(|_| "weight route cache poisoned")?
+        .insert(bucket, use_gpu);
+    Ok(if use_gpu { gpu } else { cpu })
 }
 
 pub(crate) fn thompson_draws(count: usize, seed: u64) -> Vec<f32> {
@@ -772,5 +881,41 @@ mod tests {
         .unwrap();
         assert_eq!(result.index, 1);
         assert_eq!(result.score, 10.0);
+    }
+
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    #[test]
+    fn agx_weight_selection_matches_cpu() {
+        let observations = [0u8, 7, 15];
+        let candidates = [1u8, 6];
+        let outcomes = [0.0, 10.0, -2.0];
+        let blocks = [WeightBlock::new(0, 2, 4, 1.0, 1.0, 1.0).unwrap()];
+        let config = WeightSelectConfig {
+            neighbors: 1,
+            epistemic_scale: 0.7,
+            aleatoric_scale: 0.05,
+            y_scale: 1.0,
+            beta: 0.0,
+            acquisition: AcquisitionKind::Ucb,
+            seed: 0,
+            backend: ComputeBackend::Cpu,
+        };
+        let cpu =
+            select_weights(&observations, 3, &outcomes, &candidates, 2, &blocks, config).unwrap();
+        let agx = select_weights(
+            &observations,
+            3,
+            &outcomes,
+            &candidates,
+            2,
+            &blocks,
+            WeightSelectConfig {
+                backend: ComputeBackend::Agx,
+                ..config
+            },
+        )
+        .unwrap();
+        assert_eq!(agx.index, cpu.index);
+        assert!((agx.score - cpu.score).abs() <= 1e-5);
     }
 }

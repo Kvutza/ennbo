@@ -1,15 +1,20 @@
+use std::collections::HashMap;
 use std::ffi::c_void;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
-use metal::{CompileOptions, ComputePipelineState, Device, MTLResourceOptions, MTLSize};
+use metal::{ComputePipelineState, MTLSize};
 use ndarray::{Array2, ArrayView2};
 
 use super::{arr2_rows_to_f32, pad_neighbor_cols_to_search_k};
+use crate::apple_gpu::Runtime;
 use crate::index::IndexError;
 
 const THREADS: u64 = 256;
 const TILE_ROWS: usize = 1024;
 const MAX_K: usize = 1024;
 const SOURCE: &str = include_str!("metal_index.metal");
+static DISTANCE_SCHEDULES: OnceLock<Mutex<HashMap<usize, usize>>> = OnceLock::new();
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -23,9 +28,9 @@ struct Params {
 }
 
 pub(crate) struct MetalIndex {
-    device: Device,
-    queue: metal::CommandQueue,
-    distance: ComputePipelineState,
+    runtime: Arc<Runtime>,
+    distance: Vec<ComputePipelineState>,
+    distance_choice: Option<usize>,
     local_topk: ComputePipelineState,
     merge: ComputePipelineState,
     init_results: ComputePipelineState,
@@ -48,8 +53,8 @@ struct Scratch {
 }
 
 impl Scratch {
-    fn new(device: &Device) -> Self {
-        let empty = || device.new_buffer(4, MTLResourceOptions::StorageModeShared);
+    fn new(runtime: &Runtime) -> Self {
+        let empty = || runtime.buffer::<u32>(1);
         Self {
             query: empty(),
             tile_distances: empty(),
@@ -62,52 +67,62 @@ impl Scratch {
         }
     }
 
-    fn ensure(&mut self, device: &Device, dim: usize, queries: usize, k: usize) {
+    fn ensure(&mut self, runtime: &Runtime, dim: usize, queries: usize, k: usize) {
         if queries <= self.query_capacity && k <= self.k_capacity {
             return;
         }
         self.query_capacity = next_capacity(queries);
         self.k_capacity = next_capacity(k);
-        self.query = buffer_for::<f32>(device, self.query_capacity * dim);
-        self.tile_distances = buffer_for::<f32>(device, self.query_capacity * TILE_ROWS);
-        self.local_distances = buffer_for::<f32>(device, self.query_capacity * self.k_capacity);
-        self.local_indices = buffer_for::<u32>(device, self.query_capacity * self.k_capacity);
-        self.result_distances = buffer_for::<f32>(device, self.query_capacity * self.k_capacity);
-        self.result_indices = buffer_for::<u32>(device, self.query_capacity * self.k_capacity);
+        self.query = runtime.buffer::<f32>(self.query_capacity * dim);
+        self.tile_distances = runtime.buffer::<f32>(self.query_capacity * TILE_ROWS);
+        self.local_distances = runtime.buffer::<f32>(self.query_capacity * self.k_capacity);
+        self.local_indices = runtime.buffer::<u32>(self.query_capacity * self.k_capacity);
+        self.result_distances = runtime.buffer::<f32>(self.query_capacity * self.k_capacity);
+        self.result_indices = runtime.buffer::<u32>(self.query_capacity * self.k_capacity);
     }
 }
 
 impl MetalIndex {
     pub(crate) fn new(num_dim: usize, train: &ArrayView2<f64>) -> Result<Self, IndexError> {
-        let device = Device::system_default().ok_or_else(|| {
-            IndexError::InvalidParameter("no default Metal device found".to_string())
-        })?;
-        let library = device
-            .new_library_with_source(SOURCE, &CompileOptions::new())
-            .map_err(|error| {
-                IndexError::InvalidParameter(format!("Metal index compile: {error}"))
-            })?;
+        Self::with_agx(num_dim, train, false)
+    }
+
+    pub(crate) fn new_agx(num_dim: usize, train: &ArrayView2<f64>) -> Result<Self, IndexError> {
+        Self::with_agx(num_dim, train, true)
+    }
+
+    fn with_agx(num_dim: usize, train: &ArrayView2<f64>, agx: bool) -> Result<Self, IndexError> {
+        let runtime = Runtime::shared().map_err(IndexError::InvalidParameter)?;
         let pipeline = |name: &str| -> Result<ComputePipelineState, IndexError> {
-            let function = library.get_function(name, None).map_err(|error| {
-                IndexError::InvalidParameter(format!("Metal index function {name}: {error}"))
-            })?;
-            device
-                .new_compute_pipeline_state_with_function(&function)
-                .map_err(|error| {
-                    IndexError::InvalidParameter(format!("Metal index pipeline {name}: {error}"))
-                })
+            let result = if agx {
+                runtime.agx_pipeline(SOURCE, "index", name)
+            } else {
+                runtime.pipeline(SOURCE, "index", name)
+            };
+            result.map_err(IndexError::InvalidParameter)
         };
-        let distance = pipeline("distance_rows")?;
+        let names: &[&str] = if agx {
+            &["distance_rows", "distance_rows_2", "distance_rows_4"]
+        } else {
+            &["distance_rows"]
+        };
+        let distance = names
+            .iter()
+            .map(|name| pipeline(name))
+            .collect::<Result<Vec<_>, _>>()?;
         let local_topk = pipeline("local_topk")?;
         let merge = pipeline("merge_topk")?;
         let init_results = pipeline("init_results")?;
-        let queue = device.new_command_queue();
-        let scratch = Scratch::new(&device);
+        let scratch = Scratch::new(&runtime);
         let mut index = Self {
-            rows: device.new_buffer(4, MTLResourceOptions::StorageModeShared),
-            device,
-            queue,
+            rows: runtime.buffer::<u32>(1),
+            runtime,
             distance,
+            distance_choice: if agx {
+                distance_schedules().lock().unwrap().get(&num_dim).copied()
+            } else {
+                Some(0)
+            },
             local_topk,
             merge,
             init_results,
@@ -176,10 +191,11 @@ impl MetalIndex {
 
         let query_values = arr2_rows_to_f32(queries);
         self.scratch
-            .ensure(&self.device, self.num_dim, queries.nrows(), k_eff);
+            .ensure(&self.runtime, self.num_dim, queries.nrows(), k_eff);
         self.write_f32(&self.scratch.query, 0, &query_values);
+        self.calibrate_distance(queries.nrows())?;
 
-        let command_buffer = self.queue.new_command_buffer();
+        let command_buffer = self.runtime.queue.new_command_buffer();
         let init_params = Params {
             rows: to_u32(self.len(), "row count")?,
             dim: to_u32(self.num_dim, "dimension")?,
@@ -208,7 +224,9 @@ impl MetalIndex {
             };
 
             let encoder = command_buffer.new_compute_command_encoder();
-            encoder.set_compute_pipeline_state(&self.distance);
+            encoder.set_compute_pipeline_state(
+                &self.distance[self.distance_choice.expect("distance schedule calibrated")],
+            );
             encoder.set_buffer(0, Some(&self.rows), 0);
             encoder.set_buffer(1, Some(&self.scratch.query), 0);
             encoder.set_buffer(2, Some(&self.scratch.tile_distances), 0);
@@ -283,6 +301,70 @@ impl MetalIndex {
         Ok(pad_neighbor_cols_to_search_k(out_dist, out_idx, search_k))
     }
 
+    fn calibrate_distance(&mut self, queries: usize) -> Result<(), IndexError> {
+        if self.distance_choice.is_some() {
+            return Ok(());
+        }
+        let query_count = queries.min(64);
+        let params = Params {
+            rows: to_u32(self.len(), "row count")?,
+            dim: to_u32(self.num_dim, "dimension")?,
+            queries: to_u32(query_count, "query count")?,
+            tile_start: 0,
+            tile_rows: to_u32(self.len().min(TILE_ROWS), "tile rows")?,
+            k: 1,
+        };
+        self.run_distance(0, &params);
+        let reference = self.distance_values(query_count);
+        let mut best = (0, Duration::MAX);
+        for schedule in 0..self.distance.len() {
+            self.run_distance(schedule, &params);
+            if !same_distances(&reference, &self.distance_values(query_count)) {
+                continue;
+            }
+            let mut times = [Duration::MAX; 3];
+            for elapsed in &mut times {
+                let start = Instant::now();
+                self.run_distance(schedule, &params);
+                *elapsed = start.elapsed();
+            }
+            times.sort_unstable();
+            if times[1] < best.1 {
+                best = (schedule, times[1]);
+            }
+        }
+        distance_schedules()
+            .lock()
+            .unwrap()
+            .insert(self.num_dim, best.0);
+        self.distance_choice = Some(best.0);
+        Ok(())
+    }
+
+    fn run_distance(&self, schedule: usize, params: &Params) {
+        let command_buffer = self.runtime.queue.new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&self.distance[schedule]);
+        encoder.set_buffer(0, Some(&self.rows), 0);
+        encoder.set_buffer(1, Some(&self.scratch.query), 0);
+        encoder.set_buffer(2, Some(&self.scratch.tile_distances), 0);
+        set_params(encoder, 3, params);
+        dispatch(encoder, params.queries as usize * TILE_ROWS);
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+    }
+
+    fn distance_values(&self, queries: usize) -> Vec<f32> {
+        unsafe {
+            std::slice::from_raw_parts(
+                self.scratch.tile_distances.contents().cast::<f32>(),
+                queries * TILE_ROWS,
+            )
+            .to_vec()
+        }
+    }
+
     fn check_rows(&self, rows: &ArrayView2<f64>) -> Result<(), IndexError> {
         if rows.ncols() != self.num_dim {
             return Err(IndexError::InvalidShape {
@@ -295,7 +377,7 @@ impl MetalIndex {
 
     fn upload_rows(&mut self) {
         self.row_capacity = next_capacity(self.len());
-        self.rows = buffer_for::<f32>(&self.device, self.row_capacity * self.num_dim);
+        self.rows = self.runtime.buffer::<f32>(self.row_capacity * self.num_dim);
         self.write_f32(&self.rows, 0, &self.host_rows);
     }
 
@@ -313,11 +395,14 @@ impl MetalIndex {
     }
 }
 
-fn buffer_for<T>(device: &Device, elements: usize) -> metal::Buffer {
-    device.new_buffer(
-        (elements.max(1) * std::mem::size_of::<T>()) as u64,
-        MTLResourceOptions::StorageModeShared,
-    )
+fn distance_schedules() -> &'static Mutex<HashMap<usize, usize>> {
+    DISTANCE_SCHEDULES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn same_distances(left: &[f32], right: &[f32]) -> bool {
+    left.iter().zip(right).all(|(&a, &b)| {
+        a == b || (a.is_finite() && b.is_finite() && (a - b).abs() <= 1e-4 * (1.0 + a.abs()))
+    })
 }
 
 fn next_capacity(value: usize) -> usize {

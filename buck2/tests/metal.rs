@@ -52,3 +52,12 @@ fn metal_matches_cpu() {
     assert!((metal.1 - cpu.1).abs() <= 1.0e-5);
     assert_eq!(metal.2, cpu.2);
 }
+
+#[test]
+fn agx_matches_cpu() {
+    let cpu = ask(ComputeBackend::Cpu);
+    let agx = ask(ComputeBackend::Agx);
+    assert_eq!(agx.0, cpu.0);
+    assert!((agx.1 - cpu.1).abs() <= 1.0e-5);
+    assert_eq!(agx.2, cpu.2);
+}

@@ -10,7 +10,9 @@ use crate::acquisition::{ParetoAcquisition, RandomAcquisition, UCBAcquisition};
 use crate::candidates::{generate_candidates, generate_lhd, generate_uniform};
 use crate::config::{AcquisitionConfig, InitStrategy};
 use crate::error::ENNError;
-use crate::optimizer::{MultiTrustRegionConfig, MultiTrustRegionState, Optimizer, SharingPolicy, Telemetry};
+use crate::optimizer::{
+    MultiTrustRegionConfig, MultiTrustRegionState, Optimizer, SharingPolicy, Telemetry,
+};
 
 /// Strategy state for initialization phase.
 #[derive(Debug, Clone)]
@@ -41,6 +43,14 @@ pub struct ExperimentalStrategyState {
     pub multi_tr: MultiTrustRegionState,
     pub in_init: bool,
     pub pending_regions: Option<Vec<usize>>,
+}
+
+#[derive(Clone, Copy)]
+struct CandidateSegment {
+    start: usize,
+    end: usize,
+    arms: usize,
+    region: usize,
 }
 
 impl ExperimentalStrategyState {
@@ -132,7 +142,9 @@ impl Strategy {
                 ..
             } => ask_init_hybrid(init, optimizer, num_arms, rng),
             Strategy::Hybrid { .. } => ask_turbo(optimizer, num_arms, telemetry, rng),
-            Strategy::Experimental(state) => ask_experimental(state, optimizer, num_arms, telemetry, rng),
+            Strategy::Experimental(state) => {
+                ask_experimental(state, optimizer, num_arms, telemetry, rng)
+            }
         }
     }
 
@@ -164,7 +176,9 @@ impl Strategy {
                     tell_turbo(optimizer, x, y, telemetry, rng)
                 }
             }
-            Strategy::Experimental(state) => tell_experimental(state, optimizer, x, y, telemetry, rng),
+            Strategy::Experimental(state) => {
+                tell_experimental(state, optimizer, x, y, telemetry, rng)
+            }
         }
     }
 
@@ -177,7 +191,9 @@ impl Strategy {
                 in_init: true,
                 ..
             } => Some((init.completed, init.num_init)),
-            Strategy::Experimental(state) if state.in_init => Some((state.init.completed, state.init.num_init)),
+            Strategy::Experimental(state) if state.in_init => {
+                Some((state.init.completed, state.init.num_init))
+            }
             _ => None,
         }
     }
@@ -406,12 +422,15 @@ fn ask_experimental(
     let lengthscales = optimizer.surrogate().and_then(|s| s.lengthscales());
     let ls_ref: Option<ArrayView1<f64>> = lengthscales.as_ref().map(|ls| ls.view());
 
-    let mut selected_rows: Vec<Array1<f64>> = Vec::with_capacity(num_arms);
-    let mut pending_regions: Vec<usize> = Vec::with_capacity(num_arms);
+    let mut candidate_blocks = Vec::with_capacity(batches.len());
+    let mut segments = Vec::with_capacity(batches.len());
+    let mut offset = 0;
 
     for batch in batches {
         let x_center = state.multi_tr.centers.row(batch.region).to_owned();
-        let (lower_1d, upper_1d) = state.multi_tr.compute_bounds_1d(batch.region, ls_ref.as_ref());
+        let (lower_1d, upper_1d) = state
+            .multi_tr
+            .compute_bounds_1d(batch.region, ls_ref.as_ref());
         let num_candidates = config.num_candidates(num_dim, batch.len);
         telemetry.num_candidates += num_candidates;
 
@@ -429,31 +448,39 @@ fn ask_experimental(
             )?
         };
 
-        let start = std::time::Instant::now();
-        let selected = select_arms(optimizer, &x_cand.view(), batch.len, rng)?;
-        telemetry.dt_sel += start.elapsed().as_secs_f64();
-
-        for row in selected.rows() {
-            selected_rows.push(row.to_owned());
-            pending_regions.push(batch.region);
-        }
+        let end = offset + x_cand.nrows();
+        segments.push(CandidateSegment {
+            start: offset,
+            end,
+            arms: batch.len,
+            region: batch.region,
+        });
+        offset = end;
+        candidate_blocks.push(x_cand);
     }
 
-    state.pending_regions = Some(pending_regions);
-
-    if selected_rows.is_empty() {
+    if candidate_blocks.is_empty() {
         return Err(ENNError::InvalidParameter(
             "experimental strategy produced no candidates".to_string(),
         ));
     }
 
-    let selected_views = selected_rows.iter().map(|row| row.view()).collect::<Vec<_>>();
-    ndarray::stack(Axis(0), &selected_views).map_err(|_e| {
-        ENNError::InvalidShape {
-            expected: vec![num_arms, optimizer.num_dim()],
-            got: vec![selected_rows.len(), optimizer.num_dim()],
-        }
-    })
+    let views = candidate_blocks
+        .iter()
+        .map(|block| block.view())
+        .collect::<Vec<_>>();
+    let candidates = ndarray::concatenate(Axis(0), &views)
+        .map_err(|error| ENNError::InvalidParameter(error.to_string()))?;
+    let start = std::time::Instant::now();
+    let indices = select_segmented_arms(optimizer, &candidates.view(), &segments, rng)?;
+    telemetry.dt_sel += start.elapsed().as_secs_f64();
+    state.pending_regions = Some(
+        segments
+            .iter()
+            .flat_map(|segment| std::iter::repeat_n(segment.region, segment.arms))
+            .collect(),
+    );
+    Ok(select_by_indices(&candidates.view(), &indices))
 }
 
 /// Tell for TuRBO phase.
@@ -664,6 +691,148 @@ fn select_with_pareto(
         .select(&pred.mu.view(), &pred.se.view(), num_arms, rng)
         .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
     Ok(select_by_indices(x_cand, &indices))
+}
+
+/// Select fixed arm counts from candidate segments after one surrogate pass.
+fn select_segmented_arms(
+    optimizer: &Optimizer,
+    candidates: &ArrayView2<f64>,
+    segments: &[CandidateSegment],
+    rng: &mut dyn RngCore,
+) -> Result<Vec<usize>, ENNError> {
+    let config = optimizer.config().acquisition;
+    let surrogate = optimizer.surrogate();
+    if surrogate.is_none() || matches!(config, AcquisitionConfig::Random) {
+        return select_segmented_random(segments, rng);
+    }
+    let surrogate = surrogate.expect("checked above");
+
+    match config {
+        AcquisitionConfig::Random => unreachable!("handled above"),
+        AcquisitionConfig::Thompson => {
+            select_segmented_thompson(optimizer, surrogate, candidates, segments, rng)
+        }
+        AcquisitionConfig::UCB { beta } => {
+            select_segmented_ucb(optimizer, surrogate, candidates, segments, beta, rng)
+        }
+        AcquisitionConfig::Pareto => select_segmented_pareto(surrogate, candidates, segments, rng),
+    }
+}
+
+fn select_segmented_random(
+    segments: &[CandidateSegment],
+    rng: &mut dyn RngCore,
+) -> Result<Vec<usize>, ENNError> {
+    let mut selected = Vec::new();
+    for segment in segments {
+        let local = RandomAcquisition
+            .select(segment.end - segment.start, segment.arms, rng)
+            .map_err(|error| ENNError::InvalidParameter(error.to_string()))?;
+        selected.extend(local.into_iter().map(|index| segment.start + index));
+    }
+    Ok(selected)
+}
+
+fn select_segmented_thompson(
+    optimizer: &Optimizer,
+    surrogate: &(dyn crate::surrogate::Surrogate + Send + Sync),
+    candidates: &ArrayView2<f64>,
+    segments: &[CandidateSegment],
+    rng: &mut dyn RngCore,
+) -> Result<Vec<usize>, ENNError> {
+    use ndarray::s;
+
+    let max_arms = segments
+        .iter()
+        .map(|segment| segment.arms)
+        .max()
+        .unwrap_or(1);
+    let samples = surrogate.sample(candidates, max_arms, rng)?;
+    let mut scores = Array2::zeros((max_arms, candidates.nrows()));
+    if optimizer.trust_region().is_morbo() {
+        let metrics = samples.shape()[2];
+        let flat = samples
+            .to_shape((max_arms * candidates.nrows(), metrics))
+            .map_err(|error| ENNError::InvalidParameter(error.to_string()))?;
+        let scalar = optimizer
+            .trust_region()
+            .morbo_scalarize(&flat.view(), false)
+            .map_err(|error| ENNError::InvalidParameter(error.to_string()))?;
+        scores
+            .as_slice_mut()
+            .expect("scores are contiguous")
+            .copy_from_slice(scalar.as_slice().expect("scalar scores are contiguous"));
+    } else {
+        scores.row_mut(0).assign(&samples.slice(s![0, .., 0]));
+    }
+
+    let mut selected = Vec::new();
+    for segment in segments {
+        let mut local = Vec::with_capacity(segment.arms);
+        for arm in 0..segment.arms {
+            let row = usize::from(optimizer.trust_region().is_morbo()) * arm;
+            let mut values = scores.slice(s![row, segment.start..segment.end]).to_vec();
+            for &previous in &local {
+                values[previous] = f64::NEG_INFINITY;
+            }
+            local.push(argmax_random_tie(&values, rng));
+        }
+        selected.extend(local.into_iter().map(|index| segment.start + index));
+    }
+    Ok(selected)
+}
+
+fn select_segmented_ucb(
+    optimizer: &Optimizer,
+    surrogate: &(dyn crate::surrogate::Surrogate + Send + Sync),
+    candidates: &ArrayView2<f64>,
+    segments: &[CandidateSegment],
+    beta: f64,
+    rng: &mut dyn RngCore,
+) -> Result<Vec<usize>, ENNError> {
+    let prediction = surrogate.predict(candidates)?;
+    let scores = if optimizer.trust_region().is_morbo() {
+        let values = &prediction.mu + &(prediction.se * beta);
+        optimizer
+            .trust_region()
+            .morbo_scalarize(&values.view(), false)
+            .map_err(|error| ENNError::InvalidParameter(error.to_string()))?
+    } else {
+        &prediction.mu.column(0) + &(&prediction.se.column(0) * beta)
+    };
+    let mut selected = Vec::new();
+    for segment in segments {
+        let mut local = (segment.start..segment.end).collect::<Vec<_>>();
+        local.shuffle(rng);
+        local.sort_by(|&left, &right| scores[right].total_cmp(&scores[left]));
+        selected.extend(local.into_iter().take(segment.arms));
+    }
+    Ok(selected)
+}
+
+fn select_segmented_pareto(
+    surrogate: &(dyn crate::surrogate::Surrogate + Send + Sync),
+    candidates: &ArrayView2<f64>,
+    segments: &[CandidateSegment],
+    rng: &mut dyn RngCore,
+) -> Result<Vec<usize>, ENNError> {
+    use ndarray::s;
+
+    let prediction = surrogate.predict(candidates)?;
+    let pareto = ParetoAcquisition::new();
+    let mut selected = Vec::new();
+    for segment in segments {
+        let local = pareto
+            .select(
+                &prediction.mu.slice(s![segment.start..segment.end, ..]),
+                &prediction.se.slice(s![segment.start..segment.end, ..]),
+                segment.arms,
+                rng,
+            )
+            .map_err(|error| ENNError::InvalidParameter(error.to_string()))?;
+        selected.extend(local.into_iter().map(|index| segment.start + index));
+    }
+    Ok(selected)
 }
 
 /// Select arms using acquisition function.

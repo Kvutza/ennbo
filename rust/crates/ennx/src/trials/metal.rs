@@ -1,10 +1,10 @@
 use std::ffi::c_void;
+use std::sync::Arc;
 
-use metal::{
-    Buffer, CommandQueue, CompileOptions, ComputePipelineState, Device, MTLResourceOptions, MTLSize,
-};
+use metal::{Buffer, ComputePipelineState, MTLSize};
 
 use super::{make_steps, make_tiles, Ask, Center, Leaf, Step, Tile};
+use crate::apple_gpu::Runtime;
 
 const THREADS: u64 = 256;
 const HISTORY_BATCH: usize = 8;
@@ -68,8 +68,7 @@ struct Scratch {
 }
 
 pub(super) struct Engine {
-    device: Device,
-    queue: CommandQueue,
+    runtime: Arc<Runtime>,
     rows: Buffer,
     row_bytes: usize,
     tile_count: usize,
@@ -83,58 +82,68 @@ pub(super) struct Engine {
 
 impl Engine {
     pub(super) fn new(base: &[u8], leaves: &[Leaf], slots: usize) -> Result<Self, String> {
-        let device = Device::system_default().ok_or("no default Metal device found")?;
-        let options = CompileOptions::new();
-        let library = device
-            .new_library_with_source(SOURCE, &options)
-            .map_err(|error| format!("failed to compile Metal trial kernels: {error}"))?;
-        let distance = pipeline(&device, &library, "distance_trials")?;
-        let score = pipeline(&device, &library, "score_trials")?;
-        let pick = pipeline(&device, &library, "pick_trial")?;
-        let multi_tr_pick = pipeline(&device, &library, "multi_tr_pick_trials")?;
-        let write = pipeline(&device, &library, "write_trial")?;
+        Self::with_agx(base, leaves, slots, false)
+    }
+
+    pub(super) fn new_agx(base: &[u8], leaves: &[Leaf], slots: usize) -> Result<Self, String> {
+        Self::with_agx(base, leaves, slots, true)
+    }
+
+    fn with_agx(base: &[u8], leaves: &[Leaf], slots: usize, agx: bool) -> Result<Self, String> {
+        let runtime = Runtime::shared()?;
+        let pipeline = |name| {
+            if agx {
+                runtime.agx_pipeline(SOURCE, "trial", name)
+            } else {
+                runtime.pipeline(SOURCE, "trial", name)
+            }
+        };
+        let distance = pipeline("distance_trials")?;
+        let score = pipeline("score_trials")?;
+        let pick = pipeline("pick_trial")?;
+        let multi_tr_pick = pipeline("multi_tr_pick_trials")?;
+        let write = pipeline("write_trial")?;
         let row_bytes = base.len();
         let tiles = make_tiles(leaves);
-        let rows = shared(&device, slots.saturating_mul(row_bytes), "model rows")?;
+        let rows = shared(&runtime, slots.saturating_mul(row_bytes), "model rows")?;
         copy_to(&rows, base);
         let scratch = Scratch {
             history_slots: shared(
-                &device,
+                &runtime,
                 super::MAX_HISTORY * size_of::<u32>(),
                 "history slots",
             )?,
-            outcomes: shared(&device, super::MAX_HISTORY * size_of::<f32>(), "outcomes")?,
-            seeds: shared(&device, size_of::<Seed>(), "seeds")?,
-            draws: shared(&device, size_of::<f32>(), "draws")?,
-            scores: shared(&device, size_of::<f32>(), "scores")?,
+            outcomes: shared(&runtime, super::MAX_HISTORY * size_of::<f32>(), "outcomes")?,
+            seeds: shared(&runtime, size_of::<Seed>(), "seeds")?,
+            draws: shared(&runtime, size_of::<f32>(), "draws")?,
+            scores: shared(&runtime, size_of::<f32>(), "scores")?,
             partials: shared(
-                &device,
+                &runtime,
                 super::MAX_HISTORY
                     .saturating_mul(tiles.len())
                     .saturating_mul(size_of::<f32>()),
                 "partial distances",
             )?,
-            choice: shared(&device, size_of::<u32>(), "choice")?,
-            selected_scores: shared(&device, size_of::<f32>(), "selected scores")?,
+            choice: shared(&runtime, size_of::<u32>(), "choice")?,
+            selected_scores: shared(&runtime, size_of::<f32>(), "selected scores")?,
             leaves: shared(
-                &device,
+                &runtime,
                 leaves.len().saturating_mul(size_of::<Step>()),
                 "leaves",
             )?,
             tiles: shared(
-                &device,
+                &runtime,
                 tiles.len().saturating_mul(size_of::<Tile>()),
                 "tiles",
             )?,
-            centers: shared(&device, size_of::<CenterStep>(), "centers")?,
-            candidate_centers: shared(&device, size_of::<u32>(), "candidate centers")?,
+            centers: shared(&runtime, size_of::<CenterStep>(), "centers")?,
+            candidate_centers: shared(&runtime, size_of::<u32>(), "candidate centers")?,
             candidate_capacity: 1,
             center_capacity: 1,
         };
         copy_to(&scratch.tiles, &tiles);
         Ok(Self {
-            queue: device.new_command_queue(),
-            device,
+            runtime,
             rows,
             row_bytes,
             tile_count: tiles.len(),
@@ -196,7 +205,7 @@ impl Engine {
             beta: config.beta,
         };
 
-        let command = self.queue.new_command_buffer();
+        let command = self.runtime.queue.new_command_buffer();
         let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.distance);
         encoder.set_buffer(0, Some(&self.rows), 0);
@@ -359,7 +368,7 @@ impl Engine {
             beta: config.beta,
         };
 
-        let command = self.queue.new_command_buffer();
+        let command = self.runtime.queue.new_command_buffer();
         let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.distance);
         encoder.set_buffer(0, Some(&self.rows), 0);
@@ -441,32 +450,32 @@ impl Engine {
         }
         let capacity = count.next_power_of_two();
         self.scratch.seeds = shared(
-            &self.device,
+            &self.runtime,
             capacity.saturating_mul(size_of::<Seed>()),
             "seeds",
         )?;
         self.scratch.draws = shared(
-            &self.device,
+            &self.runtime,
             capacity.saturating_mul(size_of::<f32>()),
             "draws",
         )?;
         self.scratch.scores = shared(
-            &self.device,
+            &self.runtime,
             capacity.saturating_mul(size_of::<f32>()),
             "scores",
         )?;
         self.scratch.choice = shared(
-            &self.device,
+            &self.runtime,
             capacity.saturating_mul(size_of::<u32>()),
             "choices",
         )?;
         self.scratch.selected_scores = shared(
-            &self.device,
+            &self.runtime,
             capacity.saturating_mul(size_of::<f32>()),
             "selected scores",
         )?;
         self.scratch.candidate_centers = shared(
-            &self.device,
+            &self.runtime,
             capacity.saturating_mul(size_of::<u32>()),
             "candidate centers",
         )?;
@@ -475,7 +484,7 @@ impl Engine {
             .and_then(|value| value.checked_mul(self.tile_count))
             .ok_or("partial distance buffer size overflow")?;
         self.scratch.partials = shared(
-            &self.device,
+            &self.runtime,
             partial_count.saturating_mul(size_of::<f32>()),
             "partial distances",
         )?;
@@ -494,7 +503,7 @@ impl Engine {
         if centers.len() > self.scratch.center_capacity {
             let capacity = centers.len().next_power_of_two();
             self.scratch.centers = shared(
-                &self.device,
+                &self.runtime,
                 capacity.saturating_mul(size_of::<CenterStep>()),
                 "centers",
             )?;
@@ -530,27 +539,11 @@ impl Engine {
     }
 }
 
-fn pipeline(
-    device: &Device,
-    library: &metal::LibraryRef,
-    name: &str,
-) -> Result<ComputePipelineState, String> {
-    let function = library
-        .get_function(name, None)
-        .map_err(|error| format!("missing Metal trial kernel {name}: {error}"))?;
-    device
-        .new_compute_pipeline_state_with_function(&function)
-        .map_err(|error| format!("failed to create Metal trial pipeline {name}: {error}"))
-}
-
-fn shared(device: &Device, bytes: usize, name: &str) -> Result<Buffer, String> {
+fn shared(runtime: &Runtime, bytes: usize, name: &str) -> Result<Buffer, String> {
     if bytes == 0 {
         return Err(format!("{name} buffer cannot be empty"));
     }
-    Ok(device.new_buffer(
-        bytes as u64,
-        MTLResourceOptions::StorageModeShared | MTLResourceOptions::HazardTrackingModeTracked,
-    ))
+    Ok(runtime.buffer::<u8>(bytes))
 }
 
 fn copy_to<T>(buffer: &Buffer, values: &[T]) {

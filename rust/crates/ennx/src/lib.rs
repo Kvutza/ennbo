@@ -6,6 +6,8 @@
 #![allow(clippy::pedantic, clippy::nursery, clippy::cargo)]
 
 pub mod acquisition;
+#[cfg(all(target_os = "macos", feature = "metal"))]
+pub mod apple_gpu;
 pub mod backend;
 pub mod candidates;
 pub mod config;

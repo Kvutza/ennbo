@@ -54,6 +54,8 @@ impl PyEpistemicNearestNeighbors {
     ) -> PyResult<Self> {
         let driver = match index_driver {
             "Exact" | "exact" | "FLAT" | "flat" => ennx::IndexDriver::Exact,
+            "AUTO" | "Auto" | "auto" => ennx::IndexDriver::Auto,
+            "AGX" | "Agx" | "agx" => ennx::IndexDriver::Agx,
             "USEARCH" | "USearch" | "usearch" | "hnsw_usearch" => ennx::IndexDriver::USearch,
             "BPANN_DISK" | "bpann_disk" => ennx::IndexDriver::BpAnnDisk,
             "METAL" | "metal" => ennx::IndexDriver::Metal,

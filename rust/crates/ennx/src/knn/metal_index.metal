@@ -80,6 +80,69 @@ kernel void distance_rows(
     distances[gid] = sum;
 }
 
+kernel void distance_rows_2(
+    device const float* rows [[buffer(0)]],
+    device const float* queries [[buffer(1)]],
+    device float* distances [[buffer(2)]],
+    constant Params& params [[buffer(3)]],
+    uint gid [[thread_position_in_grid]]) {
+    uint total = params.queries * kTileRows;
+    if (gid >= total) return;
+    uint query_index = gid / kTileRows;
+    uint tile_index = gid - query_index * kTileRows;
+    if (tile_index >= params.tile_rows) {
+        distances[gid] = INFINITY;
+        return;
+    }
+    uint row_index = params.tile_start + tile_index;
+    device const float* row = rows + ulong(row_index) * ulong(params.dim);
+    device const float* query = queries + ulong(query_index) * ulong(params.dim);
+    float2 sum = 0.0f;
+    uint d = 0;
+    for (; d + 1 < params.dim; d += 2) {
+        float2 delta = float2(row[d], row[d + 1]) - float2(query[d], query[d + 1]);
+        sum = fma(delta, delta, sum);
+    }
+    float result = sum.x + sum.y;
+    if (d < params.dim) {
+        float delta = row[d] - query[d];
+        result = fma(delta, delta, result);
+    }
+    distances[gid] = result;
+}
+
+kernel void distance_rows_4(
+    device const float* rows [[buffer(0)]],
+    device const float* queries [[buffer(1)]],
+    device float* distances [[buffer(2)]],
+    constant Params& params [[buffer(3)]],
+    uint gid [[thread_position_in_grid]]) {
+    uint total = params.queries * kTileRows;
+    if (gid >= total) return;
+    uint query_index = gid / kTileRows;
+    uint tile_index = gid - query_index * kTileRows;
+    if (tile_index >= params.tile_rows) {
+        distances[gid] = INFINITY;
+        return;
+    }
+    uint row_index = params.tile_start + tile_index;
+    device const float* row = rows + ulong(row_index) * ulong(params.dim);
+    device const float* query = queries + ulong(query_index) * ulong(params.dim);
+    float4 sum = 0.0f;
+    uint d = 0;
+    for (; d + 3 < params.dim; d += 4) {
+        float4 delta = float4(row[d], row[d + 1], row[d + 2], row[d + 3])
+                     - float4(query[d], query[d + 1], query[d + 2], query[d + 3]);
+        sum = fma(delta, delta, sum);
+    }
+    float result = (sum.x + sum.y) + (sum.z + sum.w);
+    for (; d < params.dim; ++d) {
+        float delta = row[d] - query[d];
+        result = fma(delta, delta, result);
+    }
+    distances[gid] = result;
+}
+
 kernel void local_topk(
     device const float* distances [[buffer(0)]],
     device float* output_distances [[buffer(1)]],

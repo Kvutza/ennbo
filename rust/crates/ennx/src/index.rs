@@ -17,6 +17,10 @@ pub enum IndexError {
 pub enum IndexDriver {
     #[default]
     Exact,
+    /// Exact CPU/accelerator race calibrated from real query shapes.
+    Auto,
+    /// Device-native Apple GPU binary-archive execution.
+    Agx,
     /// USearch HNSW shortlist with deterministic exact-distance reranking.
     #[serde(rename = "usearch")]
     USearch,

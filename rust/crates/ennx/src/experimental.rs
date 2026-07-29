@@ -3,6 +3,8 @@
 //! This module is the staging area for unstable lower-level surface area.
 //! Keep stable user-facing entry points in the crate root.
 
+#[cfg(all(target_os = "macos", feature = "metal"))]
+pub use crate::apple_gpu::{device_info as apple_gpu_info, DeviceInfo as AppleGpuInfo};
 pub use crate::optimizer::{
     MultiTrustRegionConfig, MultiTrustRegionState, ObservationDelta, Optimizer, RegionBatch,
     RegionCandidate, SharingPolicy, Telemetry,

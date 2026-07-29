@@ -12,7 +12,11 @@ mod metal_index;
 mod opencl_index;
 
 use ndarray::{Array2, ArrayView2};
+#[cfg(all(target_os = "macos", feature = "metal"))]
+use std::collections::HashMap;
 use std::sync::Mutex;
+#[cfg(all(target_os = "macos", feature = "metal"))]
+use std::time::Instant;
 
 use crate::index::{IndexDriver, IndexError};
 
@@ -29,12 +33,70 @@ use opencl_index::OpenClIndex;
 /// In-memory exact and accelerator-backed index implementations.
 pub(crate) enum KnnBackend {
     Faiss(Mutex<FaissBackend>),
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    Auto(Mutex<AutoIndex>),
     #[cfg(any(feature = "usearch", feature = "usearch-native"))]
     USearch(Mutex<USearchBackend>),
     #[cfg(all(target_os = "macos", feature = "metal"))]
     Metal(Mutex<MetalIndex>),
     #[cfg(feature = "opencl")]
     OpenCl(Mutex<OpenClIndex>),
+}
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+pub(crate) struct AutoIndex {
+    cpu: FaissBackend,
+    gpu: MetalIndex,
+    decisions: HashMap<u32, bool>,
+    num_dim: usize,
+}
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+impl AutoIndex {
+    fn new(num_dim: usize, train: &ArrayView2<f64>) -> Result<Self, IndexError> {
+        Ok(Self {
+            cpu: FaissBackend::new(num_dim, IndexDriver::Exact, train)?,
+            gpu: MetalIndex::new_agx(num_dim, train)
+                .or_else(|_| MetalIndex::new(num_dim, train))?,
+            decisions: HashMap::new(),
+            num_dim,
+        })
+    }
+
+    fn bucket(&self, queries: usize) -> u32 {
+        self.cpu
+            .len()
+            .saturating_mul(queries)
+            .saturating_mul(self.num_dim)
+            .max(1)
+            .ilog2()
+    }
+
+    fn search(
+        &mut self,
+        queries: &ArrayView2<f64>,
+        k_eff: usize,
+        search_k: usize,
+    ) -> Result<(Array2<f64>, Array2<i64>), IndexError> {
+        let bucket = self.bucket(queries.nrows());
+        if let Some(&gpu) = self.decisions.get(&bucket) {
+            return if gpu {
+                self.gpu.search(queries, k_eff, search_k)
+            } else {
+                self.cpu.search(queries, k_eff, search_k)
+            };
+        }
+
+        let cpu_start = Instant::now();
+        let cpu = self.cpu.search(queries, k_eff, search_k)?;
+        let cpu_time = cpu_start.elapsed();
+        let gpu_start = Instant::now();
+        let gpu = self.gpu.search(queries, k_eff, search_k)?;
+        let gpu_time = gpu_start.elapsed();
+        let use_gpu = cpu.1 == gpu.1 && gpu_time < cpu_time;
+        self.decisions.insert(bucket, use_gpu);
+        Ok(if use_gpu { gpu } else { cpu })
+    }
 }
 
 impl KnnBackend {
@@ -49,6 +111,39 @@ impl KnnBackend {
                 driver,
                 train_scaled,
             )?))),
+            IndexDriver::Auto => {
+                #[cfg(all(target_os = "macos", feature = "metal"))]
+                {
+                    Ok(Self::Auto(Mutex::new(AutoIndex::new(
+                        num_dim,
+                        train_scaled,
+                    )?)))
+                }
+                #[cfg(not(all(target_os = "macos", feature = "metal")))]
+                {
+                    Ok(Self::Faiss(Mutex::new(FaissBackend::new(
+                        num_dim,
+                        IndexDriver::Exact,
+                        train_scaled,
+                    )?)))
+                }
+            }
+            IndexDriver::Agx => {
+                #[cfg(all(target_os = "macos", feature = "metal"))]
+                {
+                    Ok(Self::Metal(Mutex::new(MetalIndex::new_agx(
+                        num_dim,
+                        train_scaled,
+                    )?)))
+                }
+                #[cfg(not(all(target_os = "macos", feature = "metal")))]
+                {
+                    Err(IndexError::InvalidParameter(
+                        "AGX index is unavailable; build on macOS with the metal feature"
+                            .to_string(),
+                    ))
+                }
+            }
             IndexDriver::USearch => {
                 #[cfg(any(feature = "usearch", feature = "usearch-native"))]
                 {
@@ -104,6 +199,8 @@ impl KnnBackend {
     pub(crate) fn len(&self) -> usize {
         match self {
             Self::Faiss(inner) => inner.lock().expect("knn mutex poisoned").len(),
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            Self::Auto(inner) => inner.lock().expect("knn mutex poisoned").cpu.len(),
             #[cfg(any(feature = "usearch", feature = "usearch-native"))]
             Self::USearch(inner) => inner.lock().expect("knn mutex poisoned").len(),
             #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -119,6 +216,11 @@ impl KnnBackend {
                 .lock()
                 .expect("knn mutex poisoned")
                 .memory_usage_bytes(),
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            Self::Auto(inner) => {
+                let inner = inner.lock().expect("knn mutex poisoned");
+                inner.cpu.memory_usage_bytes() + inner.gpu.memory_usage_bytes()
+            }
             #[cfg(any(feature = "usearch", feature = "usearch-native"))]
             Self::USearch(inner) => inner
                 .lock()
@@ -143,6 +245,14 @@ impl KnnBackend {
                 .lock()
                 .expect("knn mutex poisoned")
                 .rebuild(train_scaled),
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            Self::Auto(inner) => {
+                let mut inner = inner.lock().expect("knn mutex poisoned");
+                inner.cpu.rebuild(train_scaled)?;
+                inner.gpu.rebuild(train_scaled)?;
+                inner.decisions.clear();
+                Ok(())
+            }
             #[cfg(any(feature = "usearch", feature = "usearch-native"))]
             Self::USearch(inner) => inner
                 .lock()
@@ -171,6 +281,13 @@ impl KnnBackend {
                 .lock()
                 .expect("knn mutex poisoned")
                 .add(rows_scaled, start_key),
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            Self::Auto(inner) => {
+                let mut inner = inner.lock().expect("knn mutex poisoned");
+                inner.cpu.add(rows_scaled, start_key)?;
+                inner.gpu.add(rows_scaled, start_key)?;
+                Ok(())
+            }
             #[cfg(any(feature = "usearch", feature = "usearch-native"))]
             Self::USearch(inner) => inner
                 .lock()
@@ -197,6 +314,13 @@ impl KnnBackend {
     ) -> Result<(Array2<f64>, Array2<i64>), IndexError> {
         match self {
             Self::Faiss(inner) => {
+                inner
+                    .lock()
+                    .expect("knn mutex poisoned")
+                    .search(queries_scaled, k_eff, search_k)
+            }
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            Self::Auto(inner) => {
                 inner
                     .lock()
                     .expect("knn mutex poisoned")
@@ -295,6 +419,61 @@ mod knn_backend_tests {
         let (_d, i) = backend.search(&array![[0.0, 0.0]].view(), 2, 2).unwrap();
         assert_eq!(i[[0, 0]], 0);
         backend.rebuild(&train.view()).unwrap();
+    }
+
+    #[test]
+    fn knn_backend_auto_preserves_exact_contract() {
+        let train = array![[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]];
+        #[cfg(all(target_os = "macos", feature = "metal"))]
+        {
+            let mut auto = AutoIndex::new(2, &train.view()).unwrap();
+            let (_distances, indices) = auto.search(&array![[0.1, 0.1]].view(), 2, 2).unwrap();
+            assert_eq!(indices.row(0).to_vec(), vec![0, 1]);
+        }
+        let backend = KnnBackend::new(2, IndexDriver::Auto, &train.view()).unwrap();
+        assert!(backend.memory_usage_bytes() > 0);
+        assert_eq!(arr2_rows_to_f32(&train.view()).len(), 6);
+        let (_distances, indices) = backend.search(&array![[0.1, 0.1]].view(), 2, 2).unwrap();
+        assert_eq!(indices.row(0).to_vec(), vec![0, 1]);
+        backend.add(&array![[0.05, 0.05]].view(), 3).unwrap();
+        let (_distances, indices) = backend.search(&array![[0.1, 0.1]].view(), 2, 2).unwrap();
+        assert_eq!(indices[[0, 0]], 3);
+    }
+
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    #[test]
+    fn knn_backend_agx_matches_exact() {
+        let train = array![[0.0, 0.0], [1.0, 1.0], [2.0, 2.0], [0.5, 0.5]];
+        let query = array![[0.1, 0.1], [1.8, 1.8]];
+        let exact = KnnBackend::new(2, IndexDriver::Exact, &train.view()).unwrap();
+        let agx = KnnBackend::new(2, IndexDriver::Agx, &train.view()).unwrap();
+        let expected = exact.search(&query.view(), 3, 3).unwrap();
+        let actual = agx.search(&query.view(), 3, 3).unwrap();
+        assert_eq!(actual.1, expected.1);
+        for (left, right) in actual.0.iter().zip(expected.0.iter()) {
+            assert!((left - right).abs() <= 1e-5);
+        }
+    }
+
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    #[test]
+    fn knn_backend_agx_handles_schedule_tails() {
+        for dimensions in [3, 5, 32, 33] {
+            let train = Array2::from_shape_fn((67, dimensions), |(row, col)| {
+                ((row * 17 + col * 11) % 101) as f64 / 101.0
+            });
+            let query = Array2::from_shape_fn((7, dimensions), |(row, col)| {
+                ((row * 13 + col * 19 + 3) % 103) as f64 / 103.0
+            });
+            let exact = KnnBackend::new(dimensions, IndexDriver::Exact, &train.view()).unwrap();
+            let agx = KnnBackend::new(dimensions, IndexDriver::Agx, &train.view()).unwrap();
+            let expected = exact.search(&query.view(), 8, 8).unwrap();
+            let actual = agx.search(&query.view(), 8, 8).unwrap();
+            assert_eq!(actual.1, expected.1);
+            for (left, right) in actual.0.iter().zip(expected.0.iter()) {
+                assert!((left - right).abs() <= 1e-4);
+            }
+        }
     }
 
     #[test]

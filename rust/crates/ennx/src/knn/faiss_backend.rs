@@ -67,7 +67,9 @@ fn invalid_faiss(error: impl std::fmt::Display) -> IndexError {
 fn faiss_spec(driver: IndexDriver) -> &'static str {
     match driver {
         IndexDriver::Exact => "Flat",
-        IndexDriver::USearch
+        IndexDriver::Auto
+        | IndexDriver::Agx
+        | IndexDriver::USearch
         | IndexDriver::BpAnnDisk
         | IndexDriver::Metal
         | IndexDriver::OpenCl => {
