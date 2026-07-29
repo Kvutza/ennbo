@@ -33,6 +33,14 @@ jobs:
           environments: ennx
           locked: true
 
+      - name: Install DotSlash
+        if: runner.os == 'Windows'
+        uses: facebook/install-dotslash@latest
+
+      - name: Install OpenCL development package
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ocl-icd-opencl-dev
+
       - name: Install environment
         run: pixi install -e ennx --locked
 
