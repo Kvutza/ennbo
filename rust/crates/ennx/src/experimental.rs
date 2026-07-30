@@ -5,6 +5,10 @@
 
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub use crate::apple_gpu::{device_info as apple_gpu_info, DeviceInfo as AppleGpuInfo};
+pub use crate::dense::{
+    apply as apply_dense, dist2 as dense_dist2, linear as dense_linear, DenseLeaf, DenseLinear,
+    DenseResult, DenseTerm, DenseView, METAL_OPS, OPENCL_OPS,
+};
 pub use crate::optimizer::{
     MultiTrustRegionConfig, MultiTrustRegionState, ObservationDelta, Optimizer, RegionBatch,
     RegionCandidate, SharingPolicy, Telemetry,

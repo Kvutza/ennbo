@@ -71,6 +71,7 @@ assert sys.version_info[:2] == (3, 13)
 assert "numpy" not in sys.modules
 from ennx import _rust
 from ennx import EpistemicNearestNeighbors
+from ennx.experimental import DenseLinear, dense_apply, dense_dist2, dense_linear
 from ennx.ennx.enn_class_support import enn_index_neighbor_distances_and_indices
 from ennx.turbo.config import ENNIndexDriver
 import numpy as np
@@ -93,6 +94,55 @@ actual = enn_index_neighbor_distances_and_indices(
 )
 assert np.array_equal(actual[1], expected[1])
 assert np.max(np.abs(actual[0] - expected[0])) == 0.0
+
+base = np.array([0.5, -1.0, 2.0, 0.25, 4.0, -2.0, 0.75, -0.125], dtype=np.float32)
+leaves = [(11, 0, 4, 0.5), (29, 4, 4, 1.25)]
+terms = [(0x123456789ABCDEF0, 0.01), (91, -0.0025)]
+trial, changed = dense_apply(base, leaves, terms, backend="cpu")
+assert changed == base.size
+assert np.all(trial != base)
+assert dense_dist2(leaves, terms, []) > 0.0
+linear = dense_linear(
+    np.array([0.25, -0.5, 1.5, 2.0], dtype=np.float32),
+    np.array(
+        [
+            [0.5, -1.0, 0.75, 0.25],
+            [-0.5, 2.0, 1.25, -0.75],
+        ],
+        dtype=np.float32,
+    ),
+    (11, 0, 0.02),
+    terms,
+    bias=np.array([0.125, -0.25], dtype=np.float32),
+    bias_view=(29, 0, 0.01),
+    backend="cpu",
+)
+assert linear.shape == (2,)
+assert np.all(np.isfinite(linear))
+resident = DenseLinear(
+    np.array(
+        [
+            [0.5, -1.0, 0.75, 0.25],
+            [-0.5, 2.0, 1.25, -0.75],
+        ],
+        dtype=np.float32,
+    ),
+    (11, 0, 0.02),
+    bias=np.array([0.125, -0.25], dtype=np.float32),
+    bias_view=(29, 0, 0.01),
+    backend="cpu",
+)
+assert resident.input_size == 4
+assert resident.output_size == 2
+assert np.max(
+    np.abs(
+        resident.eval(
+            np.array([0.25, -0.5, 1.5, 2.0], dtype=np.float32),
+            terms,
+        )
+        - linear
+    )
+) == 0.0
 print(f"native smoke: center={center}, scale={scale}")
 PY
 

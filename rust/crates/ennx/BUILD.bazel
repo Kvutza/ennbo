@@ -12,6 +12,11 @@ ENNX_SRCS = glob(
     exclude = ["src/ennx_build.rs"],
 )
 
+ENNX_SHADER_SRCS = glob([
+    "src/**/*.cl",
+    "src/**/*.metal",
+])
+
 ENNX_CRATES = [
     "memmap2",
     "ndarray",
@@ -66,6 +71,7 @@ rust_library(
     name = "ennx_cpu",
     srcs = ENNX_SRCS,
     aliases = aliases(),
+    compile_data = ENNX_SHADER_SRCS,
     crate_features = ["usearch-native"],
     crate_name = "ennx",
     crate_root = "src/lib.rs",
@@ -81,7 +87,7 @@ rust_library(
     name = "ennx_metal",
     srcs = ENNX_SRCS,
     aliases = aliases(),
-    compile_data = glob(["src/**/*.metal"]),
+    compile_data = ENNX_SHADER_SRCS,
     crate_features = [
         "metal",
         "usearch-native",
@@ -103,7 +109,7 @@ rust_library(
     name = "ennx_opencl",
     srcs = ENNX_SRCS,
     aliases = aliases(),
-    compile_data = glob(["src/**/*.cl"]),
+    compile_data = ENNX_SHADER_SRCS,
     crate_features = [
         "opencl",
         "usearch-native",

@@ -33,12 +33,17 @@ create_optimizer_enn = _ext.optimizer.create_optimizer_enn
 create_optimizer_enn_multi_tr = _ext.optimizer.create_optimizer_enn_multi_tr
 create_optimizer_zero = _ext.optimizer.create_optimizer_zero
 create_optimizer_lhd = _ext.optimizer.create_optimizer_lhd
+dense_apply = _ext.optimizer.dense_apply
+dense_dist2 = _ext.optimizer.dense_dist2
+dense_linear = _ext.optimizer.dense_linear
+DenseLinear = _ext.optimizer.DenseLinear
 
 
 __all__ = [
     "ENNParams",
     "ENNStatefulFitter",
     "EpistemicNearestNeighbors",
+    "DenseLinear",
     "Optimizer",
     "arms_from_pareto_fronts",
     "calculate_sobol_indices",
@@ -46,6 +51,9 @@ __all__ = [
     "create_optimizer_enn_multi_tr",
     "create_optimizer_lhd",
     "create_optimizer_zero",
+    "dense_apply",
+    "dense_dist2",
+    "dense_linear",
     "ensure_config_file",
     "hypervolume_2d_max",
     "normal_hash_batch_multi_seed_fast",

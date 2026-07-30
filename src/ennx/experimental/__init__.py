@@ -26,6 +26,10 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "create_optimizer_lhd": (".._rust", "create_optimizer_lhd"),
     "weight_int4_select_ucb": ("..ennx_rust.optimizer", "weight_int4_select_ucb"),
     "weight_select_ucb": ("..ennx_rust.optimizer", "weight_select_ucb"),
+    "dense_apply": (".._rust", "dense_apply"),
+    "dense_dist2": (".._rust", "dense_dist2"),
+    "dense_linear": (".._rust", "dense_linear"),
+    "DenseLinear": (".._rust", "DenseLinear"),
 }
 
 experimental = sys.modules[__name__]
@@ -44,6 +48,7 @@ def __getattr__(name: str):
 __all__: list[str] = [
     "BpannHistory",
     "CandidateProposal",
+    "DenseLinear",
     "MultiTrustRegion",
     "MultiTrustRegionLoop",
     "Optimizer",
@@ -58,6 +63,9 @@ __all__: list[str] = [
     "create_optimizer_enn_multi_tr",
     "create_optimizer_lhd",
     "create_optimizer_zero",
+    "dense_apply",
+    "dense_dist2",
+    "dense_linear",
     "experimental",
     "make_multi_trust_region",
     "multi_trust_region",

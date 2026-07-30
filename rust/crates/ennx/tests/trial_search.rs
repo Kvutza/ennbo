@@ -1,3 +1,4 @@
+use ennx::experimental::{apply_dense, dense_linear, DenseLeaf, DenseLinear, DenseTerm, DenseView};
 use ennx::{
     AcquisitionKind, BpannHistory, ComputeBackend, WeightAsk, WeightCenter, WeightLeaf,
     WeightSearch,
@@ -17,6 +18,41 @@ fn base() -> Vec<u8> {
     (0..row_bytes)
         .map(|index| (index.wrapping_mul(37).wrapping_add(11) & 0xff) as u8)
         .collect()
+}
+
+fn dense_input() -> (Vec<f32>, Vec<DenseLeaf>, Vec<DenseTerm>) {
+    (
+        vec![0.5, -1.0, 2.0, 0.25, 4.0, -2.0, 0.75, -0.125],
+        vec![
+            DenseLeaf::new(11, 0, 4, 0.5).unwrap(),
+            DenseLeaf::new(29, 4, 4, 1.25).unwrap(),
+        ],
+        vec![
+            DenseTerm::new(0x1234_5678_9abc_def0, 0.01).unwrap(),
+            DenseTerm::new(91, -0.0025).unwrap(),
+        ],
+    )
+}
+
+fn linear_input() -> (
+    Vec<f32>,
+    Vec<f32>,
+    Vec<f32>,
+    DenseView,
+    DenseView,
+    Vec<DenseTerm>,
+) {
+    (
+        vec![0.25, -0.5, 1.5, 2.0],
+        vec![0.5, -1.0, 0.75, 0.25, -0.5, 2.0, 1.25, -0.75],
+        vec![0.125, -0.25],
+        DenseView::new(11, 0, 0.02).unwrap(),
+        DenseView::new(29, 0, 0.01).unwrap(),
+        vec![
+            DenseTerm::new(0x1234_5678_9abc_def0, 0.5).unwrap(),
+            DenseTerm::new(91, -0.125).unwrap(),
+        ],
+    )
 }
 
 fn ask(
@@ -145,6 +181,57 @@ fn agx_resident_state_matches_cpu_across_rolling_history() {
         let accept = round % 2 == 0;
         cpu.tell(cpu_trial, value, accept).unwrap();
         agx.tell(agx_trial, value, accept).unwrap();
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+#[test]
+fn dense_directions_match_cpu() {
+    let (base, leaves, terms) = dense_input();
+    let cpu = apply_dense(&base, &leaves, &terms, ComputeBackend::Cpu).unwrap();
+    for backend in [ComputeBackend::Metal, ComputeBackend::Agx] {
+        let gpu = apply_dense(&base, &leaves, &terms, backend).unwrap();
+        assert_eq!(gpu.changed, base.len());
+        for (left, right) in gpu.values.iter().zip(&cpu.values) {
+            assert!((left - right).abs() <= f32::EPSILON);
+        }
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+#[test]
+fn dense_linear_matches_cpu() {
+    let (input, weight, bias, weight_view, bias_view, terms) = linear_input();
+    let run = |backend| {
+        dense_linear(
+            &input,
+            &weight,
+            Some(&bias),
+            weight_view,
+            Some(bias_view),
+            &terms,
+            backend,
+        )
+        .unwrap()
+    };
+    let cpu = run(ComputeBackend::Cpu);
+    for backend in [ComputeBackend::Metal, ComputeBackend::Agx] {
+        let gpu = run(backend);
+        for (left, right) in gpu.iter().zip(&cpu) {
+            assert!((left - right).abs() <= 1.0e-5);
+        }
+        let mut resident = DenseLinear::new(
+            weight.clone(),
+            input.len(),
+            Some(bias.clone()),
+            weight_view,
+            Some(bias_view),
+            backend,
+        )
+        .unwrap();
+        for (left, right) in resident.eval(&input, &terms).unwrap().iter().zip(&gpu) {
+            assert!((left - right).abs() <= 1.0e-5);
+        }
     }
 }
 
@@ -373,5 +460,64 @@ fn opencl_matches_cpu_when_a_device_exists() {
         assert_eq!(opencl.0, cpu.0);
         assert!((opencl.1 - cpu.1).abs() <= 1.0e-5);
         assert_eq!(opencl.2, cpu.2);
+    }
+}
+
+#[cfg(feature = "opencl")]
+#[test]
+fn opencl_dense_linear_matches_cpu_when_a_device_exists() {
+    let (input, weight, bias, weight_view, bias_view, terms) = linear_input();
+    let run = |backend| {
+        dense_linear(
+            &input,
+            &weight,
+            Some(&bias),
+            weight_view,
+            Some(bias_view),
+            &terms,
+            backend,
+        )
+    };
+    let cpu = run(ComputeBackend::Cpu).unwrap();
+    let opencl = match run(ComputeBackend::OpenCl) {
+        Ok(value) => value,
+        Err(error)
+            if error.contains("no OpenCL GPU or CPU device")
+                || error.contains("failed to enumerate OpenCL GPU devices") =>
+        {
+            return;
+        }
+        Err(error) => panic!("{error}"),
+    };
+    for (left, right) in opencl.iter().zip(cpu) {
+        assert!((left - right).abs() <= 1.0e-5);
+    }
+    let mut resident = DenseLinear::new(
+        weight,
+        input.len(),
+        Some(bias),
+        weight_view,
+        Some(bias_view),
+        ComputeBackend::OpenCl,
+    )
+    .unwrap();
+    for (left, right) in resident.eval(&input, &terms).unwrap().iter().zip(opencl) {
+        assert!((left - right).abs() <= 1.0e-5);
+    }
+}
+
+#[cfg(feature = "opencl")]
+#[test]
+fn opencl_dense_directions_match_cpu_when_a_device_exists() {
+    let (base, leaves, terms) = dense_input();
+    let cpu = apply_dense(&base, &leaves, &terms, ComputeBackend::Cpu).unwrap();
+    let opencl = match apply_dense(&base, &leaves, &terms, ComputeBackend::OpenCl) {
+        Ok(result) => result,
+        Err(error) if error.contains("no OpenCL GPU or CPU device") => return,
+        Err(error) => panic!("{error}"),
+    };
+    assert_eq!(opencl.changed, base.len());
+    for (left, right) in opencl.values.iter().zip(cpu.values) {
+        assert!((left - right).abs() <= f32::EPSILON);
     }
 }

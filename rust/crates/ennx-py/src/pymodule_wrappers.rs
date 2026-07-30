@@ -71,6 +71,7 @@ pub fn pymodule_optimizer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::py_optimizer::PyMultiTrustRegion>()?;
     m.add_class::<crate::py_optimizer::PyTelemetry>()?;
     m.add_class::<crate::py_weights::PyWeightSearch>()?;
+    m.add_class::<crate::py_weights::PyDenseLinear>()?;
     m.add_class::<crate::py_weights::PyBpannHistory>()?;
     m.add_function(wrap_pyfunction!(
         crate::py_optimizer::create_optimizer_enn_py,
@@ -96,6 +97,9 @@ pub fn pymodule_optimizer(m: &Bound<'_, PyModule>) -> PyResult<()> {
         crate::py_weights::weight_select_ucb_py,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(crate::py_weights::dense_apply_py, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::py_weights::dense_dist2_py, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::py_weights::dense_linear_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_weights::sparse_union_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_weights::sparse_xor_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_weights::sparse_missing_py, m)?)?;

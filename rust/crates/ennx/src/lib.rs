@@ -11,6 +11,7 @@ pub mod apple_gpu;
 pub mod backend;
 pub mod candidates;
 pub mod config;
+mod dense;
 pub mod disk_bpann;
 pub mod draw;
 pub mod error;

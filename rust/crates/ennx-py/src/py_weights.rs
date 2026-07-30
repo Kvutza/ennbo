@@ -1,3 +1,6 @@
+use ennx::experimental::{
+    apply_dense, dense_dist2, dense_linear, DenseLeaf, DenseLinear, DenseTerm, DenseView,
+};
 use ennx::{
     apply_sparse, blocks_for_words, draw_sparse, merge_values, missing_words, select_weights,
     sparse_union, sparse_xor, take_words, AcquisitionKind, BpannHistory, ComputeBackend, WeightAsk,
@@ -67,6 +70,139 @@ fn trial_leaves_with_encoding(
                 .map_err(err)
         })
         .collect()
+}
+
+fn dense_leaves(raw: Vec<(u64, usize, usize, f32)>) -> PyResult<Vec<DenseLeaf>> {
+    raw.into_iter()
+        .map(|(key, offset, len, scale)| DenseLeaf::new(key, offset, len, scale).map_err(err))
+        .collect()
+}
+
+fn dense_terms(raw: Vec<(u64, f32)>) -> PyResult<Vec<DenseTerm>> {
+    raw.into_iter()
+        .map(|(seed, coefficient)| DenseTerm::new(seed, coefficient).map_err(err))
+        .collect()
+}
+
+fn dense_view(raw: (u64, u64, f32)) -> PyResult<DenseView> {
+    DenseView::new(raw.0, raw.1, raw.2).map_err(err)
+}
+
+#[pyfunction(name = "dense_apply")]
+#[pyo3(signature=(base,leaves,terms,backend="auto"))]
+pub fn dense_apply_py<'py>(
+    py: Python<'py>,
+    base: PyReadonlyArray1<'_, f32>,
+    leaves: Vec<(u64, usize, usize, f32)>,
+    terms: Vec<(u64, f32)>,
+    backend: &str,
+) -> PyResult<(Bound<'py, PyArray1<f32>>, usize)> {
+    let result = apply_dense(
+        &array1_vec(base),
+        &dense_leaves(leaves)?,
+        &dense_terms(terms)?,
+        ComputeBackend::parse(backend).map_err(err)?,
+    )
+    .map_err(err)?;
+    Ok((result.values.into_pyarray_bound(py), result.changed))
+}
+
+#[pyfunction(name = "dense_dist2")]
+pub fn dense_dist2_py(
+    leaves: Vec<(u64, usize, usize, f32)>,
+    left: Vec<(u64, f32)>,
+    right: Vec<(u64, f32)>,
+) -> PyResult<f64> {
+    dense_dist2(
+        &dense_leaves(leaves)?,
+        &dense_terms(left)?,
+        &dense_terms(right)?,
+    )
+    .map_err(err)
+}
+
+#[pyfunction(name = "dense_linear")]
+#[pyo3(signature=(input,weight,weight_view,terms,bias=None,bias_view=None,backend="auto"))]
+#[allow(clippy::too_many_arguments)]
+pub fn dense_linear_py<'py>(
+    py: Python<'py>,
+    input: PyReadonlyArray1<'_, f32>,
+    weight: PyReadonlyArray2<'_, f32>,
+    weight_view: (u64, u64, f32),
+    terms: Vec<(u64, f32)>,
+    bias: Option<PyReadonlyArray1<'_, f32>>,
+    bias_view: Option<(u64, u64, f32)>,
+    backend: &str,
+) -> PyResult<Bound<'py, PyArray1<f32>>> {
+    let input = array1_vec(input);
+    let weight = array2_vec(&weight);
+    let bias = bias.map(array1_vec);
+    let bias_view = bias_view.map(dense_view).transpose()?;
+    dense_linear(
+        &input,
+        &weight,
+        bias.as_deref(),
+        dense_view(weight_view)?,
+        bias_view,
+        &dense_terms(terms)?,
+        ComputeBackend::parse(backend).map_err(err)?,
+    )
+    .map(|values| values.into_pyarray_bound(py))
+    .map_err(err)
+}
+
+#[pyclass(name = "DenseLinear", unsendable)]
+pub struct PyDenseLinear {
+    inner: DenseLinear,
+}
+
+#[pymethods]
+impl PyDenseLinear {
+    #[new]
+    #[pyo3(signature=(weight,weight_view,bias=None,bias_view=None,backend="auto"))]
+    fn new(
+        weight: PyReadonlyArray2<'_, f32>,
+        weight_view: (u64, u64, f32),
+        bias: Option<PyReadonlyArray1<'_, f32>>,
+        bias_view: Option<(u64, u64, f32)>,
+        backend: &str,
+    ) -> PyResult<Self> {
+        let columns = weight.as_array().ncols();
+        let bias = bias.map(array1_vec);
+        Ok(Self {
+            inner: DenseLinear::new(
+                array2_vec(&weight),
+                columns,
+                bias,
+                dense_view(weight_view)?,
+                bias_view.map(dense_view).transpose()?,
+                ComputeBackend::parse(backend).map_err(err)?,
+            )
+            .map_err(err)?,
+        })
+    }
+
+    fn eval<'py>(
+        &mut self,
+        py: Python<'py>,
+        input: PyReadonlyArray1<'_, f32>,
+        terms: Vec<(u64, f32)>,
+    ) -> PyResult<Bound<'py, PyArray1<f32>>> {
+        self.inner
+            .eval(&array1_vec(input), &dense_terms(terms)?)
+            .map(|values| values.into_pyarray_bound(py))
+            .map_err(err)
+    }
+
+    #[getter]
+    fn input_size(&self) -> usize {
+        self.inner.input_size()
+    }
+
+    #[getter]
+    fn output_size(&self) -> usize {
+        self.inner.output_size()
+    }
 }
 
 #[pyclass(name = "WeightSearch", unsendable)]
