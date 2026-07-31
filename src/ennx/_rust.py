@@ -29,6 +29,11 @@ ENNParams = _ext.model.ENNParams
 ENNStatefulFitter = _ext.fit.ENNStatefulFitter
 subsample_loglik = _ext.fit.subsample_loglik
 Optimizer = _ext.optimizer.Optimizer
+Telemetry = _ext.optimizer.Telemetry
+MultiTrustRegion = _ext.optimizer.MultiTrustRegion
+WeightSearch = _ext.optimizer.WeightSearch
+BpannHistory = _ext.optimizer.BpannHistory
+create_optimizer = _ext.optimizer.create_optimizer
 create_optimizer_enn = _ext.optimizer.create_optimizer_enn
 create_optimizer_enn_multi_tr = _ext.optimizer.create_optimizer_enn_multi_tr
 create_optimizer_zero = _ext.optimizer.create_optimizer_zero
@@ -37,16 +42,29 @@ dense_apply = _ext.optimizer.dense_apply
 dense_dist2 = _ext.optimizer.dense_dist2
 dense_linear = _ext.optimizer.dense_linear
 DenseLinear = _ext.optimizer.DenseLinear
+weight_int4_select_ucb = _ext.optimizer.weight_int4_select_ucb
+weight_select_ucb = _ext.optimizer.weight_select_ucb
+ModelPackage = _ext.experimental.ModelPackage
+NativeKdaModel = getattr(_ext.experimental, "NativeKdaModel", None)
+ResidentBoSession = _ext.experimental.ResidentBoSession
 
 
 __all__ = [
+    "BpannHistory",
+    "DenseLinear",
     "ENNParams",
     "ENNStatefulFitter",
     "EpistemicNearestNeighbors",
-    "DenseLinear",
+    "ModelPackage",
+    "MultiTrustRegion",
+    "NativeKdaModel",
     "Optimizer",
+    "ResidentBoSession",
+    "Telemetry",
+    "WeightSearch",
     "arms_from_pareto_fronts",
     "calculate_sobol_indices",
+    "create_optimizer",
     "create_optimizer_enn",
     "create_optimizer_enn_multi_tr",
     "create_optimizer_lhd",
@@ -62,4 +80,6 @@ __all__ = [
     "sobol_sequence",
     "standardize_y",
     "subsample_loglik",
+    "weight_int4_select_ucb",
+    "weight_select_ucb",
 ]

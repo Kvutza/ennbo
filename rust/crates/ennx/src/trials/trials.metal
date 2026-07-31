@@ -71,7 +71,7 @@ struct Seed {
 };
 
 struct Params {
-    uint row_bytes;
+    uint row_stride;
     uint history;
     uint candidates;
     uint leaves;
@@ -175,7 +175,7 @@ kernel void distance_trials(
         ? UINT_MAX
         : candidate_centers[first_candidate + 1u];
     device const uchar* base =
-        rows + ulong(params.base_slot) * ulong(params.row_bytes);
+        rows + ulong(params.base_slot) * ulong(params.row_stride);
     float first_distances[kHistoryBatch];
     float second_distances[kHistoryBatch];
     for (uint h = 0; h < history_count; ++h) {
@@ -256,7 +256,7 @@ kernel void distance_trials(
                 float second_high_val = decode_code(second_high, leaf.encoding, leaf.scale);
                 for (uint h = 0; h < history_count; ++h) {
                     device const uchar* observation =
-                        rows + ulong(history_slots[history_start + h]) * ulong(params.row_bytes);
+                        rows + ulong(history_slots[history_start + h]) * ulong(params.row_stride);
                     uchar observed = observation[leaf.byte_offset + first_byte + local_byte];
                     float obs_low_val = decode_code(uint(observed & 0x0fu), leaf.encoding, leaf.scale);
                     float first_low_delta = first_low_val - obs_low_val;
@@ -327,7 +327,7 @@ kernel void distance_trials(
                 float second_val = decode_code(second_value, leaf.encoding, leaf.scale);
                 for (uint h = 0; h < history_count; ++h) {
                     device const uchar* observation =
-                        rows + ulong(history_slots[history_start + h]) * ulong(params.row_bytes);
+                        rows + ulong(history_slots[history_start + h]) * ulong(params.row_stride);
                     float obs_val = decode_code(uint(observation[leaf.byte_offset + element]), leaf.encoding, leaf.scale);
                     float first_delta = first_val - obs_val;
                     first_distances[h] = fma(
@@ -642,9 +642,9 @@ kernel void write_trial(
     Leaf leaf = leaves[tile.leaf];
     Seed seed = seeds[choice[0]];
     device const uchar* base =
-        rows + ulong(params.base_slot) * ulong(params.row_bytes);
+        rows + ulong(params.base_slot) * ulong(params.row_stride);
     device uchar* trial =
-        rows + ulong(params.trial_slot) * ulong(params.row_bytes);
+        rows + ulong(params.trial_slot) * ulong(params.row_stride);
 
     if (leaf.bits == 4) {
         uint first_byte = tile.start / 2u;

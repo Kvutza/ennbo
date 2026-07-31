@@ -1,0 +1,10 @@
+load("//buck2:reindeer_rules.bzl", "app_rust_binary")
+
+app_rust_binary(
+    name = "ennx",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "dev_cli",
+    crate_root = "src/main.rs",
+    edition = "2021",
+    visibility = ["PUBLIC"],
+)

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from ennx import CandidateRV, create_optimizer, turbo_zero_config
+
 
 @dataclass(frozen=True)
 class BenchResult:
@@ -30,26 +32,22 @@ def _bench_one(
     num_dim: int,
     num_candidates: int,
     rep_seed: int,
-    box: tuple[np.ndarray, np.ndarray, np.ndarray],
 ) -> float:
-    from scipy.stats import qmc
-
-    from ennx.turbo.config.candidate_rv import CandidateRV
-    from ennx.turbo.python_fallback.turbo_utils import generate_raasp_candidates
-
-    center, lb, ub = box
     rng = np.random.default_rng(rep_seed)
-    t0 = time.perf_counter()
-    sobol = qmc.Sobol(d=num_dim, scramble=True, seed=rep_seed)
-    x = generate_raasp_candidates(
-        center,
-        lb,
-        ub,
-        num_candidates,
+    bounds = np.tile(np.array([[0.0, 1.0]]), (num_dim, 1))
+    opt = create_optimizer(
+        bounds=bounds,
+        config=turbo_zero_config(
+            num_init=1,
+            num_candidates=num_candidates,
+            candidate_rv=CandidateRV.RAASP,
+        ),
         rng=rng,
-        candidate_rv=CandidateRV.SOBOL,
-        sobol_engine=sobol,
     )
+    x_init = opt.ask(num_arms=1)
+    opt.tell(x_init, np.zeros((1, 1)))
+    t0 = time.perf_counter()
+    x = opt.ask(num_arms=1)
     _ = float(np.sum(x))
     return time.perf_counter() - t0
 
@@ -60,7 +58,6 @@ def _bench_repeats(
     num_candidates: int,
     repeats: int,
     seed: int,
-    box: tuple[np.ndarray, np.ndarray, np.ndarray],
 ) -> tuple[list[float], str | None]:
     times_s: list[float] = []
     for rep in range(repeats):
@@ -71,7 +68,6 @@ def _bench_repeats(
                     num_dim=num_dim,
                     num_candidates=num_candidates,
                     rep_seed=rep_seed,
-                    box=box,
                 )
             )
         except MemoryError:
@@ -91,10 +87,6 @@ def bench_raasp(
     if repeats <= 0:
         raise ValueError(repeats)
 
-    center = np.full(num_dim, 0.5, dtype=float)
-    lb = np.zeros(num_dim, dtype=float)
-    ub = np.ones(num_dim, dtype=float)
-
     results: list[BenchResult] = []
     for num_candidates in num_candidates_list:
         times_s, error = _bench_repeats(
@@ -102,7 +94,6 @@ def bench_raasp(
             num_candidates=num_candidates,
             repeats=repeats,
             seed=seed,
-            box=(center, lb, ub),
         )
         results.append(
             BenchResult(num_candidates=num_candidates, times_s=times_s, error=error)
@@ -125,7 +116,7 @@ def _fmt_stats(times_s: list[float]) -> str:
 
 def main() -> None:
     p = argparse.ArgumentParser(
-        description="Benchmark RAASP candidate generation time."
+        description="Benchmark native RAASP optimizer ask time (generation plus selection)."
     )
     p.add_argument("--num-dim", type=int, default=10_000)
     p.add_argument(
@@ -147,7 +138,7 @@ def main() -> None:
     )
 
     print(f"num_dim={args.num_dim} repeats={args.repeats} seed={args.seed}")
-    print("num_candidates\tseconds")
+    print("num_candidates\tRAASP optimizer ask (s)")
     for r in results:
         if r.error is not None:
             print(f"{r.num_candidates}\t\tERROR: {r.error}")

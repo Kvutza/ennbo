@@ -145,6 +145,50 @@ reindeer_rust_library(
     visibility = [],
 )
 
+alias(
+    name = "cc",
+    actual = ":cc-1",
+    visibility = ["PUBLIC"],
+)
+
+http_archive(
+    name = "cc-1.4.0.crate",
+    sha256 = "5add81bb678e6cb321aff7fa0dc7689ad82b112dbc032cea19f91d6b8e3582b9",
+    strip_prefix = "cc-1.4.0",
+    urls = ["https://static.crates.io/crates/cc/1.4.0/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "cc-1",
+    srcs = [":cc-1.4.0.crate"],
+    crate = "cc",
+    crate_root = "cc-1.4.0.crate/src/lib.rs",
+    edition = "2018",
+    env = {
+        "CARGO_BIN_NAME": "cc",
+        "CARGO_CRATE_NAME": "cc",
+        "CARGO_MANIFEST_DIR": "cc-1.4.0.crate",
+        "CARGO_PKG_AUTHORS": "Alex Crichton <alex@alexcrichton.com>",
+        "CARGO_PKG_DESCRIPTION": "A build-time dependency for Cargo build scripts to assist in invoking the native\nC compiler to compile native C code into a static archive to be linked into Rust\ncode.\n",
+        "CARGO_PKG_HOMEPAGE": "https://github.com/rust-lang/cc-rs",
+        "CARGO_PKG_NAME": "cc",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/rust-lang/cc-rs",
+        "CARGO_PKG_RUST_VERSION": "1.63",
+        "CARGO_PKG_VERSION": "1.4.0",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "4",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    visibility = [],
+    deps = [
+        ":find-msvc-tools-0.1",
+        ":shlex-2",
+    ],
+)
+
 http_archive(
     name = "cfg-if-1.0.4.crate",
     sha256 = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801",
@@ -885,127 +929,38 @@ reindeer_rust_library(
     visibility = [],
 )
 
-alias(
-    name = "faiss",
-    actual = ":faiss-0.13",
-    visibility = ["PUBLIC"],
-)
-
 http_archive(
-    name = "faiss-0.13.0.crate",
-    sha256 = "3618cbbe48ebdc63b461cd1bf52f64c27a40e4d294beceedbf2fd4898571e204",
-    strip_prefix = "faiss-0.13.0",
-    urls = ["https://static.crates.io/crates/faiss/0.13.0/download"],
+    name = "find-msvc-tools-0.1.9.crate",
+    sha256 = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582",
+    strip_prefix = "find-msvc-tools-0.1.9",
+    urls = ["https://static.crates.io/crates/find-msvc-tools/0.1.9/download"],
     visibility = [],
 )
 
 reindeer_rust_library(
-    name = "faiss-0.13",
-    srcs = [":faiss-0.13.0.crate"],
-    crate = "faiss",
-    crate_root = "faiss-0.13.0.crate/src/lib.rs",
+    name = "find-msvc-tools-0.1",
+    srcs = [":find-msvc-tools-0.1.9.crate"],
+    crate = "find_msvc_tools",
+    crate_root = "find-msvc-tools-0.1.9.crate/src/lib.rs",
     edition = "2018",
     env = {
-        "CARGO_BIN_NAME": "faiss",
-        "CARGO_CRATE_NAME": "faiss",
-        "CARGO_MANIFEST_DIR": "faiss-0.13.0.crate",
-        "CARGO_PKG_AUTHORS": "Eduardo Pinho <enet4mikeenet@gmail.com>",
-        "CARGO_PKG_DESCRIPTION": "High-level bindings for Faiss, the vector similarity search engine",
+        "CARGO_BIN_NAME": "find_msvc_tools",
+        "CARGO_CRATE_NAME": "find_msvc_tools",
+        "CARGO_MANIFEST_DIR": "find-msvc-tools-0.1.9.crate",
+        "CARGO_PKG_AUTHORS": "",
+        "CARGO_PKG_DESCRIPTION": "Find windows-specific tools, read MSVC versions from the registry and from COM interfaces",
         "CARGO_PKG_HOMEPAGE": "",
-        "CARGO_PKG_NAME": "faiss",
+        "CARGO_PKG_NAME": "find-msvc-tools",
         "CARGO_PKG_README": "README.md",
-        "CARGO_PKG_REPOSITORY": "https://github.com/Enet4/faiss-rs",
-        "CARGO_PKG_RUST_VERSION": "",
-        "CARGO_PKG_VERSION": "0.13.0",
+        "CARGO_PKG_REPOSITORY": "https://github.com/rust-lang/cc-rs",
+        "CARGO_PKG_RUST_VERSION": "1.63",
+        "CARGO_PKG_VERSION": "0.1.9",
         "CARGO_PKG_VERSION_MAJOR": "0",
-        "CARGO_PKG_VERSION_MINOR": "13",
-        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_MINOR": "1",
+        "CARGO_PKG_VERSION_PATCH": "9",
         "CARGO_PKG_VERSION_PRE": "",
     },
     visibility = [],
-    deps = [":faiss-sys-0.7"],
-)
-
-http_archive(
-    name = "faiss-sys-0.7.0.crate",
-    sha256 = "c4a8fa67f7070bb81f41dc71c98813b3e40a66bedab12d6c2ac2af50f0837a7e",
-    strip_prefix = "faiss-sys-0.7.0",
-    urls = ["https://static.crates.io/crates/faiss-sys/0.7.0/download"],
-    visibility = [],
-)
-
-reindeer_rust_library(
-    name = "faiss-sys-0.7",
-    srcs = [":faiss-sys-0.7.0.crate"],
-    crate = "faiss_sys",
-    crate_root = "faiss-sys-0.7.0.crate/src/lib.rs",
-    edition = "2015",
-    env = {
-        "CARGO_BIN_NAME": "faiss_sys",
-        "CARGO_CRATE_NAME": "faiss_sys",
-        "CARGO_MANIFEST_DIR": "faiss-sys-0.7.0.crate",
-        "CARGO_PKG_AUTHORS": "Eduardo Pinho <enet4mikeenet@gmail.com>",
-        "CARGO_PKG_DESCRIPTION": "Native bindings for Faiss",
-        "CARGO_PKG_HOMEPAGE": "",
-        "CARGO_PKG_NAME": "faiss-sys",
-        "CARGO_PKG_README": "",
-        "CARGO_PKG_REPOSITORY": "https://github.com/Enet4/faiss-rs",
-        "CARGO_PKG_RUST_VERSION": "",
-        "CARGO_PKG_VERSION": "0.7.0",
-        "CARGO_PKG_VERSION_MAJOR": "0",
-        "CARGO_PKG_VERSION_MINOR": "7",
-        "CARGO_PKG_VERSION_PATCH": "0",
-        "CARGO_PKG_VERSION_PRE": "",
-        "OUT_DIR": "$(location :faiss-sys-0.7-build-script-run[out_dir])",
-    },
-    rustc_flags = ["@$(location :faiss-sys-0.7-build-script-run[rustc_flags])"],
-    visibility = [],
-)
-
-reindeer_rust_binary(
-    name = "faiss-sys-0.7-build-script-build",
-    srcs = [":faiss-sys-0.7.0.crate"],
-    crate = "build_script_build",
-    crate_root = "faiss-sys-0.7.0.crate/build.rs",
-    edition = "2015",
-    env = {
-        "CARGO_BIN_NAME": "build-script-build",
-        "CARGO_CRATE_NAME": "build_script_build",
-        "CARGO_MANIFEST_DIR": "faiss-sys-0.7.0.crate",
-        "CARGO_PKG_AUTHORS": "Eduardo Pinho <enet4mikeenet@gmail.com>",
-        "CARGO_PKG_DESCRIPTION": "Native bindings for Faiss",
-        "CARGO_PKG_HOMEPAGE": "",
-        "CARGO_PKG_NAME": "faiss-sys",
-        "CARGO_PKG_README": "",
-        "CARGO_PKG_REPOSITORY": "https://github.com/Enet4/faiss-rs",
-        "CARGO_PKG_RUST_VERSION": "",
-        "CARGO_PKG_VERSION": "0.7.0",
-        "CARGO_PKG_VERSION_MAJOR": "0",
-        "CARGO_PKG_VERSION_MINOR": "7",
-        "CARGO_PKG_VERSION_PATCH": "0",
-        "CARGO_PKG_VERSION_PRE": "",
-    },
-    visibility = [],
-)
-
-buildscript_run(
-    name = "faiss-sys-0.7-build-script-run",
-    package_name = "faiss-sys",
-    buildscript_rule = ":faiss-sys-0.7-build-script-build",
-    env = {
-        "CARGO_MANIFEST_LINKS": "faiss_c",
-        "CARGO_PKG_AUTHORS": "Eduardo Pinho <enet4mikeenet@gmail.com>",
-        "CARGO_PKG_DESCRIPTION": "Native bindings for Faiss",
-        "CARGO_PKG_HOMEPAGE": "",
-        "CARGO_PKG_README": "",
-        "CARGO_PKG_REPOSITORY": "https://github.com/Enet4/faiss-rs",
-        "CARGO_PKG_RUST_VERSION": "",
-        "CARGO_PKG_VERSION_MAJOR": "0",
-        "CARGO_PKG_VERSION_MINOR": "7",
-        "CARGO_PKG_VERSION_PATCH": "0",
-        "CARGO_PKG_VERSION_PRE": "",
-    },
-    version = "0.7.0",
 )
 
 http_archive(
@@ -3926,6 +3881,44 @@ reindeer_rust_library(
     features = ["serde"],
     visibility = [],
     deps = [":serde-1"],
+)
+
+http_archive(
+    name = "shlex-2.0.1.crate",
+    sha256 = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba",
+    strip_prefix = "shlex-2.0.1",
+    urls = ["https://static.crates.io/crates/shlex/2.0.1/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "shlex-2",
+    srcs = [":shlex-2.0.1.crate"],
+    crate = "shlex",
+    crate_root = "shlex-2.0.1.crate/src/lib.rs",
+    edition = "2018",
+    env = {
+        "CARGO_BIN_NAME": "shlex",
+        "CARGO_CRATE_NAME": "shlex",
+        "CARGO_MANIFEST_DIR": "shlex-2.0.1.crate",
+        "CARGO_PKG_AUTHORS": "comex <comexk@gmail.com>:Fenhl <fenhl@fenhl.net>:Adrian Taylor <adetaylor@chromium.org>:Alex Touchet <alextouchet@outlook.com>:Daniel Parks <dp+git@oxidized.org>:Garrett Berg <googberg@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "Split a string into shell words, like Python's shlex.",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "shlex",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/comex/rust-shlex",
+        "CARGO_PKG_RUST_VERSION": "1.46.0",
+        "CARGO_PKG_VERSION": "2.0.1",
+        "CARGO_PKG_VERSION_MAJOR": "2",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "1",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = [
+        "default",
+        "std",
+    ],
+    visibility = [],
 )
 
 alias(

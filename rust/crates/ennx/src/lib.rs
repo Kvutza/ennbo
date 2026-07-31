@@ -19,6 +19,10 @@ pub mod experimental;
 pub mod file_config;
 pub mod fit;
 pub mod fitter;
+#[cfg(all(target_os = "macos", feature = "metal"))]
+pub mod forward_metal;
+pub mod forward_program;
+pub mod forward_weights;
 pub mod hash;
 pub mod hypervolume;
 pub mod incumbent_tracker;
@@ -62,6 +66,12 @@ pub use file_config::{
 };
 pub use fit::{subsample_loglik, subsample_loglik_model};
 pub use fitter::ENNFitter;
+pub use forward_program::{
+    ForwardEvaluator, ForwardOp, ForwardProgram, KdaControlRequest, KdaDispatch, KdaEncoder,
+    KdaForwardRequest, KdaMoeDispatch, KdaMoeLayerRequest, KdaPackedLinear, KdaTensorLayout,
+    KernelPlan, PackedAffinePlan, ResidentBoState, ResidentRound, WorkAxis, WorkGrid, WorkTile,
+};
+pub use forward_weights::PackedModel;
 pub use hash::{normal_hash_batch_multi_seed, normal_hash_batch_multi_seed_fast};
 pub use hypervolume::hypervolume_2d_max;
 pub use incumbent_tracker::IncrementalIncumbentTracker;

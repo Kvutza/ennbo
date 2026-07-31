@@ -10,21 +10,14 @@ from ennx.turbo.config import (
     turbo_enn_config,
 )
 
-try:
-    from ennx._rust import Optimizer  # noqa: F401
-
-    RUST_AVAILABLE = True
-except ImportError:
-    RUST_AVAILABLE = False
-
-pytestmark = pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust not available")
+pytest.importorskip("ennx._rust")
 
 EXACT_RTOL = 1e-14
 EXACT_ATOL = 1e-14
 
 
-def test_rust_backend_local_determinism():
-    from .optimizer_parity_helpers import get_rust_optimizer
+def test_optimizer_local_determinism():
+    from .optimizer_checks import make_optimizer
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     config = turbo_enn_config(
@@ -32,8 +25,8 @@ def test_rust_backend_local_determinism():
         enn=ENNSurrogateConfig(k=4, fit=ENNFitConfig(num_fit_samples=10)),
         num_init=6,
     )
-    opt_a = get_rust_optimizer(bounds, config, seed=99)
-    opt_b = get_rust_optimizer(bounds, config, seed=99)
+    opt_a = make_optimizer(bounds, config, seed=99)
+    opt_b = make_optimizer(bounds, config, seed=99)
     xa = opt_a.ask(num_arms=3)
     xb = opt_b.ask(num_arms=3)
     np.testing.assert_allclose(xa, xb, rtol=EXACT_RTOL, atol=EXACT_ATOL)

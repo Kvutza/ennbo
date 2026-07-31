@@ -4,11 +4,22 @@
 //! Keep stable user-facing entry points in the crate root.
 
 #[cfg(all(target_os = "macos", feature = "metal"))]
-pub use crate::apple_gpu::{device_info as apple_gpu_info, DeviceInfo as AppleGpuInfo};
+pub use crate::apple_gpu::{DeviceInfo as AppleGpuInfo, device_info as apple_gpu_info};
 pub use crate::dense::{
-    apply as apply_dense, dist2 as dense_dist2, linear as dense_linear, DenseLeaf, DenseLinear,
-    DenseResult, DenseTerm, DenseView, METAL_OPS, OPENCL_OPS,
+    DenseLeaf, DenseLinear, DenseResult, DenseTerm, DenseView, METAL_OPS, OPENCL_OPS,
+    apply as apply_dense, dist2 as dense_dist2, linear as dense_linear,
 };
+#[cfg(all(target_os = "macos", feature = "metal"))]
+pub use crate::forward_metal::{
+    KdaMoeMetalArena, KdaMoeMetalExecutor, KdaMoeMetalKdaVectors, KdaMoeMetalMemory,
+    KdaMoeMetalModel, KdaMoeMetalWeights,
+};
+pub use crate::forward_program::{
+    ForwardEvaluator, ForwardOp, ForwardProgram, KdaControlRequest, KdaDispatch, KdaEncoder,
+    KdaForwardRequest, KdaMoeDispatch, KdaMoeLayerRequest, KdaPackedLinear, KdaTensorLayout,
+    KernelPlan, PackedAffinePlan, ResidentBoState, ResidentRound, WorkAxis, WorkGrid, WorkTile,
+};
+pub use crate::forward_weights::PackedModel;
 pub use crate::optimizer::{
     MultiTrustRegionConfig, MultiTrustRegionState, ObservationDelta, Optimizer, RegionBatch,
     RegionCandidate, SharingPolicy, Telemetry,

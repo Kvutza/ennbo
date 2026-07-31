@@ -148,36 +148,37 @@ impl Strategy {
         }
     }
 
-    /// Process observations (tell).
+    /// Process observations, optionally with known observation variance.
     pub fn tell(
         &mut self,
         optimizer: &mut Optimizer,
         x: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
+        yvar: Option<&ArrayView2<f64>>,
         telemetry: &mut Telemetry,
         rng: &mut dyn RngCore,
     ) -> Result<(), ENNError> {
         match self {
-            Strategy::Init(state) => tell_init(state, optimizer, x, y, rng),
-            Strategy::Turbo(_) => tell_turbo(optimizer, x, y, telemetry, rng),
+            Strategy::Init(state) => tell_init(state, optimizer, x, y, yvar, rng),
+            Strategy::Turbo(_) => tell_turbo(optimizer, x, y, yvar, telemetry, rng),
             Strategy::Hybrid {
                 init,
                 turbo: _,
                 in_init,
             } => {
                 if *in_init {
-                    tell_init(init, optimizer, x, y, rng)?;
+                    tell_init(init, optimizer, x, y, yvar, rng)?;
                     // Check if init is complete
                     if init.completed >= init.num_init {
                         *in_init = false;
                     }
                     Ok(())
                 } else {
-                    tell_turbo(optimizer, x, y, telemetry, rng)
+                    tell_turbo(optimizer, x, y, yvar, telemetry, rng)
                 }
             }
             Strategy::Experimental(state) => {
-                tell_experimental(state, optimizer, x, y, telemetry, rng)
+                tell_experimental(state, optimizer, x, y, yvar, telemetry, rng)
             }
         }
     }
@@ -254,11 +255,10 @@ fn tell_common(
     optimizer: &mut Optimizer,
     x: &ArrayView2<f64>,
     y: &ArrayView2<f64>,
+    yvar: Option<&ArrayView2<f64>>,
     telemetry: Option<&mut Telemetry>,
     rng: &mut dyn RngCore,
 ) -> Result<(), ENNError> {
-    let delta = optimizer.add_observations(x, y)?;
-
     if let Some(nm) = optimizer.surrogate().and_then(|s| s.fitted_num_metrics()) {
         if nm != y.ncols() {
             return Err(ENNError::InvalidParameter(format!(
@@ -267,13 +267,15 @@ fn tell_common(
             )));
         }
     }
+    let delta = optimizer.prepare_observations(x, y)?;
     if let Some(surrogate) = optimizer.surrogate_mut() {
         let start = std::time::Instant::now();
-        surrogate.fit_append(&delta.x_new_view(), &delta.y_new_view(), None, rng)?;
+        surrogate.fit_append(&delta.x_new_view(), &delta.y_new_view(), yvar, rng)?;
         if let Some(tel) = telemetry {
             tel.dt_fit = start.elapsed().as_secs_f64();
         }
     }
+    optimizer.commit_observations(&delta);
 
     if optimizer.trust_region().is_morbo() && delta.new_n > delta.old_n {
         optimizer
@@ -314,10 +316,12 @@ fn tell_init(
     optimizer: &mut Optimizer,
     x: &ArrayView2<f64>,
     y: &ArrayView2<f64>,
+    yvar: Option<&ArrayView2<f64>>,
     rng: &mut dyn RngCore,
 ) -> Result<(), ENNError> {
+    tell_common(optimizer, x, y, yvar, None, rng)?;
     state.completed += x.nrows();
-    tell_common(optimizer, x, y, None, rng)
+    Ok(())
 }
 
 /// Ask for TuRBO phase.
@@ -488,10 +492,11 @@ fn tell_turbo(
     optimizer: &mut Optimizer,
     x: &ArrayView2<f64>,
     y: &ArrayView2<f64>,
+    yvar: Option<&ArrayView2<f64>>,
     telemetry: &mut Telemetry,
     rng: &mut dyn RngCore,
 ) -> Result<(), ENNError> {
-    tell_common(optimizer, x, y, Some(telemetry), rng)?;
+    tell_common(optimizer, x, y, yvar, Some(telemetry), rng)?;
 
     let num_obs = optimizer.obs_count();
     let y_incumbent = optimizer
@@ -528,6 +533,7 @@ fn tell_experimental(
     optimizer: &mut Optimizer,
     x: &ArrayView2<f64>,
     y: &ArrayView2<f64>,
+    yvar: Option<&ArrayView2<f64>>,
     telemetry: &mut Telemetry,
     rng: &mut dyn RngCore,
 ) -> Result<(), ENNError> {
@@ -538,7 +544,7 @@ fn tell_experimental(
         )));
     }
 
-    tell_common(optimizer, x, y, Some(telemetry), rng)?;
+    tell_common(optimizer, x, y, yvar, Some(telemetry), rng)?;
 
     state.init.completed += x.nrows();
     if state.in_init && state.init.completed >= state.init.num_init {

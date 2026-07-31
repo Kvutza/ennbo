@@ -1,6 +1,4 @@
-from ..init_strategy_base import InitStrategy
-from .hybrid_init import HybridInit
-from .lhd_only_init import LHDOnlyInit
+from ..init_config import HybridInit, InitStrategy, LHDOnlyInit
 
 __all__ = [
     "HybridInit",

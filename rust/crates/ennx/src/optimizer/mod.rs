@@ -71,6 +71,32 @@ impl Optimizer {
         strategy: Strategy,
         rng: &mut dyn RngCore,
     ) -> Result<Self, ENNError> {
+        Self::new_inner(bounds, config, strategy, None, rng)
+    }
+
+    /// Create an optimizer whose surrogate is supplied by an external frontend.
+    ///
+    /// This is the coarse extension boundary used by language bindings: the
+    /// optimizer, trust region, candidates, acquisition, and observations remain
+    /// native while the supplied surrogate performs batched fit/predict/sample
+    /// operations.
+    pub fn new_with_surrogate(
+        bounds: Array2<f64>,
+        config: OptimizerConfig,
+        strategy: Strategy,
+        surrogate: BoxedSurrogate,
+        rng: &mut dyn RngCore,
+    ) -> Result<Self, ENNError> {
+        Self::new_inner(bounds, config, strategy, Some(surrogate), rng)
+    }
+
+    fn new_inner(
+        bounds: Array2<f64>,
+        config: OptimizerConfig,
+        strategy: Strategy,
+        provided_surrogate: Option<BoxedSurrogate>,
+        rng: &mut dyn RngCore,
+    ) -> Result<Self, ENNError> {
         let num_dim = bounds.nrows();
         if bounds.ncols() != 2 {
             return Err(ENNError::InvalidShape {
@@ -87,12 +113,12 @@ impl Optimizer {
             }
         }
 
-        let surrogate: Option<BoxedSurrogate> = match &config.surrogate {
+        let surrogate = provided_surrogate.or_else(|| match &config.surrogate {
             SurrogateConfig::ENN(enn_config) => {
                 Some(Box::new(ENNSurrogate::new(enn_config.clone())))
             }
             SurrogateConfig::None => None,
-        };
+        });
 
         let sobol_engine =
             if config.candidates.candidate_rv == crate::candidates::CandidateRV::Sobol {
@@ -162,6 +188,17 @@ impl Optimizer {
         y: &ArrayView2<f64>,
         rng: &mut dyn RngCore,
     ) -> Result<(), ENNError> {
+        self.tell_with_yvar(x, y, None, rng)
+    }
+
+    /// Tell observations with optional known observation variance.
+    pub fn tell_with_yvar(
+        &mut self,
+        x: &ArrayView2<f64>,
+        y: &ArrayView2<f64>,
+        yvar: Option<&ArrayView2<f64>>,
+        rng: &mut dyn RngCore,
+    ) -> Result<(), ENNError> {
         let start = std::time::Instant::now();
 
         if let Some(surrogate) = self.surrogate.as_ref() {
@@ -170,7 +207,7 @@ impl Optimizer {
 
         let mut strategy = std::mem::replace(&mut self.strategy, Strategy::turbo());
         let mut telemetry = std::mem::take(&mut self.telemetry);
-        let result = strategy.tell(self, x, y, &mut telemetry, rng);
+        let result = strategy.tell(self, x, y, yvar, &mut telemetry, rng);
         self.strategy = strategy;
         self.telemetry = telemetry;
 
@@ -270,6 +307,16 @@ impl Optimizer {
         x: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
     ) -> Result<ObservationDelta, ENNError> {
+        let delta = self.prepare_observations(x, y)?;
+        self.commit_observations(&delta);
+        Ok(delta)
+    }
+
+    pub(crate) fn prepare_observations(
+        &self,
+        x: &ArrayView2<f64>,
+        y: &ArrayView2<f64>,
+    ) -> Result<ObservationDelta, ENNError> {
         if x.nrows() != y.nrows() {
             return Err(ENNError::InvalidShape {
                 expected: vec![x.nrows(), y.ncols()],
@@ -277,15 +324,18 @@ impl Optimizer {
             });
         }
         let old_n = self.obs_count();
-        for i in 0..x.nrows() {
-            let y_row: Array1<f64> = y.row(i).to_owned();
-            self.incumbent_tracker.tell(old_n + i, &y_row);
+        observation_delta::observation_delta_from_batch(old_n, x, y)
+    }
+
+    pub(crate) fn commit_observations(&mut self, delta: &ObservationDelta) {
+        for i in 0..delta.x_new.nrows() {
+            let y_row: Array1<f64> = delta.y_new.row(i).to_owned();
+            self.incumbent_tracker.tell(delta.old_n + i, &y_row);
             if self.surrogate.is_none() {
-                self.fallback_x.push(x.row(i).to_owned());
+                self.fallback_x.push(delta.x_new.row(i).to_owned());
                 self.fallback_y.push(y_row);
             }
         }
-        observation_delta::observation_delta_from_batch(old_n, x, y)
     }
 
     /// Get incumbent x in unit space.

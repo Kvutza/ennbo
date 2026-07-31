@@ -16,7 +16,7 @@ mod layout;
 mod tree;
 
 pub use bpann_history::{BpannHistory, IndexedObservation, ObservationId};
-pub(crate) use layout::{check_layout, make_steps, make_tiles, Step, Tile};
+pub(crate) use layout::{Step, Tile, check_layout, make_steps, make_tiles};
 pub use tree::Center;
 
 const MAX_HISTORY: usize = 128;
@@ -202,6 +202,9 @@ struct Record {
 struct Pending {
     id: u64,
     slot: usize,
+    seed: u64,
+    length: f32,
+    materialized: bool,
 }
 
 enum Engine {
@@ -264,6 +267,24 @@ impl Search {
     }
 
     pub fn ask(&mut self, seeds: &[u64], config: Ask) -> Result<Trial, String> {
+        self.ask_with_materialization(seeds, config, true)
+    }
+
+    /// Select a seed without materializing its full weight row.
+    ///
+    /// This is the path used when the evaluator regenerates the perturbation
+    /// from the returned seed.  Materializing a billion-parameter row during
+    /// proposal would make `ask` scale with model size for no benefit.
+    pub fn ask_lazy(&mut self, seeds: &[u64], config: Ask) -> Result<Trial, String> {
+        self.ask_with_materialization(seeds, config, false)
+    }
+
+    fn ask_with_materialization(
+        &mut self,
+        seeds: &[u64],
+        config: Ask,
+        materialize_row: bool,
+    ) -> Result<Trial, String> {
         if self.pending.is_some() {
             return Err("tell must finish the pending trial before ask".to_string());
         }
@@ -274,12 +295,24 @@ impl Search {
             .iter()
             .map(|record| (record.slot, record.value))
             .collect();
-        let (index, score) =
-            self.engine
-                .ask(self.base, &history, slot, seeds, &self.leaves, config)?;
+        let (index, score) = self.engine.ask(
+            self.base,
+            &history,
+            slot,
+            seeds,
+            &self.leaves,
+            config,
+            materialize_row,
+        )?;
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1);
-        self.pending = Some(Pending { id, slot });
+        self.pending = Some(Pending {
+            id,
+            slot,
+            seed: seeds[index],
+            length: config.length,
+            materialized: materialize_row,
+        });
         Ok(Trial {
             id,
             index,
@@ -340,6 +373,7 @@ impl Search {
                         &seeds[start..end],
                         &self.leaves,
                         config,
+                        true,
                     )?;
                     results.push((start + index, score));
                 }
@@ -452,13 +486,60 @@ impl Search {
 
     pub fn row(&self, trial: Trial) -> Result<Vec<u8>, String> {
         let pending = self.pending_for(trial)?;
+        if !pending.materialized {
+            return Err(
+                "lazy trial row is not materialized; call materialize_pending first".to_string(),
+            );
+        }
         self.engine.read(pending.slot, self.row_bytes)
+    }
+
+    /// Materialize a lazily selected trial into its resident row slot.
+    ///
+    /// Calling this for a trial returned by [`Search::ask`] is a no-op. Lazy
+    /// trials are also materialized automatically by [`Search::tell`] before
+    /// they are added to history.
+    pub fn materialize_pending(&mut self, trial: Trial) -> Result<(), String> {
+        let pending = self.pending_for(trial)?;
+        if pending.materialized {
+            return Ok(());
+        }
+        self.engine.materialize(
+            self.base,
+            pending.slot,
+            pending.seed,
+            &self.leaves,
+            pending.length,
+        )?;
+        self.pending
+            .as_mut()
+            .expect("the pending trial was validated above")
+            .materialized = true;
+        Ok(())
+    }
+
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    pub(crate) fn pending_metal_row(
+        &self,
+        trial: Trial,
+    ) -> Result<(::metal::Buffer, usize), String> {
+        let pending = self.pending_for(trial)?;
+        if !pending.materialized {
+            return Err(
+                "lazy trial row is not materialized; call materialize_pending first".to_string(),
+            );
+        }
+        match &self.engine {
+            Engine::Metal(engine) => engine.row_buffer(pending.slot),
+            _ => Err("the resident search is not using Metal".to_string()),
+        }
     }
 
     pub fn tell(&mut self, trial: Trial, value: f32, accept: bool) -> Result<(), String> {
         if !value.is_finite() {
             return Err("trial value must be finite".to_string());
         }
+        self.materialize_pending(trial)?;
         let pending = self.pending_for(trial)?;
         if self.history.len() == self.capacity {
             self.history.pop_front();
@@ -675,13 +756,20 @@ impl Engine {
         seeds: &[u64],
         leaves: &[Leaf],
         config: Ask,
+        materialize_row: bool,
     ) -> Result<(usize, f32), String> {
         match self {
-            Self::Cpu(engine) => engine.ask(base, history, trial, seeds, leaves, config),
+            Self::Cpu(engine) => {
+                engine.ask(base, history, trial, seeds, leaves, config, materialize_row)
+            }
             #[cfg(all(target_os = "macos", feature = "metal"))]
-            Self::Metal(engine) => engine.ask(base, history, trial, seeds, leaves, config),
+            Self::Metal(engine) => {
+                engine.ask(base, history, trial, seeds, leaves, config, materialize_row)
+            }
             #[cfg(feature = "opencl")]
-            Self::OpenCl(engine) => engine.ask(base, history, trial, seeds, leaves, config),
+            Self::OpenCl(engine) => {
+                engine.ask(base, history, trial, seeds, leaves, config, materialize_row)
+            }
         }
     }
 
@@ -712,6 +800,30 @@ impl Engine {
             Self::OpenCl(engine) => engine.write(slot, row),
         }
     }
+
+    #[allow(unused_variables)]
+    fn materialize(
+        &mut self,
+        base_slot: usize,
+        trial_slot: usize,
+        seed: u64,
+        leaves: &[Leaf],
+        length: f32,
+    ) -> Result<(), String> {
+        let steps = make_steps(leaves, length);
+        match self {
+            Self::Cpu(engine) => {
+                let base = engine.read(base_slot).to_vec();
+                let row = materialize(&base, leaves, &steps, seed);
+                engine.read_mut(trial_slot).copy_from_slice(&row);
+                Ok(())
+            }
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            Self::Metal(engine) => engine.materialize(base_slot, trial_slot, seed, &steps),
+            #[cfg(feature = "opencl")]
+            Self::OpenCl(engine) => engine.materialize(base_slot, trial_slot, seed, &steps),
+        }
+    }
 }
 
 struct Cpu {
@@ -738,6 +850,7 @@ impl Cpu {
         seeds: &[u64],
         leaves: &[Leaf],
         config: Ask,
+        materialize_row: bool,
     ) -> Result<(usize, f32), String> {
         let steps = make_steps(leaves, config.length);
         let base = self.read(base_slot).to_vec();
@@ -758,8 +871,10 @@ impl Cpu {
             }
         }
 
-        let row = materialize(&base, leaves, &steps, seeds[best_index]);
-        self.read_mut(trial_slot).copy_from_slice(&row);
+        if materialize_row {
+            let row = materialize(&base, leaves, &steps, seeds[best_index]);
+            self.read_mut(trial_slot).copy_from_slice(&row);
+        }
         Ok((best_index, best_score))
     }
 
@@ -939,7 +1054,7 @@ fn score(nearest: &[(f32, usize)], history: &[(usize, f32)], draw: f32, config: 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::{array, Axis};
+    use ndarray::{Axis, array};
     use tempfile::TempDir;
 
     fn leaves() -> Vec<Leaf> {
@@ -984,6 +1099,53 @@ mod tests {
         let second_row = search.row(second).unwrap();
         assert_ne!(first_row, second_row);
         assert_eq!(search.history_len(), 2);
+    }
+
+    fn assert_lazy_trial_matches_eager(backend: ComputeBackend) {
+        let base = [0x76, 0x98, 0x0a, 100, 120, 140, 160];
+        let mut eager = Search::new(&base, 0.0, leaves(), 3, backend).unwrap();
+        let mut lazy = Search::new(&base, 0.0, leaves(), 3, backend).unwrap();
+        let config = Ask {
+            neighbors: 1,
+            length: 0.65,
+            ..Ask::default()
+        };
+
+        let eager_trial = eager.ask(&[5, 7, 11], config).unwrap();
+        let lazy_trial = lazy.ask_lazy(&[5, 7, 11], config).unwrap();
+        assert_eq!(lazy_trial, eager_trial);
+        assert!(lazy.row(lazy_trial).is_err());
+
+        eager.tell(eager_trial, 1.0, true).unwrap();
+        lazy.tell(lazy_trial, 1.0, true).unwrap();
+
+        let eager_next = eager.ask(&[13, 17], config).unwrap();
+        let lazy_next = lazy.ask(&[13, 17], config).unwrap();
+        assert_eq!(lazy_next, eager_next);
+        assert_eq!(lazy.row(lazy_next).unwrap(), eager.row(eager_next).unwrap());
+    }
+
+    #[test]
+    fn lazy_trial_is_materialized_before_it_enters_history() {
+        assert_lazy_trial_matches_eager(ComputeBackend::Cpu);
+    }
+
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    #[test]
+    fn metal_lazy_trial_is_materialized_before_it_enters_history() {
+        assert_lazy_trial_matches_eager(ComputeBackend::Metal);
+        assert_lazy_trial_matches_eager(ComputeBackend::Agx);
+    }
+
+    #[cfg(feature = "opencl")]
+    #[test]
+    fn opencl_lazy_trial_is_materialized_before_it_enters_history() {
+        let base = [0x76, 0x98, 0x0a, 100, 120, 140, 160];
+        match Search::new(&base, 0.0, leaves(), 3, ComputeBackend::OpenCl) {
+            Ok(_) => assert_lazy_trial_matches_eager(ComputeBackend::OpenCl),
+            Err(error) if error.contains("no OpenCL GPU or CPU device") => {}
+            Err(error) => panic!("{error}"),
+        }
     }
 
     #[test]
@@ -1098,15 +1260,17 @@ mod tests {
             .unwrap();
         assert_eq!(resolved, vec![ObservationId(1), ObservationId(0)]);
         assert_eq!(search.history_len(), 2);
-        assert!(search
-            .ask(
-                &[31],
-                Ask {
-                    neighbors: 2,
-                    ..Ask::default()
-                }
-            )
-            .is_ok());
+        assert!(
+            search
+                .ask(
+                    &[31],
+                    Ask {
+                        neighbors: 2,
+                        ..Ask::default()
+                    }
+                )
+                .is_ok()
+        );
     }
 
     #[test]

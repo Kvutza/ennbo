@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$repo_dir"
+
+exec pixi run -e ennx ./buck2w --isolation-dir dev run //rust/crates/dev-cli:ennx -- "$@"

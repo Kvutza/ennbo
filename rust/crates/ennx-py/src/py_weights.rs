@@ -1,10 +1,10 @@
 use ennx::experimental::{
-    apply_dense, dense_dist2, dense_linear, DenseLeaf, DenseLinear, DenseTerm, DenseView,
+    DenseLeaf, DenseLinear, DenseTerm, DenseView, apply_dense, dense_dist2, dense_linear,
 };
 use ennx::{
-    apply_sparse, blocks_for_words, draw_sparse, merge_values, missing_words, select_weights,
-    sparse_union, sparse_xor, take_words, AcquisitionKind, BpannHistory, ComputeBackend, WeightAsk,
-    WeightBlock, WeightLeaf, WeightSearch, WeightSelectConfig, WeightTrial,
+    AcquisitionKind, BpannHistory, ComputeBackend, WeightAsk, WeightBlock, WeightLeaf,
+    WeightSearch, WeightSelectConfig, WeightTrial, apply_sparse, blocks_for_words, draw_sparse,
+    merge_values, missing_words, select_weights, sparse_union, sparse_xor, take_words,
 };
 use numpy::{Element, IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -207,8 +207,8 @@ impl PyDenseLinear {
 
 #[pyclass(name = "WeightSearch", unsendable)]
 pub struct PyWeightSearch {
-    inner: WeightSearch,
-    pending: Option<WeightTrial>,
+    pub(crate) inner: WeightSearch,
+    pub(crate) pending: Option<WeightTrial>,
 }
 
 #[pymethods]
@@ -269,6 +269,42 @@ impl PyWeightSearch {
         Ok((trial.index, trial.seed, trial.score))
     }
 
+    /// Select a perturbation seed without writing the full candidate row.
+    /// The evaluator can regenerate the row from the returned seed.
+    #[pyo3(signature=(seeds,length,neighbors,epistemic_scale=0.7,aleatoric_scale=0.05,y_scale=1.0,beta=1.0,acquisition="ucb",seed=0))]
+    #[allow(clippy::too_many_arguments)]
+    fn ask_lazy(
+        &mut self,
+        seeds: PyReadonlyArray1<'_, u64>,
+        length: f32,
+        neighbors: usize,
+        epistemic_scale: f32,
+        aleatoric_scale: f32,
+        y_scale: f32,
+        beta: f32,
+        acquisition: &str,
+        seed: u64,
+    ) -> PyResult<(usize, u64, f32)> {
+        let trial = self
+            .inner
+            .ask_lazy(
+                &array1_vec(seeds),
+                WeightAsk {
+                    length,
+                    neighbors,
+                    epistemic_scale,
+                    aleatoric_scale,
+                    y_scale,
+                    beta,
+                    acquisition: AcquisitionKind::parse(acquisition).map_err(err)?,
+                    seed,
+                },
+            )
+            .map_err(err)?;
+        self.pending = Some(trial);
+        Ok((trial.index, trial.seed, trial.score))
+    }
+
     fn row<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray1<u8>>> {
         let trial = self
             .pending
@@ -276,12 +312,29 @@ impl PyWeightSearch {
         Ok(self.inner.row(trial).map_err(err)?.into_pyarray_bound(py))
     }
 
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    fn bind_pending_model(
+        &mut self,
+        mut model: PyRefMut<'_, crate::py_experimental::PyNativeKdaModel>,
+    ) -> PyResult<()> {
+        let trial = self
+            .pending
+            .ok_or_else(|| PyValueError::new_err("there is no pending trial"))?;
+        self.inner.materialize_pending(trial).map_err(err)?;
+        model
+            .inner
+            .bind_pending_search(&self.inner, trial)
+            .map_err(err)?;
+        model.inner.prepare_candidate(0).map_err(err)
+    }
+
     fn tell(&mut self, value: f32, accept: bool) -> PyResult<()> {
         let trial = self
             .pending
-            .take()
             .ok_or_else(|| PyValueError::new_err("there is no pending trial"))?;
-        self.inner.tell(trial, value, accept).map_err(err)
+        self.inner.tell(trial, value, accept).map_err(err)?;
+        self.pending = None;
+        Ok(())
     }
 
     fn replace_history(

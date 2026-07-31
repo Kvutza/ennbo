@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from . import acquisition as acq
-from . import surrogate as sur
-from . import trust_region as tr
+from . import model as cfg
 from .acq_type import AcqType
 from .candidate_gen_config import CandidateGenConfig
 from .candidate_rv import CandidateRV
-from .init_config import InitConfig
-from .optimizer_config import ObservationHistoryConfig, OptimizerConfig
+from .enn_surrogate_config import ENNSurrogateConfig
+from .init_config import InitConfig, LHDOnlyInit
 
 
 def _make_candidate_gen_config(
@@ -25,13 +23,13 @@ def _make_candidate_gen_config(
 
 def _acq_configs(
     acq_type: AcqType,
-) -> tuple[acq.AcquisitionConfig, acq.AcqOptimizerConfig]:
+) -> tuple[cfg.AcquisitionConfig, cfg.AcqOptimizerConfig]:
     if acq_type == AcqType.PARETO:
-        return acq.ParetoAcquisitionConfig(), acq.NDSOptimizerConfig()
+        return cfg.ParetoAcquisitionConfig(), cfg.NDSOptimizerConfig()
     if acq_type == AcqType.UCB:
-        return acq.UCBAcquisitionConfig(), acq.RAASPOptimizerConfig()
+        return cfg.UCBAcquisitionConfig(), cfg.RAASPOptimizerConfig()
     if acq_type == AcqType.THOMPSON:
-        return acq.DrawAcquisitionConfig(), acq.RAASPOptimizerConfig()
+        return cfg.DrawAcquisitionConfig(), cfg.RAASPOptimizerConfig()
     raise ValueError(
         f"acq_type must be AcqType.THOMPSON, AcqType.PARETO, or AcqType.UCB, got {acq_type!r}"
     )
@@ -41,19 +39,18 @@ def turbo_one_config(
     *,
     num_candidates: int | None = None,
     num_init: int | None = None,
-    trust_region: tr.TrustRegionConfig | None = None,
+    trust_region: cfg.TrustRegionConfig | None = None,
     candidate_rv: CandidateRV = CandidateRV.SOBOL,
     acq_type: AcqType = AcqType.THOMPSON,
-) -> OptimizerConfig:
+) -> cfg.OptimizerConfig:
     acquisition, acq_optimizer = _acq_configs(acq_type)
-    return OptimizerConfig(
-        trust_region=trust_region or tr.TurboTRConfig(),
+    return cfg.OptimizerConfig(
+        trust_region=trust_region or cfg.TurboTRConfig(),
         candidates=_make_candidate_gen_config(candidate_rv, num_candidates),
         init=InitConfig(num_init=num_init),
-        surrogate=sur.GPSurrogateConfig(),
+        surrogate=cfg.GPSurrogateConfig(),
         acquisition=acquisition,
         acq_optimizer=acq_optimizer,
-        observation_history=ObservationHistoryConfig(),
     )
 
 
@@ -62,44 +59,42 @@ def turbo_zero_config(
     num_candidates: int | None = None,
     num_candidates_per_arm: int | None = None,
     num_init: int | None = None,
-    trust_region: tr.TrustRegionConfig | None = None,
+    trust_region: cfg.TrustRegionConfig | None = None,
     candidate_rv: CandidateRV = CandidateRV.SOBOL,
-) -> OptimizerConfig:
-    return OptimizerConfig(
-        trust_region=trust_region or tr.TurboTRConfig(),
+) -> cfg.OptimizerConfig:
+    return cfg.OptimizerConfig(
+        trust_region=trust_region or cfg.TurboTRConfig(),
         candidates=_make_candidate_gen_config(
             candidate_rv,
             num_candidates,
             num_candidates_per_arm=num_candidates_per_arm,
         ),
         init=InitConfig(num_init=num_init),
-        surrogate=sur.NoSurrogateConfig(),
-        acquisition=acq.RandomAcquisitionConfig(),
-        acq_optimizer=acq.RAASPOptimizerConfig(),
-        observation_history=ObservationHistoryConfig(),
+        surrogate=cfg.NoSurrogateConfig(),
+        acquisition=cfg.RandomAcquisitionConfig(),
+        acq_optimizer=cfg.RAASPOptimizerConfig(),
     )
 
 
 def turbo_enn_config(
     *,
-    enn: sur.ENNSurrogateConfig | None = None,
-    trust_region: tr.TrustRegionConfig | None = None,
+    enn: ENNSurrogateConfig | None = None,
+    trust_region: cfg.TrustRegionConfig | None = None,
     candidates: CandidateGenConfig | None = None,
     num_init: int | None = None,
     acq_type: AcqType = AcqType.PARETO,
-) -> OptimizerConfig:
+) -> cfg.OptimizerConfig:
     acquisition, acq_optimizer = _acq_configs(acq_type)
-    surrogate = enn if enn is not None else sur.ENNSurrogateConfig()
+    surrogate = enn if enn is not None else ENNSurrogateConfig()
     if surrogate.num_fit_samples is None and acq_type != AcqType.PARETO:
         raise ValueError(f"enn.num_fit_samples required for acq_type={acq_type!r}")
-    return OptimizerConfig(
-        trust_region=trust_region or tr.TurboTRConfig(),
+    return cfg.OptimizerConfig(
+        trust_region=trust_region or cfg.TurboTRConfig(),
         candidates=candidates or CandidateGenConfig(),
         init=InitConfig(num_init=num_init),
         surrogate=surrogate,
         acquisition=acquisition,
         acq_optimizer=acq_optimizer,
-        observation_history=ObservationHistoryConfig(),
     )
 
 
@@ -107,17 +102,14 @@ def lhd_only_config(
     *,
     num_candidates: int | None = None,
     num_init: int | None = None,
-    trust_region: tr.TrustRegionConfig | None = None,
+    trust_region: cfg.TrustRegionConfig | None = None,
     candidate_rv: CandidateRV = CandidateRV.SOBOL,
-) -> OptimizerConfig:
-    from .init_strategies import LHDOnlyInit
-
-    return OptimizerConfig(
-        trust_region=trust_region or tr.NoTRConfig(),
+) -> cfg.OptimizerConfig:
+    return cfg.OptimizerConfig(
+        trust_region=trust_region or cfg.NoTRConfig(),
         candidates=_make_candidate_gen_config(candidate_rv, num_candidates),
         init=InitConfig(init_strategy=LHDOnlyInit(), num_init=num_init),
-        surrogate=sur.NoSurrogateConfig(),
-        acquisition=acq.RandomAcquisitionConfig(),
-        acq_optimizer=acq.RAASPOptimizerConfig(),
-        observation_history=ObservationHistoryConfig(),
+        surrogate=cfg.NoSurrogateConfig(),
+        acquisition=cfg.RandomAcquisitionConfig(),
+        acq_optimizer=cfg.RAASPOptimizerConfig(),
     )

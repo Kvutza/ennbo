@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 
-from ennx import create_optimizer
 from ennx.turbo.config.optimizer_config import OptimizerConfig
 
 from .catalog import (
@@ -67,6 +66,8 @@ def assert_fixture_json_invariants(data: dict[str, Any]) -> None:
 
 
 def assert_fixture_contracts(data: dict[str, Any], config: OptimizerConfig) -> None:
+    from ennx import create_optimizer
+
     assert_fixture_json_invariants(data)
     bounds = np.array(data["bounds"], dtype=float)
     rng = np.random.default_rng(int(data["seed"]))

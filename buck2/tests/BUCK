@@ -55,7 +55,7 @@ test_suite(
     ] + select({
         "//:macos-arm64": [
             ":metal",
-            "//buck2/native:faiss-smoke",
+            "//buck2/native:faiss-link",
         ],
         "DEFAULT": [],
     }),
