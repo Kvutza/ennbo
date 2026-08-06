@@ -1,13 +1,10 @@
 use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
-#[cfg(not(feature = "faiss"))]
 use std::{
     ffi::{c_void, CStr},
     ptr::NonNull,
 };
 
-#[cfg(feature = "faiss")]
-use faiss::{FlatIndex, Index};
 use memmap2::MmapMut;
 use ndarray::{Array2, ArrayView2};
 
@@ -15,7 +12,6 @@ use super::{arr2_rows_to_f32, pad_neighbor_cols_to_search_k, unpack_batch_search
 use crate::error::ENNError;
 use crate::index::{IndexDriver, IndexError};
 
-#[cfg(not(feature = "faiss"))]
 unsafe extern "C" {
     fn enn_faiss_new(num_dim: usize) -> *mut c_void;
     fn enn_faiss_free(handle: *mut c_void);
@@ -34,18 +30,13 @@ unsafe extern "C" {
 }
 
 pub(crate) struct FaissBackend {
-    #[cfg(feature = "faiss")]
-    index: FlatIndex,
-    #[cfg(not(feature = "faiss"))]
     handle: NonNull<c_void>,
     num_dim: usize,
 }
 
 // Faiss is protected by the mutex in KnnBackend.
-#[cfg(not(feature = "faiss"))]
 unsafe impl Send for FaissBackend {}
 
-#[cfg(not(feature = "faiss"))]
 fn faiss_error() -> IndexError {
     let message = unsafe {
         let ptr = enn_faiss_last_error();
@@ -56,11 +47,6 @@ fn faiss_error() -> IndexError {
         }
     };
     IndexError::InvalidParameter(message)
-}
-
-#[cfg(feature = "faiss")]
-fn invalid_faiss(error: impl std::fmt::Display) -> IndexError {
-    IndexError::InvalidParameter(error.to_string())
 }
 
 #[cfg(test)]
@@ -90,16 +76,6 @@ impl FaissBackend {
                 got: train_scaled.ncols(),
             });
         }
-        #[cfg(feature = "faiss")]
-        let mut backend = Self {
-            index: FlatIndex::new_l2(
-                u32::try_from(num_dim)
-                    .map_err(|_| IndexError::InvalidParameter("dimension exceeds u32".into()))?,
-            )
-            .map_err(invalid_faiss)?,
-            num_dim,
-        };
-        #[cfg(not(feature = "faiss"))]
         let mut backend = Self {
             handle: NonNull::new(unsafe { enn_faiss_new(num_dim) }).ok_or_else(faiss_error)?,
             num_dim,
@@ -111,14 +87,7 @@ impl FaissBackend {
     }
 
     pub(crate) fn len(&self) -> usize {
-        #[cfg(feature = "faiss")]
-        {
-            usize::try_from(self.index.ntotal()).unwrap_or(usize::MAX)
-        }
-        #[cfg(not(feature = "faiss"))]
-        unsafe {
-            enn_faiss_len(self.handle.as_ptr())
-        }
+        unsafe { enn_faiss_len(self.handle.as_ptr()) }
     }
 
     pub(crate) fn memory_usage_bytes(&self) -> usize {
@@ -134,9 +103,6 @@ impl FaissBackend {
                 got: train_scaled.ncols(),
             });
         }
-        #[cfg(feature = "faiss")]
-        self.index.reset().map_err(invalid_faiss)?;
-        #[cfg(not(feature = "faiss"))]
         {
             if unsafe { enn_faiss_reset(self.handle.as_ptr()) } != 0 {
                 return Err(faiss_error());
@@ -163,9 +129,6 @@ impl FaissBackend {
             return Ok(());
         }
         let rows = arr2_rows_to_f32(rows_scaled);
-        #[cfg(feature = "faiss")]
-        self.index.add(&rows).map_err(invalid_faiss)?;
-        #[cfg(not(feature = "faiss"))]
         {
             if unsafe { enn_faiss_add(self.handle.as_ptr(), rows_scaled.nrows(), rows.as_ptr()) }
                 != 0
@@ -190,21 +153,6 @@ impl FaissBackend {
         }
         let n_query = queries_scaled.nrows();
         let queries = arr2_rows_to_f32(queries_scaled);
-        #[cfg(feature = "faiss")]
-        let (distances, labels) = if k_eff > 0 && n_query > 0 {
-            let result = self.index.search(&queries, k_eff).map_err(invalid_faiss)?;
-            (
-                result.distances,
-                result
-                    .labels
-                    .into_iter()
-                    .map(|label| label.get().map_or(-1, |index| index as i64))
-                    .collect(),
-            )
-        } else {
-            (Vec::new(), Vec::new())
-        };
-        #[cfg(not(feature = "faiss"))]
         let (distances, labels) = {
             let mut distances = vec![0.0_f32; n_query.saturating_mul(k_eff)];
             let mut labels = vec![0_i64; n_query.saturating_mul(k_eff)];
@@ -230,7 +178,6 @@ impl FaissBackend {
     }
 }
 
-#[cfg(not(feature = "faiss"))]
 impl Drop for FaissBackend {
     fn drop(&mut self) {
         unsafe { enn_faiss_free(self.handle.as_ptr()) };
