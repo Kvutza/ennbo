@@ -2,17 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-try:
-    from ennx._rust import Optimizer  # noqa: F401
-
-    RUST_AVAILABLE = True
-except ImportError:
-    RUST_AVAILABLE = False
-
-pytestmark = [
-    pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust not available"),
-    pytest.mark.slow,
-]
+pytest.importorskip("ennx._rust")
+pytestmark = pytest.mark.slow
 
 
 def test_optimizer_speed_ci_subset():

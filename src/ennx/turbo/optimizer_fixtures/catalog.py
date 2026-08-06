@@ -152,7 +152,7 @@ def entry_for_fixture_name(name: str) -> FixtureGeneratorEntry:
 
 
 def fixture_subdir_for_entry(entry: FixtureGeneratorEntry) -> str:
-    return "morbo" if entry.morbo else "python_optimizer"
+    return "morbo" if entry.morbo else "optimizer"
 
 
 def catalog_fixture_names() -> tuple[str, ...]:

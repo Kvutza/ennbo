@@ -39,9 +39,9 @@ def _run_optimizer_and_capture(
     bounds, config, seed: int, num_cycles: int, num_arms: int
 ):
     """Run optimizer, return captured ask outputs and tr_lengths."""
-    from .optimizer_parity_helpers import get_rust_optimizer
+    from .optimizer_checks import make_optimizer
 
-    opt = get_rust_optimizer(bounds, config, seed)
+    opt = make_optimizer(bounds, config, seed)
     np.random.default_rng(seed)
     asks = []
     tr_lengths = []

@@ -2,15 +2,33 @@ import time
 
 import numpy as np
 import pandas as pd
-from scipy.stats import qmc
 
-from ennx.ennx.enn_class import EpistemicNearestNeighbors
-from ennx.ennx.enn_class_support import enn_neighbor_distances_and_indices
-from ennx.ennx.enn_params import ENNParams
-from ennx.turbo.python_fallback.turbo_utils import (
-    generate_raasp_candidates,
-    generate_raasp_candidates_uniform,
+from ennx import (
+    CandidateRV,
+    EpistemicNearestNeighbors,
+    create_optimizer,
+    turbo_zero_config,
 )
+
+
+def _ask_time(d, num_candidates, candidate_rv, seed=0):
+    rng = np.random.default_rng(seed)
+    bounds = np.tile(np.array([[0.0, 1.0]]), (d, 1))
+    opt = create_optimizer(
+        bounds=bounds,
+        config=turbo_zero_config(
+            num_init=1,
+            num_candidates=num_candidates,
+            candidate_rv=candidate_rv,
+        ),
+        rng=rng,
+    )
+    x_init = opt.ask(num_arms=1)
+    opt.tell(x_init, np.zeros((1, 1)))
+    t0 = time.perf_counter()
+    x = opt.ask(num_arms=1)
+    _ = float(np.sum(x))
+    return time.perf_counter() - t0
 
 
 def benchmark_d_scaling(ds=None, n=1000, num_candidates=5000):
@@ -24,61 +42,39 @@ def benchmark_d_scaling(ds=None, n=1000, num_candidates=5000):
         print(f"Running D={d}...")
         row = {"D": d}
 
-        # Data generation
         rng = np.random.default_rng(0)
         train_x = rng.random((n, d))
         train_y = rng.random((n, 1))
         cand_x = rng.random((num_candidates, d))
-        ENNParams(
-            k_num_neighbors=10,
-            epistemic_variance_scale=1.0,
-            aleatoric_variance_scale=0.1,
-        )
-
-        # 1. ENN Initialization
         t0 = time.perf_counter()
         model = EpistemicNearestNeighbors(train_x, train_y, scale_x=True)
         row["ENN_Init (s)"] = time.perf_counter() - t0
 
-        # 2. Neighbor search (Rust + libfaiss)
         t0 = time.perf_counter()
-        _, _ = enn_neighbor_distances_and_indices(
-            model.rust_backend,
+        model.rust_backend.neighbor_distances_and_indices(
             cand_x,
-            search_k=10,
-            exclude_nearest=False,
+            10,
+            False,
         )
-        row["ENN_Search (s)"] = time.perf_counter() - t0
+        row["ENN native search (s)"] = time.perf_counter() - t0
 
-        # 3. RAASP Candidate Generation (Sobol)
-        t0 = time.perf_counter()
-        center = np.full(d, 0.5)
-        lb, ub = np.zeros(d), np.ones(d)
-        sobol = qmc.Sobol(d=d, scramble=True, seed=0)
-        from ennx.turbo.config.candidate_rv import CandidateRV
-
-        _ = generate_raasp_candidates(
-            center,
-            lb,
-            ub,
+        row["Sobol optimizer ask (s)"] = _ask_time(
+            d,
             num_candidates,
-            rng=rng,
-            candidate_rv=CandidateRV.SOBOL,
-            sobol_engine=sobol,
+            CandidateRV.SOBOL,
         )
-        row["RAASP_Sobol (s)"] = time.perf_counter() - t0
 
-        # 4. RAASP Candidate Generation (Uniform)
-        t0 = time.perf_counter()
-        _ = generate_raasp_candidates_uniform(center, lb, ub, num_candidates, rng=rng)
-        row["RAASP_Uniform (s)"] = time.perf_counter() - t0
+        row["Uniform optimizer ask (s)"] = _ask_time(
+            d,
+            num_candidates,
+            CandidateRV.UNIFORM,
+        )
 
         results.append(row)
 
     df = pd.DataFrame(results)
     print("\n" + df.to_string(index=False))
 
-    # Calculate empirical scaling (log-log slope)
     print("\nEmpirical scaling (log-log slope vs D):")
     for col in df.columns[1:]:
         y = np.log(df[col].values[-2:])

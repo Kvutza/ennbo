@@ -4,7 +4,7 @@
 pixi run -e ennx buck2-build
 pixi run -e ennx buck2-test
 pixi run -e ennx buck2-wheel
-pixi run -e ennx buck2-smoke
+pixi run -e ennx buck2-verify
 pixi run -e ennx buck2-gates
 ```
 

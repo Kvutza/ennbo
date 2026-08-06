@@ -10,7 +10,10 @@ from ennx.turbo.config import (
     turbo_one_config,
     turbo_zero_config,
 )
-from ennx.turbo.python_fallback.turbo_utils import to_unit
+
+
+def _unit(x: np.ndarray, bounds: np.ndarray) -> np.ndarray:
+    return (x - bounds[:, 0]) / (bounds[:, 1] - bounds[:, 0])
 
 
 @pytest.mark.parametrize(
@@ -33,7 +36,7 @@ def test_turbo_behavior_independent_of_affine_x(config: OptimizerConfig) -> None
     opt2 = create_optimizer(bounds=bounds2, config=config, rng=rng2)
     for _ in range(num_steps):
         x1, x2 = opt1.ask(num_arms=num_arms), opt2.ask(num_arms=num_arms)
-        u1, u2 = to_unit(x1, bounds1), to_unit(x2, bounds2)
+        u1, u2 = _unit(x1, bounds1), _unit(x2, bounds2)
         assert np.allclose(u1, u2)
         y1 = conftest.sphere_objective(2.0 * u1 - 1.0)
         y2 = conftest.sphere_objective(2.0 * u2 - 1.0)

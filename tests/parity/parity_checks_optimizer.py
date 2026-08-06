@@ -25,10 +25,10 @@ def run_optimizer_parity(
         return
 
     def _run() -> None:
-        from .optimizer_parity_helpers import check_opt_contract, get_rust_optimizer
+        from .optimizer_checks import check_opt_contract, make_optimizer
 
         bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
-        opt = get_rust_optimizer(bounds, config, seed=47)
+        opt = make_optimizer(bounds, config, seed=47)
         check_opt_contract(opt, bounds)
 
     try:

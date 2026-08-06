@@ -22,6 +22,24 @@ rust_test(
 )
 
 rust_test(
+    name = "dense",
+    srcs = ["dense.rs"],
+    crate_root = "dense.rs",
+    deps = ["//rust/crates/ennx:ennx"] + select({
+        "//:macos-arm64": ["//buck2/native:openmp-macos"],
+        "DEFAULT": [],
+    }),
+    rpath = True,
+    runtime_dependency_handling = "symlink",
+    rustc_flags = select({
+        "//:macos-arm64": [
+            "-Clink-arg=-Wl,-rpath,@loader_path/../../native/__faiss-build__/out",
+        ],
+        "DEFAULT": [],
+    }),
+)
+
+rust_test(
     name = "opencl",
     srcs = ["opencl.rs"],
     crate_root = "opencl.rs",
@@ -32,11 +50,12 @@ test_suite(
     name = "all",
     tests = [
         ":bpann",
+        ":dense",
         ":opencl",
     ] + select({
         "//:macos-arm64": [
             ":metal",
-            "//buck2/native:faiss-smoke",
+            "//buck2/native:faiss-link",
         ],
         "DEFAULT": [],
     }),

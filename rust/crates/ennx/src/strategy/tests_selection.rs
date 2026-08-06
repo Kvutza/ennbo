@@ -33,6 +33,7 @@ fn test_private_strategy_helpers_directly() {
         &mut optimizer,
         &x_init_h.view(),
         &y_init.view(),
+        None,
         &mut rng,
     )
     .unwrap();
@@ -45,6 +46,7 @@ fn test_private_strategy_helpers_directly() {
         &mut optimizer,
         &x_turbo.view(),
         &y_turbo.view(),
+        None,
         &mut telemetry,
         &mut rng,
     )
@@ -134,6 +136,28 @@ fn test_hybrid_init_respects_strategy_type_random() {
 }
 
 #[test]
+fn failed_init_tell_keeps_state() {
+    let bounds = array![[0.0, 1.0], [0.0, 1.0]];
+    let mut rng = StdRng::seed_from_u64(124);
+    let strategy = Strategy::hybrid(InitStrategy::LHD, 3);
+    let mut opt =
+        Optimizer::new_with_strategy(bounds, turbo_enn_config(), strategy, &mut rng).unwrap();
+
+    let x = opt.ask(1, &mut rng).unwrap();
+    opt.tell(&x.view(), &array![[0.1, 0.2]].view(), &mut rng)
+        .unwrap();
+    assert_eq!(opt.init_progress(), Some((1, 3)));
+    assert_eq!(opt.obs_count(), 1);
+
+    let x = opt.ask(1, &mut rng).unwrap();
+    assert!(opt
+        .tell(&x.view(), &array![[0.3]].view(), &mut rng)
+        .is_err());
+    assert_eq!(opt.init_progress(), Some((1, 3)));
+    assert_eq!(opt.obs_count(), 1);
+}
+
+#[test]
 fn test_telemetry_populated_after_operations() {
     let bounds = array![[0.0, 1.0], [0.0, 1.0]];
     let mut rng = StdRng::seed_from_u64(99);
@@ -185,7 +209,7 @@ fn turbo_strategy_state_default_and_tell_common_paths() {
     .unwrap();
     let x = array![[0.2, 0.3]];
     let y = array![[0.1]];
-    tell_common(&mut opt_no_sur, &x.view(), &y.view(), None, &mut rng).unwrap();
+    tell_common(&mut opt_no_sur, &x.view(), &y.view(), None, None, &mut rng).unwrap();
 
     let mut opt_enn =
         Optimizer::new_with_strategy(bounds, turbo_enn_config(), Strategy::turbo(), &mut rng)
@@ -197,6 +221,7 @@ fn turbo_strategy_state_default_and_tell_common_paths() {
         &mut opt_enn,
         &x2.view(),
         &y2.view(),
+        None,
         Some(&mut tel),
         &mut rng,
     )

@@ -9,5 +9,7 @@ results/
 /bazel-*
 /buck-out/
 /.buck2-tools/
+/.zig-cache/
+/zig-out/
 /tests/bazel_consumer/MODULE.bazel.lock
 /tests/bazel_consumer/bazel-*

@@ -28,6 +28,13 @@ def app_rust_library(name, rustc_flags = None, **kwargs):
         **kwargs
     )
 
+def app_rust_binary(name, rustc_flags = None, **kwargs):
+    cargo.rust_binary(
+        name = name,
+        rustc_flags = (rustc_flags or []) + profile_rustc_flags(),
+        **kwargs
+    )
+
 def reindeer_rust_library(
         name,
         crate,

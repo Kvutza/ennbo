@@ -19,4 +19,4 @@ cmp Cargo.Accelerators.lock buck2/accelerators/Cargo.lock
     --local-only \
     --num-threads 4 \
     --console simple
-./tools/buck2-wheel-smoke
+./tools/buck2-wheel-verify

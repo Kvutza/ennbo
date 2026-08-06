@@ -14,7 +14,7 @@ ENNX edit + Metal:    7.77 s
 
 The full gate regenerates and verifies dependency locks, runs FAISS, BPANN,
 Metal, and OpenCL tests, builds the release wheel, audits its loader paths,
-imports it in a clean directory, and calls native ENNX code.
+imports it in a clean directory, and calls the compiled ENNX extension.
 
 Measured 2026-07-28 on an Apple M4 MacBook Air with 10 cores, 24 GB memory,
 macOS 26.5.1, Buck2 `2026-07-14-1560aca`, Bazel 9.2.0, and Rust 1.88.0.
@@ -146,19 +146,19 @@ its deployment target.
 ## Wheel
 
 ```sh
-pixi run -e ennx buck2-smoke
+pixi run -e ennx buck2-verify
 ```
 
 ```text
 @rpath/libomp.dylib
 path @loader_path/.dylibs
-native smoke: center=2.0, scale=0.8164965809277261
+wheel smoke: center=2.0, scale=0.8164965809277261
 ennx-0.0.0-cp313-cp313-macosx_11_0_arm64.whl
 ```
 
 The smoke extracts into a new empty temporary directory, rejects host-specific
 library paths, imports with CPython 3.13 without loader environment variables,
-and calls native ENNX code.
+and calls the compiled ENNX extension.
 
 ## Dependency regeneration
 

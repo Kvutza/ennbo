@@ -12,20 +12,22 @@ That is an embedding/link mode issue, not a missing algorithm implementation.
 
 From repo root:
 
-1. Install the extension into the active Python env:
+1. Run source-only config tests:
 
 ```bash
 cd /path/to/repo
-pixi run -e ennx check
+pixi run -e ennx test
 ```
 
-2. Run Python parity/contract tests:
+2. Build the wheel and run its isolated wheel smoke and API tests:
 
 ```bash
 cd /path/to/repo
-PYTHONPATH=src:$PYTHONPATH python -m pytest tests/python_api -q
-PYTHONPATH=src:$PYTHONPATH python -m pytest tests/parity/helpers -q
+pixi run -e ennx buck2-verify
 ```
+
+Do not combine `PYTHONPATH=src` with an extension installed only in
+`site-packages`; the source package would shadow the installed wheel.
 
 ## Rust-side checks that should still pass
 

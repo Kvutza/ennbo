@@ -1,9 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
-from .init_strategy_base import InitStrategy
+
+class InitStrategy:
+    pass
+
+
+@dataclass(frozen=True)
+class HybridInit(InitStrategy):
+    pass
+
+
+@dataclass(frozen=True)
+class LHDOnlyInit(InitStrategy):
+    pass
 
 
 @dataclass(frozen=True)
@@ -21,9 +32,7 @@ class InitConfig:
         if self.num_init is not None and self.num_init <= 0:
             raise ValueError(f"num_init must be > 0, got {self.num_init}")
 
-    def get_init_strategy(self) -> Any:
+    def get_init_strategy(self) -> InitStrategy:
         if self.init_strategy is not None:
             return self.init_strategy
-        from .init_strategies.hybrid_init import HybridInit
-
         return HybridInit()

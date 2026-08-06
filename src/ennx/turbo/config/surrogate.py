@@ -1,8 +1,6 @@
 from .enn_surrogate_config import ENNFitConfig, ENNSurrogateConfig
-from .gp_surrogate_config import GPSurrogateConfig
-from .no_surrogate_config import NoSurrogateConfig
+from .model import GPSurrogateConfig, NoSurrogateConfig, SurrogateConfig
 
-SurrogateConfig = NoSurrogateConfig | GPSurrogateConfig | ENNSurrogateConfig
 __all__ = [
     "ENNFitConfig",
     "ENNSurrogateConfig",

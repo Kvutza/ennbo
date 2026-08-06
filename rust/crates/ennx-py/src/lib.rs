@@ -15,7 +15,9 @@ pub mod ennx_py_build {
     use super::link_rpath;
     define_ennx_py_build_api!(link_rpath);
 }
+pub mod adapter;
 pub mod link_rpath;
+pub mod py_experimental;
 pub mod py_fit;
 pub mod py_fitter;
 pub mod py_hash;
@@ -28,10 +30,10 @@ pub mod py_weights;
 mod pymodule_wrappers;
 
 pub use pymodule_wrappers::{
-    kiss_link_child_pymodule_exports, pymodule_fit, pymodule_fit_kiss_hook, pymodule_hash,
-    pymodule_hash_kiss_hook, pymodule_hypervolume, pymodule_hypervolume_kiss_hook, pymodule_model,
-    pymodule_model_kiss_hook, pymodule_optimizer, pymodule_optimizer_kiss_hook, pymodule_util,
-    pymodule_util_kiss_hook,
+    kiss_link_child_pymodule_exports, pymodule_experimental, pymodule_experimental_kiss_hook,
+    pymodule_fit, pymodule_fit_kiss_hook, pymodule_hash, pymodule_hash_kiss_hook,
+    pymodule_hypervolume, pymodule_hypervolume_kiss_hook, pymodule_model, pymodule_model_kiss_hook,
+    pymodule_optimizer, pymodule_optimizer_kiss_hook, pymodule_util, pymodule_util_kiss_hook,
 };
 
 /// Main module, packaged by Bazel as `ennx.ennx_rust`.
@@ -44,6 +46,7 @@ pub(crate) fn pymodule_ennx_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(pymodule_util))?;
     m.add_wrapped(wrap_pymodule!(pymodule_model))?;
     m.add_wrapped(wrap_pymodule!(pymodule_fit))?;
+    m.add_wrapped(wrap_pymodule!(pymodule_experimental))?;
     m.add_wrapped(wrap_pymodule!(pymodule_optimizer))?;
     Ok(())
 }
@@ -86,6 +89,11 @@ pub fn kiss_touch_init_fit_module() {
 }
 
 #[doc(hidden)]
+pub fn kiss_touch_experimental_module() {
+    let _ = pymodule_experimental as fn(&Bound<'_, PyModule>) -> PyResult<()>;
+}
+
+#[doc(hidden)]
 pub fn kiss_touch_optimizer_module() {
     let _ = pymodule_optimizer as fn(&Bound<'_, PyModule>) -> PyResult<()>;
 }
@@ -107,6 +115,7 @@ mod kiss_pymodule_coverage {
             pymodule_util as fn(&Bound<'_, PyModule>) -> PyResult<()>,
             pymodule_model as fn(&Bound<'_, PyModule>) -> PyResult<()>,
             pymodule_fit as fn(&Bound<'_, PyModule>) -> PyResult<()>,
+            pymodule_experimental as fn(&Bound<'_, PyModule>) -> PyResult<()>,
             pymodule_optimizer as fn(&Bound<'_, PyModule>) -> PyResult<()>,
             pymodule_ennx_rust as fn(&Bound<'_, PyModule>) -> PyResult<()>,
         );
@@ -124,6 +133,7 @@ mod kiss_pymodule_coverage {
         kiss_touch_util_module();
         kiss_touch_init_model_module();
         kiss_touch_init_fit_module();
+        kiss_touch_experimental_module();
         kiss_touch_optimizer_module();
         kiss_touch_ennx_rust_module();
         kiss_link_pymodule_exports();

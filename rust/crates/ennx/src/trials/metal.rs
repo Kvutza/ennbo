@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use metal::{Buffer, ComputePipelineState, MTLSize};
 
-use super::{make_steps, make_tiles, Ask, Center, Leaf, Step, Tile};
+use super::{Ask, Center, Leaf, Step, Tile, make_steps, make_tiles};
 use crate::apple_gpu::Runtime;
 
 const THREADS: u64 = 256;
@@ -20,7 +20,7 @@ struct Seed {
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct Params {
-    row_bytes: u32,
+    row_stride: u32,
     history: u32,
     candidates: u32,
     leaves: u32,
@@ -80,6 +80,7 @@ pub(super) struct Engine {
     runtime: Arc<Runtime>,
     rows: Buffer,
     row_bytes: usize,
+    row_stride: usize,
     tile_count: usize,
     distance: ComputePipelineState,
     score: ComputePipelineState,
@@ -114,8 +115,18 @@ impl Engine {
         let multi_tr_pick = pipeline("multi_tr_pick_trials")?;
         let write = pipeline("write_trial")?;
         let row_bytes = base.len();
+        let row_stride = row_bytes
+            .checked_add(3)
+            .ok_or("model row stride overflow")?
+            & !3;
         let tiles = make_tiles(leaves);
-        let rows = shared(&runtime, slots.saturating_mul(row_bytes), "model rows")?;
+        let rows = shared(
+            &runtime,
+            slots
+                .checked_mul(row_stride)
+                .ok_or("model row arena size overflow")?,
+            "model rows",
+        )?;
         copy_to(&rows, base);
         let scratch = Scratch {
             history_slots: shared(
@@ -156,6 +167,7 @@ impl Engine {
             runtime,
             rows,
             row_bytes,
+            row_stride,
             tile_count: tiles.len(),
             distance,
             score,
@@ -176,6 +188,7 @@ impl Engine {
         seeds: &[u64],
         leaves: &[Leaf],
         config: Ask,
+        materialize_row: bool,
     ) -> Result<(usize, f32), String> {
         self.ensure_candidates(seeds.len())?;
         let distance_groups = distance_groups(seeds.len(), history.len(), self.tile_count)?;
@@ -186,7 +199,7 @@ impl Engine {
         self.sync_draws(seeds.len(), config);
 
         let params = Params {
-            row_bytes: to_u32(self.row_bytes, "row bytes")?,
+            row_stride: to_u32(self.row_stride, "row stride")?,
             history: to_u32(history.len(), "history length")?,
             candidates: to_u32(seeds.len(), "candidate count")?,
             leaves: to_u32(leaves.len(), "leaf count")?,
@@ -237,6 +250,63 @@ impl Engine {
         set_params(encoder, 2, &params);
         encoder.dispatch_thread_groups(group(1), group(selection_threads(seeds.len())));
 
+        if materialize_row {
+            encoder.set_compute_pipeline_state(&self.write);
+            encoder.set_buffer(0, Some(&self.rows), 0);
+            encoder.set_buffer(1, Some(&self.scratch.seeds), 0);
+            encoder.set_buffer(2, Some(&self.scratch.choice), 0);
+            encoder.set_buffer(3, Some(&self.scratch.leaves), 0);
+            encoder.set_buffer(4, Some(&self.scratch.tiles), 0);
+            set_params(encoder, 5, &params);
+            encoder.dispatch_thread_groups(
+                MTLSize {
+                    width: params.tiles as u64,
+                    height: 1,
+                    depth: 1,
+                },
+                group(THREADS),
+            );
+        }
+        encoder.end_encoding();
+        command.commit();
+        command.wait_until_completed();
+
+        let index = read_one::<u32>(&self.scratch.choice) as usize;
+        let scores = read_slice::<f32>(&self.scratch.scores, seeds.len());
+        Ok((index, scores[index]))
+    }
+
+    pub(super) fn materialize(
+        &mut self,
+        base_slot: usize,
+        trial_slot: usize,
+        seed: u64,
+        steps: &[Step],
+    ) -> Result<(), String> {
+        self.ensure_candidates(1)?;
+        self.sync_steps(steps);
+        self.write_seeds(&[seed]);
+        copy_one(&self.scratch.choice, 0, 0_u32);
+
+        let params = Params {
+            row_stride: to_u32(self.row_stride, "row stride")?,
+            history: 0,
+            candidates: 1,
+            leaves: to_u32(steps.len(), "leaf count")?,
+            tiles: to_u32(self.tile_count, "tile count")?,
+            neighbors: 0,
+            base_slot: to_u32(base_slot, "base slot")?,
+            trial_slot: to_u32(trial_slot, "trial slot")?,
+            center_count: 0,
+            acquisition: 0,
+            epistemic_scale: 0.0,
+            aleatoric_scale: 0.0,
+            y_scale: 0.0,
+            beta: 0.0,
+        };
+
+        let command = self.runtime.queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.write);
         encoder.set_buffer(0, Some(&self.rows), 0);
         encoder.set_buffer(1, Some(&self.scratch.seeds), 0);
@@ -255,10 +325,7 @@ impl Engine {
         encoder.end_encoding();
         command.commit();
         command.wait_until_completed();
-
-        let index = read_one::<u32>(&self.scratch.choice) as usize;
-        let scores = read_slice::<f32>(&self.scratch.scores, seeds.len());
-        Ok((index, scores[index]))
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -342,7 +409,7 @@ impl Engine {
         self.sync_draws(seeds.len(), config);
 
         let params = Params {
-            row_bytes: to_u32(self.row_bytes, "row bytes")?,
+            row_stride: to_u32(self.row_stride, "row stride")?,
             history: to_u32(history.len(), "history length")?,
             candidates: to_u32(seeds.len(), "candidate count")?,
             leaves: to_u32(leaves.len(), "leaf count")?,
@@ -419,15 +486,22 @@ impl Engine {
     }
 
     pub(super) fn read(&self, slot: usize, row_bytes: usize) -> Vec<u8> {
-        let start = slot * row_bytes;
+        let start = slot * self.row_stride;
         unsafe {
             std::slice::from_raw_parts(self.rows.contents().cast::<u8>().add(start), row_bytes)
                 .to_vec()
         }
     }
 
+    pub(super) fn row_buffer(&self, slot: usize) -> Result<(Buffer, usize), String> {
+        if self.row_bytes == 0 || slot >= self.rows.length() as usize / self.row_stride {
+            return Err(format!("model row slot {slot} is out of range"));
+        }
+        Ok((self.rows.to_owned(), slot * self.row_stride))
+    }
+
     pub(super) fn write(&self, slot: usize, row: &[u8]) {
-        let start = slot * self.row_bytes;
+        let start = slot * self.row_stride;
         unsafe {
             std::ptr::copy_nonoverlapping(
                 row.as_ptr(),
@@ -604,7 +678,19 @@ fn shared(runtime: &Runtime, bytes: usize, name: &str) -> Result<Buffer, String>
     if bytes == 0 {
         return Err(format!("{name} buffer cannot be empty"));
     }
-    Ok(runtime.buffer::<u8>(bytes))
+    let max_bytes = runtime.device.max_buffer_length();
+    if bytes as u64 > max_bytes as u64 {
+        return Err(format!(
+            "{name} buffer requires {bytes} bytes, exceeding the Metal device limit of {max_bytes} bytes"
+        ));
+    }
+    let buffer = runtime.buffer::<u8>(bytes);
+    if buffer.length() < bytes as u64 || buffer.contents().is_null() {
+        return Err(format!(
+            "Metal could not allocate the {name} buffer ({bytes} bytes)"
+        ));
+    }
+    Ok(buffer)
 }
 
 fn copy_to<T>(buffer: &Buffer, values: &[T]) {

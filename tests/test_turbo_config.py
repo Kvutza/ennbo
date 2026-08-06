@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import pytest
 
+from ennx.turbo import config as cfg
 from ennx.turbo.config import (
     AcqType,
     CandidateGenConfig,
     CandidateRV,
     DrawAcquisitionConfig,
+    ENNDistanceMetric,
     ENNFitConfig,
     ENNIndexDriver,
     ENNSurrogateConfig,
@@ -16,9 +18,11 @@ from ennx.turbo.config import (
     LHDOnlyInit,
     MorboTRConfig,
     MultiObjectiveConfig,
+    MultiTRConfig,
     NDSOptimizerConfig,
     NoSurrogateConfig,
     NoTRConfig,
+    ObservationHistoryConfig,
     OptimizerConfig,
     ParetoAcquisitionConfig,
     RAASPOptimizerConfig,
@@ -32,7 +36,6 @@ from ennx.turbo.config import (
     turbo_one_config,
     turbo_zero_config,
 )
-from ennx.turbo.config.turbo_tr_config import TRLengthConfig
 
 
 def test_turbo_tr_config_defaults():
@@ -43,29 +46,29 @@ def test_turbo_tr_config_defaults():
 
 
 def test_turbo_tr_config_custom():
-    cfg = TurboTRConfig(
-        length=TRLengthConfig(length_init=0.5, length_min=0.01, length_max=2.0)
+    tr = TurboTRConfig(
+        length=cfg.Length(length_init=0.5, length_min=0.01, length_max=2.0)
     )
-    assert cfg.length_init == 0.5
-    assert cfg.length_min == 0.01
-    assert cfg.length_max == 2.0
+    assert tr.length_init == 0.5
+    assert tr.length_min == 0.01
+    assert tr.length_max == 2.0
 
 
 def test_turbo_tr_config_invalid():
     with pytest.raises(ValueError, match="length_init must be > 0"):
-        TRLengthConfig(length_init=0)
+        cfg.Length(length_init=0)
     with pytest.raises(ValueError, match="length_min must be < length_max"):
-        TRLengthConfig(length_min=1.0, length_max=0.5)
+        cfg.Length(length_min=1.0, length_max=0.5)
 
 
 def test_turbo_tr_config_invalid_length_init_exceeds_max():
     with pytest.raises(ValueError, match="length_init must be <= length_max"):
-        TRLengthConfig(length_init=2.0, length_max=1.0)
+        cfg.Length(length_init=2.0, length_max=1.0)
 
 
 def test_turbo_tr_config_invalid_length_min_exceeds_init():
     with pytest.raises(ValueError, match="length_min must be <= length_init"):
-        TRLengthConfig(length_init=0.05, length_min=0.1)
+        cfg.Length(length_init=0.05, length_min=0.1)
 
 
 def test_morbo_tr_config():
@@ -109,17 +112,17 @@ def test_morbo_tr_config_length_defaults():
 
 
 def test_morbo_tr_config_custom_length():
-    cfg = MorboTRConfig(
+    tr = MorboTRConfig(
         multi_objective=MultiObjectiveConfig(num_metrics=2),
-        length=TRLengthConfig(
+        length=cfg.Length(
             length_init=0.5,
             length_min=0.01,
             length_max=2.0,
         ),
     )
-    assert cfg.length_init == 0.5
-    assert cfg.length_min == 0.01
-    assert cfg.length_max == 2.0
+    assert tr.length_init == 0.5
+    assert tr.length_min == 0.01
+    assert tr.length_max == 2.0
 
 
 def test_morbo_tr_config_rescalarize_default():
@@ -146,8 +149,7 @@ def test_rescale_policy_config_custom():
 
 
 def test_no_tr_config():
-    cfg = NoTRConfig()
-    assert cfg is not None
+    assert NoTRConfig().noise_aware is False
 
 
 def test_candidate_gen_config_defaults():
@@ -205,16 +207,6 @@ def test_init_config_invalid_num_init():
         InitConfig(num_init=0)
 
 
-def test_no_surrogate_config():
-    cfg = NoSurrogateConfig()
-    assert cfg is not None
-
-
-def test_gp_surrogate_config():
-    cfg = GPSurrogateConfig()
-    assert cfg is not None
-
-
 def test_enn_surrogate_config_defaults():
     cfg = ENNSurrogateConfig()
     assert cfg.k is None
@@ -265,33 +257,8 @@ def test_enn_surrogate_config_num_fit_candidates_custom():
 
 
 def test_ucb_acquisition_config():
-    cfg = UCBAcquisitionConfig()
-    assert cfg is not None
-
-
-def test_draw_acquisition_config():
-    cfg = DrawAcquisitionConfig()
-    assert cfg is not None
-
-
-def test_pareto_acquisition_config():
-    cfg = ParetoAcquisitionConfig()
-    assert cfg is not None
-
-
-def test_random_acquisition_config():
-    cfg = RandomAcquisitionConfig()
-    assert cfg is not None
-
-
-def test_raasp_optimizer_config():
-    cfg = RAASPOptimizerConfig()
-    assert cfg is not None
-
-
-def test_nds_optimizer_config():
-    cfg = NDSOptimizerConfig()
-    assert cfg is not None
+    acq = UCBAcquisitionConfig()
+    assert acq.beta == 2.0
 
 
 def test_optimizer_config_defaults():
@@ -300,6 +267,7 @@ def test_optimizer_config_defaults():
     assert cfg.candidate_rv == CandidateRV.SOBOL
     assert cfg.init.num_init is None
     assert isinstance(cfg.surrogate, NoSurrogateConfig)
+    assert isinstance(cfg.observation_history, ObservationHistoryConfig)
 
 
 def test_optimizer_config_lhd_only_requires_no_surrogate():
@@ -444,3 +412,25 @@ def test_optimizer_config_num_metrics():
     assert cfg_morbo.num_metrics == 2
     cfg_none = OptimizerConfig(trust_region=NoTRConfig())
     assert cfg_none.num_metrics is None
+
+
+def test_short_config_namespace():
+    config = cfg.enn(enn=cfg.ENN(fit=cfg.Fit(num_fit_samples=4)))
+
+    assert isinstance(config, cfg.Config)
+    assert config.candidates == cfg.Candidates()
+    assert config.raasp_driver is cfg.RAASPDriver.ORIG
+
+
+def test_enum_values():
+    assert ENNDistanceMetric.SQUARED_L2.value == "squared_l2"
+    assert ENNDistanceMetric.COSINE.value == "cosine"
+
+
+def test_multi_tr_lengths():
+    tr = MultiTRConfig()
+    assert (tr.length_init, tr.length_min, tr.length_max) == (
+        tr.length.length_init,
+        tr.length.length_min,
+        tr.length.length_max,
+    )

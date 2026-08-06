@@ -16,16 +16,21 @@ llvm-openmp = "22.1.8.*"
 lld = "20.*"
 libfaiss = { version = "1.10.*", build = "cpu_openblas_*" }
 rust = "1.88.*"
+zig = ">=0.16.0,<0.17"
 
 [feature.ennx.tasks]
-test = "python -m pytest -q tests/test_candidate_gen_direct.py tests/test_raasp_candidates.py tests/parity/test_rust_config_passthrough.py"
-test-trials = "python -m pytest -q tests/test_weight_search.py"
+test = "python -m pytest -q tests/test_turbo_config.py tests/test_candidate_gen_direct.py tests/test_encode.py tests/test_quantization.py"
+test-trials = "tools/buck2-wheel-verify"
 buck2-deps = "tools/buck2-deps"
-buck2-build = "./buck2w --isolation-dir dev build //rust/crates/bpann:bpann //rust/crates/ennx:ennx --local-only --num-threads 4 -M none"
+buck2-build = "./buck2w --isolation-dir dev build //rust/crates/bpann:bpann //rust/crates/ennx:ennx //rust/crates/ennx-py:ennx-py //rust/crates/dev-cli:ennx --local-only --num-threads 4 -M none"
 buck2-test = "./buck2w --isolation-dir dev test //buck2/tests:all --local-only --num-threads 4"
 buck2-wheel = "./buck2w --isolation-dir release build //:wheel --config ennx.profile=release --local-only --num-threads 4 --show-output"
-buck2-smoke = "tools/buck2-wheel-smoke"
+buck2-verify = "tools/buck2-wheel-verify"
 buck2-gates = "tools/buck2-gates"
+zig-build = "zig build"
+zig-test = "zig build test"
+zig-abi = "tools/zig-abi"
+zig-check = "zig fmt --check build.zig zig/src zig/tests && zig build test && tools/zig-abi"
 
 [environments]
 ennx = { features = ["ennx"], no-default-feature = true }

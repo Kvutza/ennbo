@@ -263,6 +263,7 @@ name = "ennx"
 version = "0.0.0"
 dependencies = [
  "approx",
+ "cc",
  "ennx-bpann",
  "faiss",
  "memmap2",

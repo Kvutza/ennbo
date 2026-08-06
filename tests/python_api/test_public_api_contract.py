@@ -97,6 +97,7 @@ class TestPublicAPIExports:
         assert callable(experimental.make_multi_trust_region)
         assert inspect.isclass(experimental.Optimizer)
         assert inspect.isclass(experimental.MultiTrustRegion)
+        assert inspect.isclass(experimental.ResidentBoSession)
         assert callable(experimental.create_optimizer_enn)
 
     def test_enum_types(self):

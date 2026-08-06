@@ -2,13 +2,13 @@ use std::ptr;
 
 use opencl3::command_queue::CommandQueue;
 use opencl3::context::Context;
-use opencl3::device::{get_all_devices, Device, CL_DEVICE_TYPE_CPU, CL_DEVICE_TYPE_GPU};
+use opencl3::device::{CL_DEVICE_TYPE_CPU, CL_DEVICE_TYPE_GPU, Device, get_all_devices};
 use opencl3::kernel::{ExecuteKernel, Kernel};
 use opencl3::memory::{Buffer, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE};
 use opencl3::program::Program;
-use opencl3::types::{cl_mem_flags, CL_BLOCKING, CL_NON_BLOCKING};
+use opencl3::types::{CL_BLOCKING, CL_NON_BLOCKING, cl_mem_flags};
 
-use super::{make_steps, make_tiles, Ask, Center, Leaf, Step, Tile};
+use super::{Ask, Center, Leaf, Step, Tile, make_steps, make_tiles};
 
 const THREADS: usize = 256;
 const SOURCE: &str = include_str!("trials.cl");
@@ -168,6 +168,7 @@ impl Engine {
         seeds: &[u64],
         leaves: &[Leaf],
         config: Ask,
+        materialize_row: bool,
     ) -> Result<(usize, f32), String> {
         self.ensure_candidates(seeds.len())?;
         let distance_groups = seeds
@@ -245,17 +246,19 @@ impl Engine {
                 .set_local_work_size(1)
                 .enqueue_nd_range(&self.queue)
                 .map_err(|error| format!("failed to launch OpenCL trial selection: {error}"))?;
-            ExecuteKernel::new(&self.write)
-                .set_arg(&self.rows)
-                .set_arg(&self.scratch.seeds)
-                .set_arg(&self.scratch.choice)
-                .set_arg(&self.scratch.leaves)
-                .set_arg(&self.scratch.tiles)
-                .set_arg(&params)
-                .set_global_work_size(self.tile_count * THREADS)
-                .set_local_work_size(THREADS)
-                .enqueue_nd_range(&self.queue)
-                .map_err(|error| format!("failed to launch OpenCL trial write: {error}"))?;
+            if materialize_row {
+                ExecuteKernel::new(&self.write)
+                    .set_arg(&self.rows)
+                    .set_arg(&self.scratch.seeds)
+                    .set_arg(&self.scratch.choice)
+                    .set_arg(&self.scratch.leaves)
+                    .set_arg(&self.scratch.tiles)
+                    .set_arg(&params)
+                    .set_global_work_size(self.tile_count * THREADS)
+                    .set_local_work_size(THREADS)
+                    .enqueue_nd_range(&self.queue)
+                    .map_err(|error| format!("failed to launch OpenCL trial write: {error}"))?;
+            }
         }
 
         let mut choice = [0u32];
@@ -272,6 +275,65 @@ impl Engine {
         }
         let index = choice[0] as usize;
         Ok((index, scores[index]))
+    }
+
+    pub(super) fn materialize(
+        &mut self,
+        base_slot: usize,
+        trial_slot: usize,
+        seed: u64,
+        steps: &[Step],
+    ) -> Result<(), String> {
+        self.ensure_candidates(1)?;
+        let seeds = [Seed {
+            low: seed as u32,
+            high: (seed >> 32) as u32,
+        }];
+        let choice = [0_u32];
+        unsafe {
+            self.queue
+                .enqueue_write_buffer(&mut self.scratch.seeds, CL_NON_BLOCKING, 0, &seeds, &[])
+                .map_err(|error| format!("failed to write OpenCL trial seed: {error}"))?;
+            self.queue
+                .enqueue_write_buffer(&mut self.scratch.choice, CL_NON_BLOCKING, 0, &choice, &[])
+                .map_err(|error| format!("failed to write OpenCL trial choice: {error}"))?;
+            self.queue
+                .enqueue_write_buffer(&mut self.scratch.leaves, CL_NON_BLOCKING, 0, steps, &[])
+                .map_err(|error| format!("failed to write OpenCL trial leaves: {error}"))?;
+        }
+
+        let params = Params {
+            row_bytes: to_u32(self.row_bytes, "row bytes")?,
+            history: 0,
+            candidates: 1,
+            leaves: to_u32(steps.len(), "leaf count")?,
+            tiles: to_u32(self.tile_count, "tile count")?,
+            neighbors: 0,
+            base_slot: to_u32(base_slot, "base slot")?,
+            trial_slot: to_u32(trial_slot, "trial slot")?,
+            center_count: 0,
+            acquisition: 0,
+            epistemic_scale: 0.0,
+            aleatoric_scale: 0.0,
+            y_scale: 0.0,
+            beta: 0.0,
+        };
+        unsafe {
+            ExecuteKernel::new(&self.write)
+                .set_arg(&self.rows)
+                .set_arg(&self.scratch.seeds)
+                .set_arg(&self.scratch.choice)
+                .set_arg(&self.scratch.leaves)
+                .set_arg(&self.scratch.tiles)
+                .set_arg(&params)
+                .set_global_work_size(self.tile_count * THREADS)
+                .set_local_work_size(THREADS)
+                .enqueue_nd_range(&self.queue)
+                .map_err(|error| format!("failed to launch OpenCL trial write: {error}"))?;
+        }
+        self.queue
+            .finish()
+            .map_err(|error| format!("failed to finish OpenCL trial write: {error}"))
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -63,6 +63,17 @@ pub fn pymodule_fit(m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
+/// Experimental native model-package API.
+#[pymodule]
+#[pyo3(name = "experimental")]
+pub fn pymodule_experimental(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<crate::py_experimental::PyModelPackage>()?;
+    m.add_class::<crate::py_experimental::PyResidentBoSession>()?;
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    m.add_class::<crate::py_experimental::PyNativeKdaModel>()?;
+    Ok(())
+}
+
 /// Optimizer module
 #[pymodule]
 #[pyo3(name = "optimizer")]
@@ -71,7 +82,12 @@ pub fn pymodule_optimizer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::py_optimizer::PyMultiTrustRegion>()?;
     m.add_class::<crate::py_optimizer::PyTelemetry>()?;
     m.add_class::<crate::py_weights::PyWeightSearch>()?;
+    m.add_class::<crate::py_weights::PyDenseLinear>()?;
     m.add_class::<crate::py_weights::PyBpannHistory>()?;
+    m.add_function(wrap_pyfunction!(
+        crate::py_optimizer::create_optimizer_py,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(
         crate::py_optimizer::create_optimizer_enn_py,
         m
@@ -96,6 +112,9 @@ pub fn pymodule_optimizer(m: &Bound<'_, PyModule>) -> PyResult<()> {
         crate::py_weights::weight_select_ucb_py,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(crate::py_weights::dense_apply_py, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::py_weights::dense_dist2_py, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::py_weights::dense_linear_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_weights::sparse_union_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_weights::sparse_xor_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_weights::sparse_missing_py, m)?)?;
@@ -138,6 +157,11 @@ pub fn pymodule_fit_kiss_hook() {
 }
 
 #[doc(hidden)]
+pub fn pymodule_experimental_kiss_hook() {
+    std::hint::black_box(pymodule_experimental);
+}
+
+#[doc(hidden)]
 pub fn pymodule_optimizer_kiss_hook() {
     std::hint::black_box(pymodule_optimizer);
 }
@@ -149,6 +173,7 @@ pub fn kiss_link_child_pymodule_exports() {
     pymodule_util_kiss_hook();
     pymodule_model_kiss_hook();
     pymodule_fit_kiss_hook();
+    pymodule_experimental_kiss_hook();
     pymodule_optimizer_kiss_hook();
 }
 

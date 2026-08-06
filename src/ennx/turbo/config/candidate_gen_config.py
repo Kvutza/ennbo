@@ -1,9 +1,15 @@
+# ruff: noqa: TRY004
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum, auto
 
 from .candidate_rv import CandidateRV
-from .raasp_driver import RAASPDriver
+
+
+class RAASPDriver(Enum):
+    ORIG = auto()
+    FAST = auto()
 
 
 @dataclass(frozen=True)

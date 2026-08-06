@@ -197,41 +197,90 @@ pub fn parse_config_overrides_from_dict(
 #[pyclass(name = "Optimizer")]
 pub struct PyOptimizer {
     inner: ennx::Optimizer,
+    rng: StdRng,
+    expects_yvar: Option<bool>,
 }
 
 #[pymethods]
 impl PyOptimizer {
     /// Ask for candidate points
-    #[pyo3(signature = (num_arms, seed))]
+    #[pyo3(signature = (num_arms, seed=None))]
     fn ask<'py>(
         &mut self,
         py: Python<'py>,
         num_arms: usize,
-        seed: u64,
+        seed: Option<u64>,
     ) -> PyResult<Bound<'py, PyArrayDyn<f64>>> {
-        let mut rng = StdRng::seed_from_u64(seed);
-
-        let result = self
-            .inner
-            .ask(num_arms, &mut rng)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-
+        if num_arms == 0 {
+            return Err(PyValueError::new_err("num_arms must be greater than zero"));
+        }
+        let result_unit = match seed {
+            Some(seed) => {
+                let mut rng = StdRng::seed_from_u64(seed);
+                self.inner.ask(num_arms, &mut rng)
+            }
+            None => self.inner.ask(num_arms, &mut self.rng),
+        }
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let result = ennx::from_unit(&result_unit.view(), &self.inner.bounds().view());
         Ok(result.into_dyn().into_pyarray_bound(py))
     }
 
     /// Tell observations
-    #[pyo3(signature = (x, y, seed))]
+    #[pyo3(signature = (x, y, seed=None, y_var=None))]
     fn tell(
         &mut self,
         x: PyReadonlyArray2<f64>,
         y: PyReadonlyArray2<f64>,
-        seed: u64,
+        seed: Option<u64>,
+        y_var: Option<PyReadonlyArray2<f64>>,
     ) -> PyResult<()> {
-        let mut rng = StdRng::seed_from_u64(seed);
-
-        self.inner
-            .tell(&x.as_array(), &y.as_array(), &mut rng)
-            .map_err(|e| PyValueError::new_err(e.to_string()))
+        if x.shape()[0] != y.shape()[0] || x.shape()[1] != self.inner.num_dim() {
+            return Err(PyValueError::new_err(format!(
+                "x/y shape mismatch: x={:?}, y={:?}, dimensions={}",
+                x.shape(),
+                y.shape(),
+                self.inner.num_dim()
+            )));
+        }
+        if let Some(variance) = y_var.as_ref() {
+            if variance.shape() != y.shape() {
+                return Err(PyValueError::new_err(format!(
+                    "y_var must have shape {:?}, got {:?}",
+                    y.shape(),
+                    variance.shape()
+                )));
+            }
+        }
+        if let Some(expects) = self.expects_yvar {
+            if expects != y_var.is_some() {
+                return Err(PyValueError::new_err(format!(
+                    "y_var must be {} on every tell()",
+                    if expects { "provided" } else { "omitted" }
+                )));
+            }
+        }
+        let x_unit = ennx::to_unit(&x.as_array(), &self.inner.bounds().view());
+        let y_view = y.as_array();
+        let yvar_view = y_var.as_ref().map(PyReadonlyArray2::as_array);
+        let result = match seed {
+            Some(seed) => {
+                let mut rng = StdRng::seed_from_u64(seed);
+                self.inner
+                    .tell_with_yvar(&x_unit.view(), &y_view, yvar_view.as_ref(), &mut rng)
+            }
+            None => self.inner.tell_with_yvar(
+                &x_unit.view(),
+                &y_view,
+                yvar_view.as_ref(),
+                &mut self.rng,
+            ),
+        }
+        .map_err(|e| PyValueError::new_err(e.to_string()));
+        if result.is_ok() {
+            self.expects_yvar = Some(y_var.is_some());
+        }
+        result
     }
 
     /// Get init progress if in initialization phase
@@ -253,7 +302,7 @@ impl PyOptimizer {
 
     /// Number of retained trust-region observations.
     fn tr_obs_count(&self) -> usize {
-        self.inner.y_obs().map_or(0, |y| y.nrows())
+        self.inner.obs_count()
     }
 
     /// Current trust-region length.
@@ -293,6 +342,120 @@ impl PyOptimizer {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn build_optimizer(
+    bounds: ndarray::Array2<f64>,
+    kind: &str,
+    k: i32,
+    num_init: usize,
+    num_regions: usize,
+    seed: u64,
+    cfg: Option<&Bound<'_, pyo3::types::PyDict>>,
+    gp: Option<Py<PyAny>>,
+    fit_steps: usize,
+) -> PyResult<PyOptimizer> {
+    use ennx::optimizer_factory::{
+        create_optimizer_enn_multi_tr_with_overrides, create_optimizer_enn_with_overrides,
+        create_optimizer_lhd_with_overrides, create_optimizer_zero_with_overrides,
+    };
+
+    let num_dim = bounds.nrows();
+    let overrides = cfg.map(parse_config_overrides_from_dict).transpose()?;
+    let mut rng = StdRng::seed_from_u64(seed);
+    let optimizer = match kind {
+        "enn" => create_optimizer_enn_with_overrides(
+            bounds,
+            k,
+            num_init,
+            &mut rng,
+            overrides.as_ref(),
+        ),
+        "enn_multi_tr" => create_optimizer_enn_multi_tr_with_overrides(
+            bounds,
+            k,
+            num_init,
+            num_regions,
+            &mut rng,
+            overrides.as_ref(),
+        ),
+        "zero" => create_optimizer_zero_with_overrides(
+            bounds,
+            num_init,
+            &mut rng,
+            overrides.as_ref(),
+        ),
+        "lhd" => create_optimizer_lhd_with_overrides(
+            bounds,
+            num_init,
+            &mut rng,
+            overrides.as_ref(),
+        ),
+        "gp" => {
+            let provider = gp.ok_or_else(|| {
+                PyValueError::new_err("kind='gp' requires a Python surrogate provider")
+            })?;
+            let mut config = ennx::turbo_zero_config();
+            if let Some(overrides) = overrides.as_ref() {
+                config = overrides.apply_to(config);
+            }
+            let strategy = ennx::Strategy::hybrid(ennx::InitStrategy::LHD, num_init);
+            let external = Box::new(crate::adapter::PythonSurrogateAdapter::new(
+                provider,
+                num_dim,
+                fit_steps,
+            ));
+            ennx::Optimizer::new_with_surrogate(
+                bounds,
+                config,
+                strategy,
+                external,
+                &mut rng,
+            )
+        }
+        _ => {
+            return Err(PyValueError::new_err(format!(
+                "unknown optimizer kind {kind:?}; expected 'enn', 'enn_multi_tr', 'zero', 'lhd', or 'gp'"
+            )))
+        }
+    }
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    Ok(PyOptimizer {
+        inner: optimizer,
+        rng,
+        expects_yvar: None,
+    })
+}
+
+/// Create a built-in optimizer, optionally with a batched Python surrogate adapter.
+#[pyfunction(name = "create_optimizer")]
+#[pyo3(signature = (bounds, kind, k=10, num_init=10, num_regions=4, seed=42, cfg=None, gp=None, fit_steps=50))]
+#[allow(clippy::too_many_arguments)]
+pub fn create_optimizer_py(
+    bounds: PyReadonlyArray2<f64>,
+    kind: &str,
+    k: i32,
+    num_init: usize,
+    num_regions: usize,
+    seed: u64,
+    cfg: Option<Bound<'_, pyo3::types::PyDict>>,
+    gp: Option<Py<PyAny>>,
+    fit_steps: usize,
+) -> PyResult<PyOptimizer> {
+    let bounds = bounds.as_array().to_owned();
+    build_optimizer(
+        bounds,
+        kind,
+        k,
+        num_init,
+        num_regions,
+        seed,
+        cfg.as_ref(),
+        gp,
+        fit_steps,
+    )
+}
+
 /// Telemetry data structure for Python
 #[pyclass(name = "Telemetry")]
 #[derive(Clone, Copy)]
@@ -319,24 +482,17 @@ pub fn create_optimizer_enn_py(
     seed: u64,
     config_overrides: Option<Bound<'_, pyo3::types::PyDict>>,
 ) -> PyResult<PyOptimizer> {
-    use ennx::optimizer_factory::create_optimizer_enn_with_overrides;
-
-    let mut rng = StdRng::seed_from_u64(seed);
-    let overrides: Option<ennx::ConfigOverrides> = config_overrides
-        .as_ref()
-        .map(|d| parse_config_overrides_from_dict(d))
-        .transpose()?;
-
-    let optimizer = create_optimizer_enn_with_overrides(
+    build_optimizer(
         bounds.as_array().to_owned(),
+        "enn",
         k,
         num_init,
-        &mut rng,
-        overrides.as_ref(),
+        4,
+        seed,
+        config_overrides.as_ref(),
+        None,
+        50,
     )
-    .map_err(|e| PyValueError::new_err(e.to_string()))?;
-
-    Ok(PyOptimizer { inner: optimizer })
 }
 
 /// Create experimental multi-trust-region TuRBO-ENN optimizer
@@ -350,25 +506,17 @@ pub fn create_optimizer_enn_multi_tr_py(
     seed: u64,
     config_overrides: Option<Bound<'_, pyo3::types::PyDict>>,
 ) -> PyResult<PyOptimizer> {
-    use ennx::optimizer_factory::create_optimizer_enn_multi_tr_with_overrides;
-
-    let mut rng = StdRng::seed_from_u64(seed);
-    let overrides: Option<ennx::ConfigOverrides> = config_overrides
-        .as_ref()
-        .map(|d| parse_config_overrides_from_dict(d))
-        .transpose()?;
-
-    let optimizer = create_optimizer_enn_multi_tr_with_overrides(
+    build_optimizer(
         bounds.as_array().to_owned(),
+        "enn_multi_tr",
         k,
         num_init,
         num_regions,
-        &mut rng,
-        overrides.as_ref(),
+        seed,
+        config_overrides.as_ref(),
+        None,
+        50,
     )
-    .map_err(|e| PyValueError::new_err(e.to_string()))?;
-
-    Ok(PyOptimizer { inner: optimizer })
 }
 
 /// Create TuRBO-ZERO optimizer
@@ -380,23 +528,17 @@ pub fn create_optimizer_zero_py(
     seed: u64,
     config_overrides: Option<Bound<'_, pyo3::types::PyDict>>,
 ) -> PyResult<PyOptimizer> {
-    use ennx::optimizer_factory::create_optimizer_zero_with_overrides;
-
-    let mut rng = StdRng::seed_from_u64(seed);
-    let overrides: Option<ennx::ConfigOverrides> = config_overrides
-        .as_ref()
-        .map(|d| parse_config_overrides_from_dict(d))
-        .transpose()?;
-
-    let optimizer = create_optimizer_zero_with_overrides(
+    build_optimizer(
         bounds.as_array().to_owned(),
+        "zero",
+        10,
         num_init,
-        &mut rng,
-        overrides.as_ref(),
+        4,
+        seed,
+        config_overrides.as_ref(),
+        None,
+        50,
     )
-    .map_err(|e| PyValueError::new_err(e.to_string()))?;
-
-    Ok(PyOptimizer { inner: optimizer })
 }
 
 /// Create LHD-only optimizer
@@ -408,23 +550,17 @@ pub fn create_optimizer_lhd_py(
     seed: u64,
     config_overrides: Option<Bound<'_, pyo3::types::PyDict>>,
 ) -> PyResult<PyOptimizer> {
-    use ennx::optimizer_factory::create_optimizer_lhd_with_overrides;
-
-    let mut rng = StdRng::seed_from_u64(seed);
-    let overrides: Option<ennx::ConfigOverrides> = config_overrides
-        .as_ref()
-        .map(|d| parse_config_overrides_from_dict(d))
-        .transpose()?;
-
-    let optimizer = create_optimizer_lhd_with_overrides(
+    build_optimizer(
         bounds.as_array().to_owned(),
+        "lhd",
+        10,
         num_init,
-        &mut rng,
-        overrides.as_ref(),
+        4,
+        seed,
+        config_overrides.as_ref(),
+        None,
+        50,
     )
-    .map_err(|e| PyValueError::new_err(e.to_string()))?;
-
-    Ok(PyOptimizer { inner: optimizer })
 }
 
 /// Python wrapper for MultiTrustRegion state machine

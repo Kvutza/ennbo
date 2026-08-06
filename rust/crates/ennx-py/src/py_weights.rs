@@ -1,7 +1,10 @@
+use ennx::experimental::{
+    DenseLeaf, DenseLinear, DenseTerm, DenseView, apply_dense, dense_dist2, dense_linear,
+};
 use ennx::{
-    apply_sparse, blocks_for_words, draw_sparse, merge_values, missing_words, select_weights,
-    sparse_union, sparse_xor, take_words, AcquisitionKind, BpannHistory, ComputeBackend, WeightAsk,
-    WeightBlock, WeightLeaf, WeightSearch, WeightSelectConfig, WeightTrial,
+    AcquisitionKind, BpannHistory, ComputeBackend, WeightAsk, WeightBlock, WeightLeaf,
+    WeightSearch, WeightSelectConfig, WeightTrial, apply_sparse, blocks_for_words, draw_sparse,
+    merge_values, missing_words, select_weights, sparse_union, sparse_xor, take_words,
 };
 use numpy::{Element, IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -69,10 +72,143 @@ fn trial_leaves_with_encoding(
         .collect()
 }
 
+fn dense_leaves(raw: Vec<(u64, usize, usize, f32)>) -> PyResult<Vec<DenseLeaf>> {
+    raw.into_iter()
+        .map(|(key, offset, len, scale)| DenseLeaf::new(key, offset, len, scale).map_err(err))
+        .collect()
+}
+
+fn dense_terms(raw: Vec<(u64, f32)>) -> PyResult<Vec<DenseTerm>> {
+    raw.into_iter()
+        .map(|(seed, coefficient)| DenseTerm::new(seed, coefficient).map_err(err))
+        .collect()
+}
+
+fn dense_view(raw: (u64, u64, f32)) -> PyResult<DenseView> {
+    DenseView::new(raw.0, raw.1, raw.2).map_err(err)
+}
+
+#[pyfunction(name = "dense_apply")]
+#[pyo3(signature=(base,leaves,terms,backend="auto"))]
+pub fn dense_apply_py<'py>(
+    py: Python<'py>,
+    base: PyReadonlyArray1<'_, f32>,
+    leaves: Vec<(u64, usize, usize, f32)>,
+    terms: Vec<(u64, f32)>,
+    backend: &str,
+) -> PyResult<(Bound<'py, PyArray1<f32>>, usize)> {
+    let result = apply_dense(
+        &array1_vec(base),
+        &dense_leaves(leaves)?,
+        &dense_terms(terms)?,
+        ComputeBackend::parse(backend).map_err(err)?,
+    )
+    .map_err(err)?;
+    Ok((result.values.into_pyarray_bound(py), result.changed))
+}
+
+#[pyfunction(name = "dense_dist2")]
+pub fn dense_dist2_py(
+    leaves: Vec<(u64, usize, usize, f32)>,
+    left: Vec<(u64, f32)>,
+    right: Vec<(u64, f32)>,
+) -> PyResult<f64> {
+    dense_dist2(
+        &dense_leaves(leaves)?,
+        &dense_terms(left)?,
+        &dense_terms(right)?,
+    )
+    .map_err(err)
+}
+
+#[pyfunction(name = "dense_linear")]
+#[pyo3(signature=(input,weight,weight_view,terms,bias=None,bias_view=None,backend="auto"))]
+#[allow(clippy::too_many_arguments)]
+pub fn dense_linear_py<'py>(
+    py: Python<'py>,
+    input: PyReadonlyArray1<'_, f32>,
+    weight: PyReadonlyArray2<'_, f32>,
+    weight_view: (u64, u64, f32),
+    terms: Vec<(u64, f32)>,
+    bias: Option<PyReadonlyArray1<'_, f32>>,
+    bias_view: Option<(u64, u64, f32)>,
+    backend: &str,
+) -> PyResult<Bound<'py, PyArray1<f32>>> {
+    let input = array1_vec(input);
+    let weight = array2_vec(&weight);
+    let bias = bias.map(array1_vec);
+    let bias_view = bias_view.map(dense_view).transpose()?;
+    dense_linear(
+        &input,
+        &weight,
+        bias.as_deref(),
+        dense_view(weight_view)?,
+        bias_view,
+        &dense_terms(terms)?,
+        ComputeBackend::parse(backend).map_err(err)?,
+    )
+    .map(|values| values.into_pyarray_bound(py))
+    .map_err(err)
+}
+
+#[pyclass(name = "DenseLinear", unsendable)]
+pub struct PyDenseLinear {
+    inner: DenseLinear,
+}
+
+#[pymethods]
+impl PyDenseLinear {
+    #[new]
+    #[pyo3(signature=(weight,weight_view,bias=None,bias_view=None,backend="auto"))]
+    fn new(
+        weight: PyReadonlyArray2<'_, f32>,
+        weight_view: (u64, u64, f32),
+        bias: Option<PyReadonlyArray1<'_, f32>>,
+        bias_view: Option<(u64, u64, f32)>,
+        backend: &str,
+    ) -> PyResult<Self> {
+        let columns = weight.as_array().ncols();
+        let bias = bias.map(array1_vec);
+        Ok(Self {
+            inner: DenseLinear::new(
+                array2_vec(&weight),
+                columns,
+                bias,
+                dense_view(weight_view)?,
+                bias_view.map(dense_view).transpose()?,
+                ComputeBackend::parse(backend).map_err(err)?,
+            )
+            .map_err(err)?,
+        })
+    }
+
+    fn eval<'py>(
+        &mut self,
+        py: Python<'py>,
+        input: PyReadonlyArray1<'_, f32>,
+        terms: Vec<(u64, f32)>,
+    ) -> PyResult<Bound<'py, PyArray1<f32>>> {
+        self.inner
+            .eval(&array1_vec(input), &dense_terms(terms)?)
+            .map(|values| values.into_pyarray_bound(py))
+            .map_err(err)
+    }
+
+    #[getter]
+    fn input_size(&self) -> usize {
+        self.inner.input_size()
+    }
+
+    #[getter]
+    fn output_size(&self) -> usize {
+        self.inner.output_size()
+    }
+}
+
 #[pyclass(name = "WeightSearch", unsendable)]
 pub struct PyWeightSearch {
-    inner: WeightSearch,
-    pending: Option<WeightTrial>,
+    pub(crate) inner: WeightSearch,
+    pub(crate) pending: Option<WeightTrial>,
 }
 
 #[pymethods]
@@ -133,6 +269,42 @@ impl PyWeightSearch {
         Ok((trial.index, trial.seed, trial.score))
     }
 
+    /// Select a perturbation seed without writing the full candidate row.
+    /// The evaluator can regenerate the row from the returned seed.
+    #[pyo3(signature=(seeds,length,neighbors,epistemic_scale=0.7,aleatoric_scale=0.05,y_scale=1.0,beta=1.0,acquisition="ucb",seed=0))]
+    #[allow(clippy::too_many_arguments)]
+    fn ask_lazy(
+        &mut self,
+        seeds: PyReadonlyArray1<'_, u64>,
+        length: f32,
+        neighbors: usize,
+        epistemic_scale: f32,
+        aleatoric_scale: f32,
+        y_scale: f32,
+        beta: f32,
+        acquisition: &str,
+        seed: u64,
+    ) -> PyResult<(usize, u64, f32)> {
+        let trial = self
+            .inner
+            .ask_lazy(
+                &array1_vec(seeds),
+                WeightAsk {
+                    length,
+                    neighbors,
+                    epistemic_scale,
+                    aleatoric_scale,
+                    y_scale,
+                    beta,
+                    acquisition: AcquisitionKind::parse(acquisition).map_err(err)?,
+                    seed,
+                },
+            )
+            .map_err(err)?;
+        self.pending = Some(trial);
+        Ok((trial.index, trial.seed, trial.score))
+    }
+
     fn row<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray1<u8>>> {
         let trial = self
             .pending
@@ -140,12 +312,29 @@ impl PyWeightSearch {
         Ok(self.inner.row(trial).map_err(err)?.into_pyarray_bound(py))
     }
 
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    fn bind_pending_model(
+        &mut self,
+        mut model: PyRefMut<'_, crate::py_experimental::PyNativeKdaModel>,
+    ) -> PyResult<()> {
+        let trial = self
+            .pending
+            .ok_or_else(|| PyValueError::new_err("there is no pending trial"))?;
+        self.inner.materialize_pending(trial).map_err(err)?;
+        model
+            .inner
+            .bind_pending_search(&self.inner, trial)
+            .map_err(err)?;
+        model.inner.prepare_candidate(0).map_err(err)
+    }
+
     fn tell(&mut self, value: f32, accept: bool) -> PyResult<()> {
         let trial = self
             .pending
-            .take()
             .ok_or_else(|| PyValueError::new_err("there is no pending trial"))?;
-        self.inner.tell(trial, value, accept).map_err(err)
+        self.inner.tell(trial, value, accept).map_err(err)?;
+        self.pending = None;
+        Ok(())
     }
 
     fn replace_history(
